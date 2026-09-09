@@ -35,6 +35,7 @@ type server struct {
 	requests   []string
 	deployment []string
 	logs       []string
+	variables  []map[string]any
 }
 
 func (s *server) record(entry string) int {
@@ -123,6 +124,47 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 			t.Errorf("logs requested without timestamps: %s", r.URL.RawQuery)
 		}
 		write(w, map[string]any{"logs": s.logs[min(calls-1, len(s.logs)-1)]})
+	})
+	handle("GET /api/v1/applications/app-1/envs", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		write(w, s.variables)
+	})
+	handle("PATCH /api/v1/applications/app-1/envs/bulk", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body struct {
+			Data []map[string]any `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("bulk body: %v", err)
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, item := range body.Data {
+			preview, _ := item["is_preview"].(bool)
+			updated := false
+			for i, existing := range s.variables {
+				if existing["key"] == item["key"] && existing["is_preview"] == preview {
+					s.variables[i]["value"] = item["value"]
+					updated = true
+				}
+			}
+			if !updated {
+				s.variables = append(s.variables, map[string]any{"uuid": "env-" + item["key"].(string), "key": item["key"], "value": item["value"], "real_value": item["value"], "is_preview": preview, "is_buildtime": true, "is_runtime": true})
+			}
+		}
+		write(w, []map[string]any{})
+	})
+	handle("DELETE /api/v1/applications/app-1/envs/env-OLD", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		kept := s.variables[:0]
+		for _, existing := range s.variables {
+			if existing["uuid"] != "env-OLD" {
+				kept = append(kept, existing)
+			}
+		}
+		s.variables = kept
+		write(w, map[string]any{"message": "Environment variable deleted."})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -360,5 +402,52 @@ func TestDiagnosticCommandsAgainstTheServer(t *testing.T) {
 	}
 	if _, _, err := run(t, instance.URL, dir, "", "status"); !errors.Is(err, service.ErrInput) {
 		t.Fatalf("status after unlink should report not linked: %v", err)
+	}
+}
+
+func TestEnvRoundTripAgainstTheServer(t *testing.T) {
+	s := &server{variables: []map[string]any{
+		{"uuid": "env-KEEP", "key": "KEEP", "value": "k", "real_value": "k", "is_preview": false},
+		{"uuid": "env-OLD", "key": "OLD", "value": "o", "real_value": "o", "is_preview": false},
+		{"uuid": "env-KEEP-preview", "key": "KEEP", "value": "preview-k", "real_value": "preview-k", "is_preview": true},
+	}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "env", "pull"); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	path := filepath.Join(dir, ".env")
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "KEEP=k\nOLD=o\n" {
+		t.Fatalf("pulled file %q err=%v", data, err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Fatalf("pulled file mode %o", info.Mode().Perm())
+	}
+	if err := os.WriteFile(path, []byte("KEEP=changed\nNEW=n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := run(t, instance.URL, dir, "", "env", "diff", "--format", "json")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	var diff service.EnvDiffResult
+	if err := json.Unmarshal([]byte(out), &diff); err != nil || len(diff.Added) != 1 || len(diff.Changed) != 1 || len(diff.Removed) != 1 || diff.Changed[0].Local != "" {
+		t.Fatalf("diff %s: %v", out, err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "env", "push", "--yes", "--prune"); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "env", "diff", "--exit-code")
+	if err != nil || !strings.Contains(out, "No differences") {
+		t.Fatalf("after push: out=%q err=%v", out, err)
+	}
+	// The preview scope was never touched.
+	out, _, err = run(t, instance.URL, dir, "", "env", "diff", "--preview", "--show-values")
+	if err != nil || !strings.Contains(out, "~ KEEP: local changed, remote preview-k") {
+		t.Fatalf("preview scope: out=%q err=%v", out, err)
 	}
 }

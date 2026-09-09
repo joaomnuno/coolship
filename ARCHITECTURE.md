@@ -350,8 +350,9 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `doctor` | Run each preparation step separately and report all of them; local checks continue past failures, remote checks stop at the first. Exit 1 on any failure. | `GET /version` (plain text), then shared resolution. |
 | `config` | Report the effective local configuration and credential source after overrides. | None. |
 | `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
+| `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 
-The hierarchy leaves room for `init`, `env pull|push|diff`, `dev`, and `preview`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
+The hierarchy leaves room for `init`, `dev`, and `preview`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
 ### Deployment semantics
 
@@ -409,9 +410,11 @@ This is future syntax, not accepted MVP configuration. Define migration and mixe
 
 ### Environment variables
 
-Add service operations and `cmd/env` using the same preparation path. Keep a variable's identity and scope richer than `map[string]string`: preserve preview/regular scope, build-time/runtime flags, literal/shared attributes, and whether a value is available. Build-time and runtime are independent flags. Remote environment selection and preview-variable scope are different dimensions.
+Implemented as `env pull`, `env diff`, and `env push` in `internal/service/env.go`, with `internal/envfile` owning the dotenv format. The commands live in `cmd/env.go` rather than a `cmd/env` subpackage: a subpackage would need exported plumbing for the shared options and error helpers, for no benefit at this size. The original design notes follow; the implementation keeps them.
 
-Pull must not write masked or omitted values as if they were real secrets. Push must preserve unspecified metadata and avoid deleting remote keys implicitly. Diff returns a typed change plan with values masked for ordinary output. Local `.env` parsing, file permissions, conflict handling, and atomic file writes belong to the eventual synchronization implementation. Shared references and resolved values must not be flattened without an explicit policy. None of this requires restructuring discovery or authentication.
+Add service operations using the same preparation path. Keep a variable's identity and scope richer than `map[string]string`: preserve preview/regular scope, build-time/runtime flags, literal/shared attributes, and whether a value is available. Build-time and runtime are independent flags. Remote environment selection and preview-variable scope are different dimensions.
+
+Pull must not write masked or omitted values as if they were real secrets: a withheld key is recorded as a comment, and a local value for it is left alone. Push must preserve unspecified metadata — on Coolify 4.3.18 an update that omits `is_literal`, `is_multiline`, or `is_shown_once` resets them, so updates restate the remote values — and never deletes remote keys without `--prune`. Diff returns a typed change plan with values masked for ordinary output, in JSON as well. Local `.env` handling preserves comments and ordering, creates files with mode 0600, and replaces them atomically. Shared references compare and sync by their template, never by resolved value; `dev` is where resolved values belong. None of this required restructuring discovery or authentication.
 
 ### Development and previews
 

@@ -44,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, and `doctor` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, and `env pull|diff|push` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -188,6 +188,26 @@ Show the effective configuration for this directory after overrides: the discove
 
 Delete `coolship.toml`. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
 
+### `coolship env`
+
+Synchronize a local dotenv file with the linked application's variables. The file defaults to `.env` in the application root and is created with private permissions.
+
+```bash
+coolship env pull                 # remote → .env, keeping local-only keys and comments
+coolship env diff                 # what push would change, values masked
+coolship env diff --show-values
+coolship env push                 # create and update; asks first
+coolship env push --prune --yes   # also delete remote-only keys, without asking
+```
+
+Three rules keep this safe:
+
+* **Two scopes.** Coolify keeps a separate copy of every variable for preview deployments. Commands act on the regular scope unless `--preview` is given, and never touch the other one — though Coolify itself creates a preview copy of any regular variable that `push` creates, so a later `--preview` diff will show them.
+* **Withheld values are never invented.** A value Coolify hides (shown-once secrets) is noted in the file as a comment rather than written empty, is reported as `?` in a diff, and is overwritten by `push` only with `--force`.
+* **References stay references.** A shared variable such as `{{team.API_KEY}}` is pulled and compared as that reference, never as the value it resolves to, so a push cannot replace the reference with the secret.
+
+`push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Changes take effect on the next deployment.
+
 ### Shared options
 
 | Flag | Purpose |
@@ -271,10 +291,6 @@ Limits worth knowing:
 None of the following exist yet; they are the directions the architecture is built to accommodate. See [ROADMAP.md](ROADMAP.md).
 
 ```text
-coolship env pull
-coolship env push
-coolship env diff
-
 coolship dev
 coolship preview
 ```

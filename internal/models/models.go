@@ -66,3 +66,34 @@ type DeploymentReceipt struct {
 type LogSnapshot struct {
 	Logs string `json:"logs"`
 }
+
+// EnvironmentVariable is one variable in one scope. Value and RealValue are nil
+// when the server withholds them (shown-once secrets), which is different from
+// an empty value.
+type EnvironmentVariable struct {
+	UUID        string  `json:"uuid"`
+	Key         string  `json:"key"`
+	Value       *string `json:"value"`
+	RealValue   *string `json:"real_value"`
+	IsPreview   bool    `json:"is_preview"`
+	IsBuildTime bool    `json:"is_buildtime"`
+	IsRuntime   bool    `json:"is_runtime"`
+	IsLiteral   bool    `json:"is_literal"`
+	IsMultiline bool    `json:"is_multiline"`
+	IsShared    bool    `json:"is_shared"`
+	IsShownOnce bool    `json:"is_shown_once"`
+	Comment     *string `json:"comment"`
+}
+
+// EnvironmentVariableInput is one create-or-update item. Coolify 4.3.18 keeps
+// is_runtime, is_buildtime, and comment when they are absent, but resets
+// is_literal, is_multiline, and is_shown_once to false, so an update must send
+// the values it wants preserved.
+type EnvironmentVariableInput struct {
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	IsPreview   bool   `json:"is_preview"`
+	IsLiteral   *bool  `json:"is_literal,omitempty"`
+	IsMultiline *bool  `json:"is_multiline,omitempty"`
+	IsShownOnce *bool  `json:"is_shown_once,omitempty"`
+}

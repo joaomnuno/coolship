@@ -27,6 +27,9 @@ type fakeBackend struct {
 	calls        map[string]int
 	readError    error
 	versionError error
+	variables    []models.EnvironmentVariable
+	upserts      [][]models.EnvironmentVariableInput
+	deleted      []string
 }
 
 func newBackend() *fakeBackend {
@@ -39,6 +42,32 @@ func newBackend() *fakeBackend {
 		deployments:  []models.Deployment{{UUID: "deploy-1", Status: "finished"}},
 		snapshots:    []string{"2026-09-09T10:00:00Z hello\n"}, calls: map[string]int{},
 	}
+}
+
+func (f *fakeBackend) ListEnvironmentVariables(_ context.Context, id string) ([]models.EnvironmentVariable, error) {
+	f.calls["envs"]++
+	if id != "app-1" {
+		return nil, errors.New("wrong application")
+	}
+	return f.variables, nil
+}
+
+func (f *fakeBackend) UpsertEnvironmentVariables(_ context.Context, id string, items []models.EnvironmentVariableInput) error {
+	f.calls["upsert"]++
+	if id != "app-1" {
+		return errors.New("wrong application")
+	}
+	f.upserts = append(f.upserts, items)
+	return nil
+}
+
+func (f *fakeBackend) DeleteEnvironmentVariable(_ context.Context, id, variableUUID string) error {
+	f.calls["delete"]++
+	if id != "app-1" {
+		return errors.New("wrong application")
+	}
+	f.deleted = append(f.deleted, variableUUID)
+	return nil
 }
 
 func (f *fakeBackend) Version(context.Context) (string, error) {
@@ -625,4 +654,170 @@ func TestDoctorReportsEveryStep(t *testing.T) {
 			t.Fatalf("unexpected statuses %v", got)
 		}
 	})
+}
+
+func str(value string) *string { return &value }
+
+func variable(key, value string, preview bool) models.EnvironmentVariable {
+	return models.EnvironmentVariable{UUID: "env-" + key + "-" + scopeName(preview), Key: key, Value: str(value), RealValue: str(value), IsPreview: preview, IsBuildTime: true, IsRuntime: true}
+}
+
+func TestEnvDiffClassifiesByScopeAndNeverComparesWithheldValues(t *testing.T) {
+	f := newBackend()
+	withheld := variable("SECRET", "", false)
+	withheld.Value, withheld.RealValue, withheld.IsShownOnce = nil, nil, true
+	f.variables = []models.EnvironmentVariable{
+		variable("SAME", "1", false), variable("CHANGED", "remote", false), variable("REMOTE_ONLY", "r", false), withheld,
+		variable("SAME", "preview-1", true), variable("CHANGED", "preview", true),
+	}
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+	if err := os.WriteFile(filepath.Join(options.CWD, ".env"), []byte("# local\nSAME=1\nCHANGED=local\nLOCAL_ONLY=l\nSECRET=mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.EnvDiff(context.Background(), EnvOptions{Options: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Scope != "regular" || result.Unchanged != 1 ||
+		!reflect.DeepEqual(result.Added, []EnvChange{{Key: "LOCAL_ONLY", Local: "l"}}) ||
+		!reflect.DeepEqual(result.Changed, []EnvChange{{Key: "CHANGED", Local: "local", Remote: "remote"}}) ||
+		!reflect.DeepEqual(result.Removed, []EnvChange{{Key: "REMOTE_ONLY", Remote: "r"}}) ||
+		!reflect.DeepEqual(result.Withheld, []string{"SECRET"}) {
+		t.Fatalf("unexpected diff %+v", result)
+	}
+	preview, err := app.EnvDiff(context.Background(), EnvOptions{Options: options, Preview: true})
+	if err != nil || preview.Scope != "preview" || len(preview.Changed) != 2 || len(preview.Removed) != 0 || len(preview.Withheld) != 0 {
+		t.Fatalf("preview diff %+v err=%v", preview, err)
+	}
+}
+
+func TestEnvPullKeepsLocalKeysAndNeverInventsWithheldValues(t *testing.T) {
+	f := newBackend()
+	withheld := variable("SECRET", "", false)
+	withheld.Value, withheld.RealValue, withheld.IsShownOnce = nil, nil, true
+	shared := variable("SHARED", "{{team.TOKEN}}", false)
+	shared.RealValue, shared.IsShared = str("resolved-secret"), true
+	f.variables = []models.EnvironmentVariable{variable("A", "remote a", false), withheld, shared, variable("A", "preview a", true)}
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+	path := filepath.Join(options.CWD, ".env")
+	if err := os.WriteFile(path, []byte("# keep this comment\nLOCAL=l\nA=old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.EnvPull(context.Background(), EnvOptions{Options: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	want := "# keep this comment\nLOCAL=l\nA=\"remote a\"\n# SECRET is withheld by Coolify (shown once); set it here yourself\nSHARED={{team.TOKEN}}\n"
+	if string(data) != want {
+		t.Fatalf("file:\n%s\nwant:\n%s", data, want)
+	}
+	if !reflect.DeepEqual(result.Written, []string{"A", "SHARED"}) || !reflect.DeepEqual(result.Kept, []string{"LOCAL"}) || !reflect.DeepEqual(result.Withheld, []string{"SECRET"}) {
+		t.Fatalf("result %+v", result)
+	}
+	if strings.Contains(string(data), "resolved-secret") {
+		t.Fatal("pull wrote a resolved shared value instead of the reference")
+	}
+	// A withheld key the developer already has locally is left alone.
+	if err := os.WriteFile(path, []byte("SECRET=mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.EnvPull(context.Background(), EnvOptions{Options: options}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	if !strings.HasPrefix(string(data), "SECRET=mine\n") || strings.Contains(string(data), "SECRET is withheld") {
+		t.Fatalf("existing local secret disturbed: %s", data)
+	}
+}
+
+func TestEnvPushPlansConfirmsAndAppliesWithinScope(t *testing.T) {
+	f := newBackend()
+	withheld := variable("SECRET", "", false)
+	withheld.Value, withheld.RealValue, withheld.IsShownOnce = nil, nil, true
+	f.variables = []models.EnvironmentVariable{variable("SAME", "1", false), variable("CHANGED", "remote", false), variable("REMOTE_ONLY", "r", false), withheld}
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+	path := filepath.Join(options.CWD, ".env")
+	if _, err := app.EnvPush(context.Background(), EnvPushOptions{EnvOptions: EnvOptions{Options: options}, Yes: true}, nil); !errors.Is(err, ErrInput) {
+		t.Fatalf("missing file should be an input error: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("SAME=1\nCHANGED=local\nNEW=n\nSECRET=mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	push := EnvPushOptions{EnvOptions: EnvOptions{Options: options}}
+	if _, err := app.EnvPush(context.Background(), push, nil); !errors.Is(err, ErrInput) || f.calls["upsert"] != 0 {
+		t.Fatalf("noninteractive push without --yes: err=%v upserts=%d", err, f.calls["upsert"])
+	}
+	declined := func(context.Context, EnvPushPlan) (bool, error) { return false, nil }
+	if _, err := app.EnvPush(context.Background(), push, declined); !errors.Is(err, ErrCancelled) || f.calls["upsert"] != 0 {
+		t.Fatalf("declined push: err=%v upserts=%d", err, f.calls["upsert"])
+	}
+	var plan EnvPushPlan
+	accepted := func(_ context.Context, p EnvPushPlan) (bool, error) { plan = p; return true, nil }
+	result, err := app.EnvPush(context.Background(), push, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.Create, []EnvChange{{Key: "NEW", Local: "n"}}) || !reflect.DeepEqual(plan.Update, []EnvChange{{Key: "CHANGED", Local: "local", Remote: "remote"}}) ||
+		len(plan.Delete) != 0 || !reflect.DeepEqual(plan.Skipped, []string{"SECRET"}) {
+		t.Fatalf("plan %+v", plan)
+	}
+	no := false
+	if len(f.upserts) != 1 || !reflect.DeepEqual(f.upserts[0], []models.EnvironmentVariableInput{
+		{Key: "NEW", Value: "n"},
+		{Key: "CHANGED", Value: "local", IsLiteral: &no, IsMultiline: &no, IsShownOnce: &no},
+	}) || len(f.deleted) != 0 {
+		t.Fatalf("upserts=%+v deleted=%v", f.upserts, f.deleted)
+	}
+	if len(result.Warnings) < 2 || !strings.Contains(strings.Join(result.Warnings, " "), "--prune") || !strings.Contains(strings.Join(result.Warnings, " "), "--force") {
+		t.Fatalf("warnings %v", result.Warnings)
+	}
+	// --prune deletes by identity; --force overwrites the withheld key; preview scope is carried on every item.
+	f.upserts, f.deleted = nil, nil
+	push.Prune, push.Force, push.Yes, push.Preview = true, true, true, true
+	f.variables = append(f.variables, variable("PREVIEW_ONLY", "p", true))
+	if _, err := app.EnvPush(context.Background(), push, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.deleted, []string{"env-PREVIEW_ONLY-preview"}) {
+		t.Fatalf("deleted %v", f.deleted)
+	}
+	for _, item := range f.upserts[0] {
+		if !item.IsPreview {
+			t.Fatalf("preview scope not carried: %+v", item)
+		}
+	}
+	// Updating a withheld (shown-once) key with --force restates is_shown_once,
+	// and a literal flag survives; the server resets both when absent.
+	f.upserts = nil
+	literal := variable("LITERAL", "$old", false)
+	literal.IsLiteral = true
+	f.variables = []models.EnvironmentVariable{literal, withheld}
+	if err := os.WriteFile(path, []byte("LITERAL=$new\nSECRET=rotated\nMULTI=\"a\nb\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.EnvPush(context.Background(), EnvPushOptions{EnvOptions: EnvOptions{Options: options}, Yes: true, Force: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string][3]bool{}
+	for _, item := range f.upserts[0] {
+		deref := func(b *bool) bool { return b != nil && *b }
+		flags[item.Key] = [3]bool{deref(item.IsLiteral), deref(item.IsMultiline), deref(item.IsShownOnce)}
+	}
+	if flags["LITERAL"] != [3]bool{true, false, false} || flags["SECRET"] != [3]bool{false, false, true} || flags["MULTI"] != [3]bool{false, true, false} {
+		t.Fatalf("flags not preserved: %v", flags)
+	}
+	// Nothing to do is not an error and makes no write.
+	f.upserts = nil
+	f.variables = []models.EnvironmentVariable{variable("ONLY", "1", false)}
+	if err := os.WriteFile(path, []byte("ONLY=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = app.EnvPush(context.Background(), EnvPushOptions{EnvOptions: EnvOptions{Options: options}, Yes: true}, nil)
+	if err != nil || !result.Plan.Empty() || len(f.upserts) != 0 {
+		t.Fatalf("empty plan: result=%+v err=%v upserts=%v", result, err, f.upserts)
+	}
 }

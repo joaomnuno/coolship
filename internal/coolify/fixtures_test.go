@@ -38,6 +38,8 @@ func serveFixtures(t *testing.T, opts ...Option) (*Client, *http.Header) {
 			w.Write(fixture(t, "application-logs.json"))
 		case r.URL.Path == "/api/v1/deployments/deploy-uuid-00000000000000":
 			w.Write(fixture(t, "deployment.json"))
+		case r.URL.Path == "/api/v1/applications/app-uuid-000000000000000/envs":
+			w.Write(fixture(t, "environment-variables.json"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -122,5 +124,30 @@ func TestUserAgentIdentifiesCoolship(t *testing.T) {
 	}
 	if got := seen.Get("User-Agent"); got != DefaultUserAgent || seen.Get("X-Injected") != "" {
 		t.Fatalf("control characters accepted: ua=%q injected=%q", got, seen.Get("X-Injected"))
+	}
+}
+
+func TestObservedEnvironmentVariablesDistinguishWithheldValues(t *testing.T) {
+	client, _ := serveFixtures(t)
+	variables, err := client.ListEnvironmentVariables(context.Background(), "app-uuid-000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	regular, preview, withheld := 0, 0, 0
+	for _, variable := range variables {
+		if variable.IsPreview {
+			preview++
+		} else {
+			regular++
+		}
+		if variable.Value == nil {
+			withheld++
+			if !variable.IsShownOnce {
+				t.Errorf("%s has no value but is not shown-once", variable.Key)
+			}
+		}
+	}
+	if regular == 0 || preview == 0 || withheld != 1 {
+		t.Fatalf("regular=%d preview=%d withheld=%d", regular, preview, withheld)
 	}
 }

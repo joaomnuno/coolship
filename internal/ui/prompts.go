@@ -158,3 +158,31 @@ func (p *Prompter) ConfirmUnlink(ctx context.Context, plan service.UnlinkPlan) (
 	}
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
+
+// ConfirmPush shows the plan with keys only; values stay off the terminal.
+func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("pushing variables requires --yes when input is noninteractive")}
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "Push %s variables of %s from %s?\n", plan.Scope, singleLine(plan.Target.Application), singleLine(plan.File)); err != nil {
+		return false, err
+	}
+	for label, changes := range map[string][]service.EnvChange{"create": plan.Create, "update": plan.Update, "delete": plan.Delete} {
+		for _, change := range changes {
+			if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", label, singleLine(change.Key)); err != nil {
+				return false, err
+			}
+		}
+	}
+	if _, err := fmt.Fprint(p.streams.Err, "Confirm [y/N]: "); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}

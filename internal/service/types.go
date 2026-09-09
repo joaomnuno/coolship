@@ -165,6 +165,9 @@ type Backend interface {
 	Deploy(context.Context, string, bool) ([]models.DeploymentReceipt, error)
 	GetDeployment(context.Context, string) (models.Deployment, error)
 	Logs(context.Context, string, int) (models.LogSnapshot, error)
+	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)
+	UpsertEnvironmentVariables(context.Context, string, []models.EnvironmentVariableInput) error
+	DeleteEnvironmentVariable(context.Context, string, string) error
 }
 
 type Dependencies struct {

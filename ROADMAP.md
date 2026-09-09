@@ -26,7 +26,7 @@ The first milestone validates the architecture through `link`, `status`, `deploy
 
 - [x] Validate against a live Coolify instance and record a supported server baseline (4.3.18).
 - [x] Add `open`, `unlink`, `config`, and `doctor`.
-- [ ] Add environment pull, diff, and push with explicit scope and secret handling.
+- [x] Add environment pull, diff, and push with explicit scope and secret handling.
 - [ ] Add named monorepo targets and configuration migration rules.
 - [ ] Add local process execution for `dev` without a bespoke runtime.
 - [ ] Define preview deployment support against verified server capabilities.

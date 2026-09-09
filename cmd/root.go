@@ -20,6 +20,9 @@ type Application interface {
 	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
 	Config(context.Context, service.Options) (service.ConfigResult, error)
 	Doctor(context.Context, service.Options) (service.DoctorResult, error)
+	EnvPull(context.Context, service.EnvOptions) (service.EnvPullResult, error)
+	EnvDiff(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
+	EnvPush(context.Context, service.EnvPushOptions, service.ConfirmPush) (service.EnvPushResult, error)
 }
 
 // Option configures process-level behavior the command tree cannot own.
@@ -81,7 +84,8 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.AddCommand(newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
 		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
 		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
-		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams))
+		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams),
+		newEnvCommand(app, options, streams))
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about a command",

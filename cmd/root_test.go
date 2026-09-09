@@ -24,6 +24,19 @@ type fakeApplication struct {
 	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
 	config func(context.Context, service.Options) (service.ConfigResult, error)
 	doctor func(context.Context, service.Options) (service.DoctorResult, error)
+	pull   func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
+	diff   func(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
+	push   func(context.Context, service.EnvPushOptions, service.ConfirmPush) (service.EnvPushResult, error)
+}
+
+func (f fakeApplication) EnvPull(ctx context.Context, options service.EnvOptions) (service.EnvPullResult, error) {
+	return f.pull(ctx, options)
+}
+func (f fakeApplication) EnvDiff(ctx context.Context, options service.EnvOptions) (service.EnvDiffResult, error) {
+	return f.diff(ctx, options)
+}
+func (f fakeApplication) EnvPush(ctx context.Context, options service.EnvPushOptions, confirm service.ConfirmPush) (service.EnvPushResult, error) {
+	return f.push(ctx, options, confirm)
 }
 
 func (f fakeApplication) Open(ctx context.Context, options service.OpenOptions) (service.OpenResult, error) {
@@ -71,12 +84,12 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor"} {
+	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
 	}
-	for _, command := range []string{"preview", "env", "dev", "completion"} {
+	for _, command := range []string{"preview", "dev", "completion"} {
 		if strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help advertises unimplemented command %s", command)
 		}
@@ -385,5 +398,54 @@ func TestUnlinkAndConfigRender(t *testing.T) {
 	out, _, err = execute(t, app, "config")
 	if err != nil || !strings.Contains(out, "home at https://coolify.example.com") || !strings.Contains(out, "Override environment: staging") {
 		t.Fatalf("config: out=%q err=%v", out, err)
+	}
+}
+
+func TestEnvDiffMasksValuesUnlessRevealedAndHonorsExitCode(t *testing.T) {
+	app := fakeApplication{diff: func(_ context.Context, options service.EnvOptions) (service.EnvDiffResult, error) {
+		return service.EnvDiffResult{Scope: map[bool]string{false: "regular", true: "preview"}[options.Preview], File: options.File,
+			Changed: []service.EnvChange{{Key: "TOKEN", Local: "local-secret", Remote: "remote-secret"}}, Unchanged: 2}, nil
+	}}
+	out, _, err := execute(t, app, "env", "diff")
+	if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, "~ TOKEN: local ********, remote ********") {
+		t.Fatalf("masked diff: out=%q err=%v", out, err)
+	}
+	out, _, err = execute(t, app, "env", "diff", "--show-values", "--preview", "--file", ".env.preview")
+	if err != nil || !strings.Contains(out, "local local-secret, remote remote-secret") || !strings.Contains(out, ".env.preview with preview") {
+		t.Fatalf("revealed diff: out=%q err=%v", out, err)
+	}
+	out, _, err = execute(t, app, "env", "diff", "--format", "json")
+	if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, `"key":"TOKEN"`) {
+		t.Fatalf("json diff must mask by default: out=%q err=%v", out, err)
+	}
+	_, _, err = execute(t, app, "env", "diff", "--exit-code")
+	if !errors.Is(err, cmd.ErrDifferences) || ui.ExitCode(err) != 1 {
+		t.Fatalf("--exit-code: err=%v code=%d", err, ui.ExitCode(err))
+	}
+}
+
+func TestEnvPushConfirmsOnlyInteractively(t *testing.T) {
+	app := fakeApplication{push: func(_ context.Context, options service.EnvPushOptions, confirm service.ConfirmPush) (service.EnvPushResult, error) {
+		plan := service.EnvPushPlan{Scope: "regular", File: ".env", Create: []service.EnvChange{{Key: "NEW", Local: "secret"}}}
+		if !options.Yes {
+			if _, err := confirm(context.Background(), plan); err != nil {
+				return service.EnvPushResult{}, err
+			}
+		}
+		return service.EnvPushResult{Plan: plan}, nil
+	}}
+	if _, _, err := execute(t, app, "env", "push"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("noninteractive push without --yes: %v", err)
+	}
+	out, _, err := execute(t, app, "env", "push", "--yes")
+	if err != nil || !strings.Contains(out, "1 created, 0 updated, 0 deleted") {
+		t.Fatalf("push --yes: out=%q err=%v", out, err)
+	}
+	// Interactive confirmation shows keys, never values.
+	var out2, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader("y\n"), Out: &out2, Err: &diagnostic, Interactive: true}, "test")
+	root.SetArgs([]string{"env", "push"})
+	if err := root.ExecuteContext(context.Background()); err != nil || strings.Contains(diagnostic.String(), "secret") || !strings.Contains(diagnostic.String(), "create NEW") {
+		t.Fatalf("interactive push: err=%v stderr=%q", err, diagnostic.String())
 	}
 }

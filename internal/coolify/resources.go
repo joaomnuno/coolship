@@ -2,6 +2,7 @@ package coolify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -103,4 +104,28 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 		return "", &ProtocolError{Endpoint: endpoint, Reason: "response is not a version string"}
 	}
 	return version, nil
+}
+
+func (c *Client) ListEnvironmentVariables(ctx context.Context, uuid string) ([]models.EnvironmentVariable, error) {
+	var variables []models.EnvironmentVariable
+	err := c.request(ctx, http.MethodGet, []string{"applications", uuid, "envs"}, nil, nil, &variables)
+	return variables, err
+}
+
+// UpsertEnvironmentVariables creates or updates each item within its scope.
+// The server matches on key and is_preview; a PATCH is never retried here.
+func (c *Client) UpsertEnvironmentVariables(ctx context.Context, uuid string, items []models.EnvironmentVariableInput) error {
+	if len(items) == 0 {
+		return nil
+	}
+	body := struct {
+		Data []models.EnvironmentVariableInput `json:"data"`
+	}{Data: items}
+	var response json.RawMessage
+	return c.request(ctx, http.MethodPatch, []string{"applications", uuid, "envs", "bulk"}, nil, body, &response)
+}
+
+func (c *Client) DeleteEnvironmentVariable(ctx context.Context, uuid, variableUUID string) error {
+	var response json.RawMessage
+	return c.request(ctx, http.MethodDelete, []string{"applications", uuid, "envs", variableUUID}, nil, nil, &response)
 }

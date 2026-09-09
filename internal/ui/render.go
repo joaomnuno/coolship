@@ -255,3 +255,104 @@ func (r *Renderer) Doctor(result service.DoctorResult) error {
 	}
 	return nil
 }
+
+// mask hides a value while keeping its presence visible.
+func mask(value string, reveal bool) string {
+	if reveal {
+		return singleLine(value)
+	}
+	if value == "" {
+		return "(empty)"
+	}
+	return "********"
+}
+
+func (r *Renderer) EnvDiff(result service.EnvDiffResult, reveal bool) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		if !reveal {
+			result = maskDiff(result)
+		}
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	if _, err := fmt.Fprintf(r.streams.Out, "Comparing %s with %s variables of %s\n", singleLine(result.File), result.Scope, singleLine(result.Target.Application)); err != nil {
+		return err
+	}
+	if result.Clean() && len(result.Withheld) == 0 {
+		_, err := fmt.Fprintf(r.streams.Out, "No differences (%d unchanged)\n", result.Unchanged)
+		return err
+	}
+	for _, change := range result.Added {
+		if _, err := fmt.Fprintf(r.streams.Out, "+ %s=%s  (local only; push creates it)\n", change.Key, mask(change.Local, reveal)); err != nil {
+			return err
+		}
+	}
+	for _, change := range result.Changed {
+		if _, err := fmt.Fprintf(r.streams.Out, "~ %s: local %s, remote %s\n", change.Key, mask(change.Local, reveal), mask(change.Remote, reveal)); err != nil {
+			return err
+		}
+	}
+	for _, change := range result.Removed {
+		if _, err := fmt.Fprintf(r.streams.Out, "- %s=%s  (remote only; push --prune deletes it)\n", change.Key, mask(change.Remote, reveal)); err != nil {
+			return err
+		}
+	}
+	for _, key := range result.Withheld {
+		if _, err := fmt.Fprintf(r.streams.Out, "? %s  (remote value withheld; cannot compare)\n", key); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "%d unchanged\n", result.Unchanged)
+	return err
+}
+
+func maskDiff(result service.EnvDiffResult) service.EnvDiffResult {
+	hide := func(changes []service.EnvChange) []service.EnvChange {
+		out := make([]service.EnvChange, len(changes))
+		for i, change := range changes {
+			out[i] = service.EnvChange{Key: change.Key}
+		}
+		return out
+	}
+	result.Added, result.Changed, result.Removed = hide(result.Added), hide(result.Changed), hide(result.Removed)
+	return result
+}
+
+func (r *Renderer) EnvPull(result service.EnvPullResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "Wrote %d %s variable(s) to %s", len(result.Written), result.Scope, singleLine(result.File))
+	if err != nil {
+		return err
+	}
+	if len(result.Kept) > 0 {
+		if _, err := fmt.Fprintf(r.streams.Out, "; kept %d local-only", len(result.Kept)); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(r.streams.Out)
+	return err
+}
+
+func (r *Renderer) EnvPush(result service.EnvPushResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	plan := result.Plan
+	if plan.Empty() {
+		_, err := fmt.Fprintf(r.streams.Out, "Nothing to push; %s variables of %s match %s\n", plan.Scope, singleLine(plan.Target.Application), singleLine(plan.File))
+		return err
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "Pushed to %s variables of %s: %d created, %d updated, %d deleted\n",
+		plan.Scope, singleLine(plan.Target.Application), len(plan.Create), len(plan.Update), len(plan.Delete))
+	return err
+}
