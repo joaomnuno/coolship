@@ -22,14 +22,25 @@ The first milestone validates the architecture through `link`, `status`, `deploy
 
 `link`, `status`, `deploy`, and `logs` work end to end against a controlled server. No live Coolify instance has been contacted, so there is no verified supported server version; README and `ARCHITECTURE.md` section 10 record the limits that follow.
 
-## Later milestones
+## Milestone 2: the rest of the brief, verified live
+
+Every command from the brief is implemented and verified against a live Coolify 4.3.18 instance, using a purpose-built public example repository and an isolated project on that instance.
 
 - [x] Validate against a live Coolify instance and record a supported server baseline (4.3.18).
+- [x] Fix what live validation found: log follow across snapshots without a final newline, interrupt reporting.
+- [x] Stream build logs during deployment observation.
 - [x] Add `open`, `unlink`, `config`, and `doctor`.
 - [x] Add environment pull, diff, and push with explicit scope and secret handling.
+- [x] Define and verify preview deployment support against server capabilities.
 - [x] Add named monorepo targets and configuration migration rules.
 - [x] Add local process execution for `dev` without a bespoke runtime.
-- [x] Define and verify preview deployment support against server capabilities.
-- [ ] Consider shared packages with Coolify CLI after interfaces stabilize.
+- [x] Decide on shared packages with Coolify CLI (no shared package yet; the seam is documented in `ARCHITECTURE.md`).
 
-No server administration, runtime emulation, proxy orchestration, or automatic GitHub integration is part of the first milestone.
+## Later
+
+- [ ] `init`: scaffold a new Coolify application from a repository, once creation semantics are agreed.
+- [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
+- [ ] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18.
+- [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.
+
+No server administration, runtime emulation, proxy orchestration, or automatic GitHub integration is in scope.

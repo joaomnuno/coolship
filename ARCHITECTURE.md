@@ -432,9 +432,19 @@ Pull must not write masked or omitted values as if they were real secrets: a wit
 
 ### Possible upstream integration
 
-The most transferable code is `config`, local `project` behavior, scoped `resolver` logic, and project workflow services. Their interfaces use ordinary Go values and contexts, not Cobra or Coolship-specific global state. In Coolify CLI, adapters could satisfy these interfaces using its existing services, and command constructors could receive the dependencies from its root.
+**Decision: no shared package yet; keep the seam ready.** With every command from the brief implemented, the code that would move is clear, and so is what blocks moving it.
 
-Moving code upstream still requires adapting import paths, credential types, model differences, and command names. Keeping Coolship code under `internal/` is appropriate while those contracts evolve; it does not make it an externally importable SDK. Extract a public shared package only when both projects agree on ownership and a supported API. Do not modify the reference repositories as part of initial scaffolding.
+What transfers as-is: `config` (the two-form TOML schema and its validation), `project` (bounded discovery, target selection, reviewed writes), `resolver` (scoped, exact-match resolution with pins), `envfile`, `process`, and the workflows in `service`, whose only dependencies are those packages, `models`, `auth`, and `context.Context`. `cmd` transfers as constructors that take an `Application` interface and injected process concerns, which is how Coolify CLI already registers commands.
+
+What Coolify CLI would need to supply behind the seams: an implementation of `service.Backend` over its own `internal/api` client (Coolship's `coolify` adapter is deliberately small and would be dropped, not upstreamed), an implementation of the three `auth` functions over its own `internal/config` (same file format, so this is thin), and its own `output` formatter behind Coolship's `ui` result types.
+
+What blocks a shared package today, in order of weight:
+
+1. **`internal/` on both sides.** A shared module must be a public Go module with a supported API. Neither project has agreed to own one, and the interfaces here have existed for one milestone; extracting them now would freeze names that live validation only just settled.
+2. **Model differences.** Coolify CLI's models carry display tags and many more fields; Coolship's are the minimum each workflow needs (`DeployRequest`, `EnvironmentVariable` with nullable values). A shared package would have to choose one vocabulary.
+3. **Go floor.** Both declare `go 1.26`, which is kept deliberately (see `AGENTS.md`), so this is not a blocker — it is listed because it must stay true.
+
+The realistic path is therefore a pull request against Coolify CLI that adds `link`, `deploy`, `logs`, and `status` as project-local commands using Coolship's `config`, `project`, and `resolver` code verbatim under its `internal/`, with adapters for its client and credentials. Extract a shared module only if both projects then want to stop copying. Until that conversation happens, Coolship keeps `internal/` and this section records the plan. The reference repositories were not modified.
 
 ## 10. Implementation sequence and validation gates
 

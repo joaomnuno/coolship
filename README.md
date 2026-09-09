@@ -336,7 +336,7 @@ Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.18.** `link`, `status`, `deploy`, and `logs` (including `--follow`) were run end to end against a live instance, deploying a real Dockerfile application. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
 
 Limits worth knowing:
 
