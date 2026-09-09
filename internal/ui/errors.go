@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/joaomnuno/coolship/internal/service"
 )
@@ -24,10 +25,19 @@ func ExitCode(err error) int {
 }
 
 // PrintError renders the single diagnostic owned by the executable boundary.
+// An interrupt is reported as such, keeping any recovery detail wrapped around it.
 func PrintError(w io.Writer, err error) error {
 	if err == nil {
 		return nil
 	}
-	_, writeErr := fmt.Fprintf(w, "Error: %s\n", singleLine(err.Error()))
+	text := err.Error()
+	if errors.Is(err, context.Canceled) {
+		text = strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")
+		if text == "interrupted" {
+			_, writeErr := fmt.Fprintln(w, "Interrupted")
+			return writeErr
+		}
+	}
+	_, writeErr := fmt.Fprintf(w, "Error: %s\n", singleLine(text))
 	return writeErr
 }

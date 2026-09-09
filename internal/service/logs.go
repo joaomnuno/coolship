@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -25,7 +26,7 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 	if err != nil {
 		return err
 	}
-	if err := emitEvent(emit, Event{Type: "logs", Logs: snapshot.Logs}); err != nil {
+	if err := emitEvent(emit, Event{Type: "logs", Logs: joinLines(splitLines(snapshot.Logs))}); err != nil {
 		return err
 	}
 	if !options.Follow {
@@ -55,34 +56,42 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 	}
 }
 
-// snapshotDelta preserves ordered duplicate lines and matches whole timestamped lines.
+// snapshotDelta preserves ordered duplicate lines and matches whole timestamped
+// lines. Lines are compared without terminators: the server omits the newline
+// after the final line, so the same line gains one when a later snapshot places
+// it earlier. Returned text ends every line with a newline so consumers can
+// concatenate chunks.
 func snapshotDelta(previous, current string) (string, bool) {
 	if current == previous {
 		return "", false
 	}
-	if previous == "" {
-		return current, false
+	before := splitLines(previous)
+	after := splitLines(current)
+	if len(before) == 0 {
+		return joinLines(after), false
 	}
-	before := strings.SplitAfter(previous, "\n")
-	after := strings.SplitAfter(current, "\n")
-	if before[len(before)-1] == "" {
-		before = before[:len(before)-1]
+	if len(after) == 0 {
+		return "", true
 	}
-	if after[len(after)-1] == "" {
-		after = after[:len(after)-1]
-	}
-	limit := min(len(before), len(after))
-	for size := limit; size > 0; size-- {
-		match := true
-		for i := 0; i < size; i++ {
-			if before[len(before)-size+i] != after[i] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return strings.Join(after[size:], ""), false
+	for size := min(len(before), len(after)); size > 0; size-- {
+		if slices.Equal(before[len(before)-size:], after[:size]) {
+			return joinLines(after[size:]), false
 		}
 	}
-	return current, true
+	return joinLines(after), true
+}
+
+func splitLines(text string) []string {
+	text = strings.TrimSuffix(text, "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+func joinLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
 }

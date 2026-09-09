@@ -290,6 +290,12 @@ func TestSnapshotDelta(t *testing.T) {
 		{"t1 a\n", "t1 a\nt1 a\n", "t1 a\n", false},
 		{"t1 a\n", "t2 b\n", "t2 b\n", true},
 		{"t1 a\n", "", "", true},
+		// Coolify 4.3.18 omits the newline after the final line; the same line
+		// must still match once a later snapshot moves it earlier.
+		{"t1 a\nt2 b", "t2 b\nt3 c", "t3 c\n", false},
+		{"t1 a", "t1 a", "", false},
+		{"t1 a", "t1 a\nt2 b", "t2 b\n", false},
+		{"", "t1 a", "t1 a\n", false},
 	} {
 		got, reset := snapshotDelta(test.before, test.after)
 		if got != test.want || reset != test.reset {
