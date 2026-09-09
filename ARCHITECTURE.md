@@ -1,6 +1,8 @@
-# Coolship architecture — draft
+# Coolship architecture
 
-This is a proposal for review, based on [README.md](README.md) and the complete [engineering brief](REQUEST.md). Coolship currently has no Go module or implementation. The packages, interfaces, configuration, and commands below are proposed; this document does not claim they already exist.
+This document is based on [README.md](README.md) and the complete [engineering brief](REQUEST.md).
+
+Milestone 1 is implemented: the module, `link`, `status`, `deploy`, and `logs`, with the packages and boundaries described below. Sections that describe later work are marked, and [ROADMAP.md](ROADMAP.md) tracks status. Where this document describes behavior that is not yet built, it states a decision to follow, not an existing capability.
 
 The central decision is to resolve the current directory into one explicit `project.Context`, then reuse that resolution pipeline for every application workflow. Cobra owns the interaction. Application services own the workflow. A small Coolify adapter owns HTTP communication.
 
@@ -44,7 +46,7 @@ Wrangler is in `packages/wrangler`, with reusable infrastructure also extracted 
 | Variables and secrets | [secret/index.ts](../workers-sdk/packages/wrangler/src/secret/index.ts) groups remote secret operations; [dev/dev-vars.ts](../workers-sdk/packages/wrangler/src/dev/dev-vars.ts) loads local `.dev.vars`/`.env` values relative to configuration. | Keep local secret files distinct from committed binding configuration. Preserve Coolify's own variable semantics. |
 | Local state and presentation | [workers-utils/config-cache.ts](../workers-sdk/packages/workers-utils/src/config-cache.ts) provides file-backed cache infrastructure. [logger.ts](../workers-sdk/packages/wrangler/src/logger.ts) and [dialogs.ts](../workers-sdk/packages/wrangler/src/dialogs.ts) centralize verbosity and interaction. | Make local state disposable, inject streams, and define noninteractive behavior explicitly. Avoid global logger/configuration state and elaborate UI machinery. |
 
-### Server constraints that affect this draft
+### Server constraints that shape the client
 
 [routes/api.php](../coolify/routes/api.php), [ProjectController.php](../coolify/app/Http/Controllers/Api/ProjectController.php), [ApplicationsController.php](../coolify/app/Http/Controllers/Api/ApplicationsController.php), and [DeployController.php](../coolify/app/Http/Controllers/Api/DeployController.php) support the following conclusions:
 
@@ -54,17 +56,18 @@ Wrangler is in `packages/wrangler`, with reusable infrastructure also extracted 
 - **The local references differ:** Coolify CLI sends `service_name` for container selection, but this Coolify checkout's application logs handler chooses the first container and does not read that parameter. Defer a container-selection flag until server support is verified.
 - Deployment logs may be omitted by server permissions. [ApiSensitiveData.php](../coolify/app/Http/Middleware/ApiSensitiveData.php) requires an appropriate token ability and team administrator/owner status for sensitive data. Missing logs or variable values must not be represented as empty data.
 
-No Coolify instance was started for this draft. These are source observations; live response fixtures and a supported-version baseline remain implementation validation work.
+No Coolify instance has been contacted. These are source observations; live response fixtures and a supported-version baseline remain outstanding, and section 10 records the limits that follow from that.
 
-## 2. Proposed directory tree
+## 2. Directory tree
 
-One Go module and one binary are sufficient. Files marked `later` are extension locations, not empty packages or placeholder commands to create immediately.
+One Go module and one binary are sufficient. Files marked `later` are extension locations, not empty packages or placeholder commands to create now. Related responsibilities share a file until size justifies splitting them; the package boundaries below are the architectural commitment, not the file names inside them.
 
 ```text
 coolship/
 ├── main.go                         # Composition, signals, process exit
 ├── go.mod
 ├── go.sum
+├── scripts/go                      # Go wrapper keeping caches inside the repository
 ├── cmd/
 │   ├── root.go                     # NewRootCommand, shared flags, registration
 │   ├── options.go                  # Convert flags into service request values
@@ -72,7 +75,7 @@ coolship/
 │   ├── status.go
 │   ├── deploy.go
 │   ├── logs.go
-│   ├── open.go                     # Optional MVP extension
+│   ├── open.go                     # Later
 │   ├── init.go                     # Later
 │   ├── unlink.go                   # Later
 │   ├── config.go                   # Later
@@ -86,54 +89,45 @@ coolship/
 │       └── diff.go
 ├── internal/
 │   ├── config/
-│   │   ├── config.go               # Versioned TOML schema and selectors
-│   │   ├── codec.go                # Decode/encode; no discovery
-│   │   └── validate.go
+│   │   └── config.go               # Versioned TOML schema, codec, validation
 │   ├── project/
 │   │   ├── discover.go             # Working directory, config root, Git boundary
-│   │   ├── project.go              # Loaded project and selected local target
-│   │   ├── context.go              # Resolved, credential-free project context
+│   │   ├── project.go              # Loaded project, selected local target, context
 │   │   ├── store.go                # Load and safely write project configuration
 │   │   └── state.go                # Later, disposable resolution cache
 │   ├── auth/
 │   │   ├── credentials.go          # Instance identity and private credentials
 │   │   └── coolify_cli.go          # Read existing contexts and select credentials
 │   ├── models/
-│   │   ├── resource.go             # Project, environment, application identities
-│   │   ├── deployment.go
-│   │   ├── logs.go
-│   │   └── environment.go          # Later variable types
+│   │   └── models.go               # Resource, deployment, and log identities
 │   ├── coolify/
-│   │   ├── client.go               # HTTP transport and client options
+│   │   ├── client.go               # HTTP transport, retries, and client options
 │   │   ├── errors.go               # Typed, sanitized HTTP errors
-│   │   ├── projects.go             # Projects and environment details
-│   │   ├── applications.go         # Application details and log snapshots
-│   │   ├── deployments.go
+│   │   ├── resources.go            # Projects, environments, applications, deployments, logs
 │   │   └── environment.go          # Later variable endpoints
 │   ├── resolver/
-│   │   ├── catalog.go              # Consumer-owned resource-reading interface
-│   │   ├── resolver.go             # Scoped matching and binding validation
+│   │   ├── resolver.go             # Consumer-owned Catalog, scoped matching, validation
 │   │   └── errors.go               # Missing, ambiguous, or changed binding
 │   ├── service/
-│   │   ├── service.go              # Dependencies and shared preparation
-│   │   ├── ports.go                # Narrow operation interfaces
+│   │   ├── service.go              # Dependencies, shared preparation, status
+│   │   ├── types.go                # Options, public results, ports, events, typed errors
 │   │   ├── link.go                 # Resource selection and binding plan/write
-│   │   ├── status.go
 │   │   ├── deploy.go               # Trigger and observe one deployment
 │   │   ├── logs.go                 # Snapshot/follow workflow
-│   │   ├── events.go               # Typed results, progress, and log events
 │   │   └── environment.go          # Later pull/push/diff policy
 │   └── ui/
-│       ├── streams.go             # Injected stdin/stdout/stderr, TTY checks
+│       ├── streams.go              # Injected stdin/stdout/stderr, terminal capability
 │       ├── prompts.go
 │       ├── render.go               # Human and JSON output
 │       └── errors.go               # Error presentation and exit classification
+├── AGENTS.md
 ├── ARCHITECTURE.md
 ├── README.md
-└── REQUEST.md
+├── REQUEST.md
+└── ROADMAP.md
 ```
 
-Tests should live next to the owning package, with package-local `testdata/` fixtures where useful. There is no separate SDK module, dependency-injection framework, generic repository framework, or public `pkg/` API in this milestone.
+Tests live next to the owning package, with package-local `testdata/` fixtures where useful. `cmd/flows_test.go` additionally drives the real command tree, services, and HTTP client against an `httptest.Server`, so the composition the executable performs is covered by tests rather than only by `main.go`. There is no separate SDK module, dependency-injection framework, generic repository framework, or public `pkg/` API in this milestone.
 
 ## 3. Dependency graph and package purposes
 
@@ -430,14 +424,25 @@ Moving code upstream still requires adapting import paths, credential types, mod
 
 ## 10. Implementation sequence and validation gates
 
-This draft is the first deliverable. Review and explain it before beginning scaffolding or functional work.
+Gates 1 to 3 are complete; gates 4 and 5 remain. [ROADMAP.md](ROADMAP.md) tracks the same sequence as milestones.
 
-1. **Foundation:** create the module, explicit command constructors, configuration codec, discovery, and the read-only credentials adapter. Prove nested-directory behavior, Git worktrees, explicit paths, malformed configuration, context precedence, and CI credentials with temporary directories and synthetic credentials.
-2. **Binding:** implement the minimal HTTP adapter, resolver, and link service. Use `httptest.Server` and fakes to prove hierarchy checks, duplicate names, explicit pins, cross-environment rejection, prompt cancellation, and conflict-aware atomic writes. Verify the same selection rules work interactively and noninteractively.
-3. **Vertical workflows:** add status, deployment, and runtime logs through the shared preparation path. Prove each command constructs one authenticated backend and uses the same resolver. Verify queued versus finished results, the exact deployment UUID, no POST replay, unavailable build logs, snapshot resets, and cancellation. Test human/JSON stream separation with injected writers.
-4. **Live compatibility check:** use a disposable local Coolify instance if needed. Record its revision and capture sanitized fixtures for hierarchy lookup, deployment responses/statuses, runtime logs, and permission-limited responses. Check the identified container-selection mismatch before exposing related behavior. Select the supported server baseline from evidence, not the fork's apparent API surface alone.
-5. **Extension proof:** add `env pull` only after the MVP if requested. Its implementation should add endpoint and workflow code without duplicating discovery, auth loading, context selection, client construction, or application lookup. Defer preview automation, complex dev behavior, and administration commands.
+1. **Foundation — done.** The module, explicit command constructors, configuration codec, discovery, and the read-only credentials adapter. Nested-directory behavior, Git worktrees, explicit paths, malformed configuration, context precedence, and CI credentials are proven with temporary directories and synthetic credentials.
+2. **Binding — done.** The minimal HTTP adapter, resolver, and link service. `httptest.Server` and fakes prove hierarchy checks, duplicate names, explicit pins, cross-environment rejection, prompt cancellation, and conflict-aware writes. The same selection rules apply interactively and noninteractively.
+3. **Vertical workflows — done.** Status, deployment, and runtime logs go through the shared preparation path. Tests prove each command constructs one authenticated backend and uses the same resolver, and cover queued versus finished results, the exact deployment UUID, no POST replay, snapshot resets, cancellation, and human/JSON stream separation with injected writers.
+4. **Live compatibility check — outstanding.** Use a disposable local Coolify instance. Record its revision and capture sanitized fixtures for hierarchy lookup, deployment responses/statuses, runtime logs, and permission-limited responses. Check the identified container-selection mismatch before exposing related behavior. Select the supported server baseline from evidence, not the fork's apparent API surface alone.
+5. **Extension proof — outstanding.** Add `env pull` only if requested. Its implementation should add endpoint and workflow code without duplicating discovery, auth loading, context selection, client construction, or application lookup. Defer preview automation, complex dev behavior, and administration commands.
 
-Once Go code exists, run focused behavioral tests and `go test ./...` plus `go vet ./...` for the milestone. Inspect imports with `go list` against the allowed dependency table. This documentation-only draft has no executable tests; validation consists of source cross-checks, dependency-cycle review, and document checks.
+### Supported server baseline
 
-The draft deliberately leaves exact exported signatures, library versions, the live server baseline, and advanced command flags to their implementation milestones. The proposed package boundaries, configuration precedence, binding semantics, and MVP command behavior are concrete decisions for this review.
+No Coolify instance has been contacted. Every endpoint expectation comes from reading the server source listed in section 1, and is exercised only against a controlled `httptest.Server` in this repository. Until gate 4 runs, Coolship states no verified server version range, and the following limits apply:
+
+- **Deployment states** are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unrecognized state is reported verbatim and waits until the timeout rather than being guessed as terminal.
+- **Log follow** polls snapshots and compares overlapping lines. The endpoint has no cursor, so rotation, container restarts, or a gap larger than the requested line count can produce gaps or duplicates. Coolship reports the reset instead of claiming lossless streaming.
+- **Container selection** is not exposed. This checkout's log handler ignores the `service_name` parameter that Coolify CLI sends and returns the first container, so a flag would silently mislead.
+- **Deployment build logs** and secret values can be withheld by token ability and team role. Withheld data is reported as unavailable and never rendered as empty data.
+- **Pagination** is not assumed. A `Link` header advertising a next page is refused rather than treated as a complete candidate list, because an incomplete list could turn an ambiguous name into a false unique match.
+- **Deployment submission is never replayed.** The API defines no idempotency key, so an uncertain `POST /deploy` result is surfaced with the information needed to recover manually.
+
+Run focused behavioral tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for a milestone.
+
+The exact live server baseline and advanced command flags remain deferred to their implementation milestones. The package boundaries, configuration precedence, binding semantics, and MVP command behavior are settled decisions.

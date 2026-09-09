@@ -1,0 +1,91 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+)
+
+// Deploy submits one deployment and optionally observes that exact deployment.
+func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (DeployResult, error) {
+	if options.Timeout < 0 {
+		return DeployResult{}, input(errors.New("deployment timeout must be positive"))
+	}
+	if options.Timeout == 0 {
+		options.Timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
+	defer cancel()
+	s, err := a.prepare(ctx, options.Options)
+	if err != nil {
+		return DeployResult{}, err
+	}
+	result := DeployResult{Target: targetInfo(s.project), Warnings: s.warnings}
+	for _, warning := range s.warnings {
+		if err := emitEvent(emit, Event{Type: "warning", Message: warning}); err != nil {
+			return result, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	receipts, err := s.backend.Deploy(ctx, s.project.Application.UUID, options.Force)
+	if err != nil {
+		return result, err
+	}
+	for _, receipt := range receipts {
+		if receipt.ResourceUUID != s.project.Application.UUID {
+			continue
+		}
+		if receipt.DeploymentUUID == "" {
+			continue
+		}
+		if result.DeploymentUUID != "" {
+			return result, fmt.Errorf("server returned multiple deployments for application %s; inspect Coolify before retrying", s.project.Application.UUID)
+		}
+		result.DeploymentUUID = receipt.DeploymentUUID
+	}
+	if result.DeploymentUUID == "" {
+		return result, fmt.Errorf("server did not confirm a deployment UUID for application %s; inspect Coolify before retrying", s.project.Application.UUID)
+	}
+	result.Status = "queued"
+	fail := func(err error) (DeployResult, error) {
+		return result, &DeploymentError{DeploymentUUID: result.DeploymentUUID, Err: err}
+	}
+	if err := emitEvent(emit, Event{Type: "deployment", DeploymentUUID: result.DeploymentUUID, Status: result.Status}); err != nil {
+		return fail(err)
+	}
+	if options.NoWait {
+		return result, nil
+	}
+	lastStatus := result.Status
+	for {
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+		deployment, err := s.backend.GetDeployment(ctx, result.DeploymentUUID)
+		if err != nil {
+			return fail(fmt.Errorf("observation stopped; remote deployment may still be running: %w", err))
+		}
+		if deployment.UUID != result.DeploymentUUID {
+			return fail(errors.New("server returned a different deployment identity; observation stopped"))
+		}
+		result.Status = deployment.Status
+		if result.Status != lastStatus {
+			if err := emitEvent(emit, Event{Type: "deployment", DeploymentUUID: result.DeploymentUUID, Status: result.Status}); err != nil {
+				return fail(err)
+			}
+			lastStatus = result.Status
+		}
+		switch result.Status {
+		case "finished":
+			return result, nil
+		case "failed", "cancelled-by-user":
+			return fail(fmt.Errorf("ended with status %s", result.Status))
+		}
+		if err := wait(ctx, a.deps.PollInterval); err != nil {
+			return fail(fmt.Errorf("observation stopped; remote deployment may still be running: %w", err))
+		}
+	}
+}

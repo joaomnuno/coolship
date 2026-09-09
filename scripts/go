@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export GOCACHE="$repo_root/.cache/go-build"
+export GOMODCACHE="$repo_root/.cache/go-mod"
+export GOTMPDIR="$repo_root/.cache/tmp"
+export TMPDIR="$repo_root/.cache/tmp"
+mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOTMPDIR"
+exec go "$@"
