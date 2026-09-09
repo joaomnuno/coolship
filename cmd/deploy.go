@@ -12,7 +12,7 @@ import (
 func newDeployCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
 	var deploy service.DeployOptions
 	command := &cobra.Command{
-		Use:   "deploy",
+		Use:   "deploy [target]",
 		Short: "Deploy the linked application using its configured Coolify source",
 		Long: `Deploy the linked application using the source and branch already configured in Coolify.
 This command does not upload your worktree or push local commits.
@@ -20,7 +20,7 @@ This command does not upload your worktree or push local commits.
 By default, wait for the submitted deployment to finish. Interrupting observation
 stops local waiting; the remote deployment continues. Use --no-wait to return
 the queued deployment UUID immediately.`,
-		Args: noArgs,
+		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))

@@ -228,6 +228,7 @@ Three rules keep this safe:
 | `--context` | Use this Coolify CLI instance for this invocation. |
 | `--coolify-config` | Read credentials from an explicit Coolify CLI configuration file. |
 | `-e`, `--environment` | Override the remote environment for this invocation. |
+| `-t`, `--target` | Select a named target in a monorepo configuration. |
 | `--format` | `human` (default) or `json`. |
 
 Overrides apply to a single invocation and never rewrite `coolship.toml`.
@@ -252,6 +253,39 @@ root = "."
 Commit this file. **Tokens and secret values are never written to it.**
 
 Configuration is discovered by searching upward from the working directory, stopping at the enclosing Git worktree root so a project never picks up a parent repository's binding.
+
+### Monorepos
+
+A repository with several applications uses named targets instead of `[project]`:
+
+```toml
+version = 1
+
+[apps.web]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "frontend"
+root = "apps/web"
+
+[apps.api]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "backend"
+root = "apps/api"
+```
+
+Link each target from its own directory, which becomes its root:
+
+```bash
+cd apps/web && coolship link --target web
+cd ../api  && coolship link --target api
+```
+
+Commands then pick the target whose root most specifically contains the current directory, so `cd apps/api && coolship deploy` deploys the API. From anywhere, name it instead: `coolship deploy api`, `coolship logs web`, or `--target api` on any command. Two targets with the same root, or a directory outside every root, require an explicit name rather than a guess.
+
+Rules that keep the file unambiguous: a file uses `[project]` **or** `[apps.<name>]`, never both; adding a target keeps the existing ones and needs no confirmation; changing a target, or converting between the two forms — which drops the other form's bindings — asks for confirmation or `--replace`.
 
 ## Credentials
 
@@ -304,8 +338,6 @@ None of the following exist yet; they are the directions the architecture is bui
 ```text
 coolship dev
 ```
-
-Monorepo support is also planned. The configuration and discovery layers already keep the project, the selected target, and the application root as separate concepts, so named targets can be added without restructuring commands.
 
 ## What Coolship is not
 

@@ -88,6 +88,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.PersistentFlags().StringVar(&options.Context, "context", "", "Coolify CLI instance name for this invocation")
 	root.PersistentFlags().StringVar(&options.CoolifyConfig, "coolify-config", "", "Read credentials from this Coolify CLI configuration file")
 	root.PersistentFlags().StringVarP(&options.Environment, "environment", "e", "", "Remote environment name for this invocation")
+	root.PersistentFlags().StringVarP(&options.Target, "target", "t", "", "Named target in a monorepo configuration ([apps.<name>])")
 	root.PersistentFlags().StringVar(&options.format, "format", "human", "Output format: human or json (logs uses NDJSON)")
 	root.AddCommand(newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
 		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),

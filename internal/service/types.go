@@ -19,10 +19,11 @@ type Options struct {
 	Context       string
 	CoolifyConfig string
 	Environment   string
+	Target        string // named target in a monorepo configuration
 }
 
 type LinkOptions struct {
-	Options
+	Options         // Target names the [apps.<name>] table to write; empty writes [project]
 	Project         string
 	Application     string
 	ProjectUUID     string
@@ -107,6 +108,7 @@ type DoctorResult struct {
 
 // TargetInfo is the credential-free identity included in public command results.
 type TargetInfo struct {
+	Target          string `json:"target"`
 	Instance        string `json:"instance"`
 	InstanceURL     string `json:"instance_url"`
 	Project         string `json:"project"`
@@ -141,6 +143,9 @@ type LinkPlan struct {
 	Path      string     `json:"path"`
 	Target    TargetInfo `json:"target"`
 	Replacing bool       `json:"replacing"`
+	// Converting reports that the file changes between the single [project]
+	// form and named [apps.<name>] targets, which drops the other form.
+	Converting bool `json:"converting,omitempty"`
 }
 
 type LinkResult struct {

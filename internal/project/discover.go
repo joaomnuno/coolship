@@ -41,12 +41,12 @@ func Discover(paths Paths, allowMissing bool) (Project, error) {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(cwd, path)
 		}
-		return load(path, gitRoot, allowMissing)
+		return load(path, gitRoot, cwd, allowMissing)
 	}
 	for directory := cwd; ; directory = filepath.Dir(directory) {
 		path := filepath.Join(directory, "coolship.toml")
 		if _, err := os.Lstat(path); err == nil {
-			return load(path, gitRoot, false)
+			return load(path, gitRoot, cwd, false)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Project{}, fmt.Errorf("inspect project configuration: %w", err)
 		}
@@ -61,7 +61,7 @@ func Discover(paths Paths, allowMissing bool) (Project, error) {
 	if root == "" {
 		root = cwd
 	}
-	return load(filepath.Join(root, "coolship.toml"), gitRoot, true)
+	return load(filepath.Join(root, "coolship.toml"), gitRoot, cwd, true)
 }
 
 func findGitRoot(start string) (string, error) {
@@ -77,7 +77,7 @@ func findGitRoot(start string) (string, error) {
 	}
 }
 
-func load(path, gitRoot string, allowMissing bool) (Project, error) {
+func load(path, gitRoot, cwd string, allowMissing bool) (Project, error) {
 	path = filepath.Clean(path)
 	actual, err := filepath.EvalSymlinks(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -94,7 +94,7 @@ func load(path, gitRoot string, allowMissing bool) (Project, error) {
 		}
 		actual = filepath.Join(parent, filepath.Base(path))
 	}
-	value := Project{ConfigRoot: filepath.Dir(actual), ConfigPath: actual, GitRoot: gitRoot}
+	value := Project{ConfigRoot: filepath.Dir(actual), ConfigPath: actual, GitRoot: gitRoot, CWD: cwd}
 	data, err := os.ReadFile(actual)
 	if errors.Is(err, os.ErrNotExist) && allowMissing {
 		value.Config = config.Config{Version: 1, Project: config.Binding{Root: "."}}

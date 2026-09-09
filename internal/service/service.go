@@ -61,7 +61,7 @@ func (a *App) prepare(ctx context.Context, options Options) (session, error) {
 	if err != nil {
 		return session{}, input(err)
 	}
-	target, err := project.Select(p, options.Environment)
+	target, err := project.Select(p, options.Target, options.Environment)
 	if err != nil {
 		return session{}, input(err)
 	}
@@ -99,7 +99,7 @@ func resolutionError(err error) error {
 }
 
 func targetInfo(p project.Context) TargetInfo {
-	return TargetInfo{Instance: p.InstanceName, InstanceURL: p.InstanceURL,
+	return TargetInfo{Target: p.Target.Key, Instance: p.InstanceName, InstanceURL: p.InstanceURL,
 		Project: p.RemoteProject.Name, ProjectUUID: p.RemoteProject.UUID,
 		Environment: p.Environment.Name, EnvironmentUUID: p.Environment.UUID,
 		Application: p.Application.Name, ApplicationUUID: p.Application.UUID, Root: p.Target.AppRoot}

@@ -12,12 +12,12 @@ func newOpenCommand(app Application, options *commandOptions, streams ui.Streams
 	var open service.OpenOptions
 	var printOnly bool
 	command := &cobra.Command{
-		Use:   "open",
+		Use:   "open [target]",
 		Short: "Open the linked application, or its Coolify page, in a browser",
 		Long: `Open the linked application's URL in the default browser.
 The URL is always printed on stdout. When stdin is not a terminal, or with
 --print, nothing is launched, so the command composes with other tools.`,
-		Args: noArgs,
+		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			open.Options = options.Options
 			result, err := app.Open(command.Context(), open)

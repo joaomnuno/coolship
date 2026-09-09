@@ -108,11 +108,11 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if authOptions.URL != "" {
 		binding.Context = ""
 	}
-	if binding.Root == "" {
+	if binding.Root == "" && options.Target == "" && !p.Config.Named() {
 		binding.Root = p.Config.Project.Root
 	}
 	if binding.Root == "" {
-		binding.Root = "."
+		binding.Root = project.DefaultRoot(p, options.Target)
 	}
 	projectMatches, environmentMatches, applicationMatches := 0, 0, 0
 	for _, item := range projects {
@@ -139,10 +139,14 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if options.ApplicationUUID != "" || applicationMatches > 1 {
 		binding.ApplicationUUID = application.UUID
 	}
+	proposal, err := project.Propose(p, options.Target, binding)
+	if err != nil {
+		return LinkResult{}, input(err)
+	}
 	candidate := p
-	candidate.Config = config.Config{Version: 1, Project: binding}
+	candidate.Config = proposal.Config
 	candidate.Exists = true
-	target, err := project.Select(candidate, "")
+	target, err := project.Select(candidate, proposal.Key, "")
 	if err != nil {
 		return LinkResult{}, input(err)
 	}
@@ -156,7 +160,8 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	}
 	resolved := project.Context{Project: candidate, Target: target, InstanceName: credentials.Name, InstanceURL: credentials.URL,
 		RemoteProject: verified.Project, Environment: verified.Environment, Application: verified.Application}
-	plan := LinkPlan{Path: p.ConfigPath, Target: targetInfo(resolved), Replacing: p.Exists && p.Config.Project != binding}
+	plan := LinkPlan{Path: p.ConfigPath, Target: targetInfo(resolved), Replacing: proposal.Review,
+		Converting: p.Exists && p.Config.Named() != proposal.Config.Named()}
 	replace := options.Replace
 	if plan.Replacing && !replace {
 		if confirm == nil {
@@ -174,7 +179,7 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if err := ctx.Err(); err != nil {
 		return LinkResult{}, err
 	}
-	if err := project.WriteBinding(p, binding, replace); err != nil {
+	if err := project.WriteBinding(p, options.Target, binding, replace); err != nil {
 		return LinkResult{}, input(err)
 	}
 	warnings := verified.Warnings

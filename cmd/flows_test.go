@@ -66,6 +66,7 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	application := map[string]any{
 		"uuid": "app-1", "name": "fenix-bot", "status": "running:healthy", "fqdn": "https://fenix.example.com",
 	}
+	second := map[string]any{"uuid": "app-2", "name": "fenix-api", "status": "running:healthy", "fqdn": "https://api.example.com"}
 	mux := http.NewServeMux()
 	write := func(w http.ResponseWriter, value any) {
 		w.Header().Set("Content-Type", "application/json")
@@ -95,10 +96,13 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		write(w, []map[string]any{{"uuid": "env-1", "name": "production"}})
 	})
 	handle("GET /api/v1/projects/project-1/env-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
-		write(w, map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application}})
+		write(w, map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application, second}})
 	})
 	handle("GET /api/v1/applications/app-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, application)
+	})
+	handle("GET /api/v1/applications/app-2", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, second)
 	})
 	handle("POST /api/v1/deploy", func(w http.ResponseWriter, r *http.Request, calls int) {
 		var body struct {
@@ -219,8 +223,8 @@ func TestLinkedProjectDrivesEveryWorkflow(t *testing.T) {
 	instance := newServer(t, s)
 	dir := projectDirectory(t)
 
-	// link discovers the project, selects the only available resources, and writes the binding.
-	out, _, err := run(t, instance.URL, dir, "", "link", "--format", "json")
+	// link discovers the project, selects the only project and environment, and writes the binding.
+	out, _, err := run(t, instance.URL, dir, "", "link", "--application", "fenix-bot", "--format", "json")
 	if err != nil {
 		t.Fatalf("link: %v", err)
 	}
@@ -475,5 +479,49 @@ func TestPreviewDeploymentAgainstTheServer(t *testing.T) {
 	_, _, err = run(t, instance.URL, dir, "", "preview", "--pr", "9")
 	if err == nil || !strings.Contains(err.Error(), "Pull request 9 not found") || ui.ExitCode(err) != 1 {
 		t.Fatalf("unknown pull request: %v", err)
+	}
+}
+
+func TestMonorepoTargetsAgainstTheServer(t *testing.T) {
+	s := &server{deployment: []string{"finished"}}
+	instance := newServer(t, s)
+	root := projectDirectory(t)
+	for _, dir := range []string{"apps/web", "apps/api"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := run(t, instance.URL, filepath.Join(root, "apps/web"), "", "link", "--target", "web", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link web: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, filepath.Join(root, "apps/api"), "", "link", "--target", "api", "--project", "Personal", "--application", "fenix-api"); err != nil {
+		t.Fatalf("link api: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, "coolship.toml"))
+	if !strings.Contains(string(data), "[apps.web]") || !strings.Contains(string(data), "[apps.api]") || !strings.Contains(string(data), `root = 'apps/api'`) {
+		t.Fatalf("configuration:\n%s", data)
+	}
+	// From apps/api the api target is implied; from the root a target is required.
+	out, _, err := run(t, instance.URL, filepath.Join(root, "apps/api"), "", "status", "--format", "json")
+	if err != nil {
+		t.Fatalf("status from apps/api: %v", err)
+	}
+	var status service.StatusResult
+	if err := json.Unmarshal([]byte(out), &status); err != nil || status.Target.Target != "api" || status.Target.ApplicationUUID != "app-2" {
+		t.Fatalf("status %s: %v", out, err)
+	}
+	if _, _, err := run(t, instance.URL, root, "", "status"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("root without target: %v", err)
+	}
+	out, _, err = run(t, instance.URL, root, "", "deploy", "web", "--format", "json")
+	if err != nil {
+		t.Fatalf("deploy web: %v", err)
+	}
+	var deploy service.DeployResult
+	if err := json.Unmarshal([]byte(out), &deploy); err != nil || deploy.Target.Target != "web" || deploy.Target.ApplicationUUID != "app-1" {
+		t.Fatalf("deploy %s: %v", out, err)
+	}
+	if s.counts()["POST /api/v1/deploy"] != 1 {
+		t.Fatalf("deploy calls: %v", s.counts())
 	}
 }

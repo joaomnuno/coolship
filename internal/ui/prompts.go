@@ -78,10 +78,14 @@ func (p *Prompter) Confirm(ctx context.Context, plan service.LinkPlan) (bool, er
 	if !p.streams.Interactive {
 		return false, &service.InputError{Err: errors.New("replacing existing configuration requires --replace when input is noninteractive")}
 	}
+	note := "Existing comments and unrelated configuration will be replaced."
+	if plan.Converting {
+		note = "The file changes form; bindings in the other form are dropped. " + note
+	}
 	if _, err := fmt.Fprintf(p.streams.Err,
-		"Replace configuration in %s?\nNew binding: %s / %s / %s on %s\nExisting comments and unrelated configuration will be replaced.\nConfirm [y/N]: ",
+		"Replace configuration in %s?\nNew binding: %s / %s / %s on %s\n%s\nConfirm [y/N]: ",
 		singleLine(plan.Path), singleLine(plan.Target.Project), singleLine(plan.Target.Environment),
-		singleLine(plan.Target.Application), singleLine(plan.Target.Instance)); err != nil {
+		singleLine(plan.Target.Application), singleLine(plan.Target.Instance), note); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)

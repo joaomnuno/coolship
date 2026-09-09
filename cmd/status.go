@@ -7,9 +7,9 @@ import (
 
 func newStatusCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
+		Use:   "status [target]",
 		Short: "Inspect the linked application's current status",
-		Args:  noArgs,
+		Args:  targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := app.Status(command.Context(), options.Options)
 			if err != nil {

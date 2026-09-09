@@ -41,7 +41,7 @@ func (a *App) Doctor(ctx context.Context, options Options) (DoctorResult, error)
 		} else {
 			add("Git repository", "ok", p.GitRoot)
 		}
-		target, err = project.Select(p, options.Environment)
+		target, err = project.Select(p, options.Target, options.Environment)
 		if err != nil {
 			add("Binding", "failed", err.Error())
 		} else {

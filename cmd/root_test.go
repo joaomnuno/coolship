@@ -108,7 +108,7 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 
 func TestInvalidInputReturnsOneUnprintedError(t *testing.T) {
 	for _, args := range [][]string{
-		{"unknown"}, {"help", "unknown"}, {"help", "status", "extra"}, {"status", "extra"},
+		{"unknown"}, {"help", "unknown"}, {"help", "status", "extra"}, {"status", "a", "b"},
 		{"status", "--unknown"}, {"status", "--config"}, {"status", "--format", "yaml"},
 		{"logs", "-n", "0"}, {"logs", "-n", "-1"}, {"logs", "-n", "many"},
 		{"deploy", "--timeout", "0s"}, {"deploy", "--timeout=-1s"}, {"deploy", "--timeout", "eventually"},
@@ -483,5 +483,35 @@ func TestPreviewTakesPullRequestFromFlagOrGitHubActions(t *testing.T) {
 	}
 	if _, _, err := execute(t, app, "preview", "--pr", "0"); !errors.Is(err, service.ErrInput) {
 		t.Fatalf("--pr 0: %v", err)
+	}
+}
+
+func TestPositionalTargetSelectsAndCannotConflict(t *testing.T) {
+	var targets []string
+	app := fakeApplication{status: func(_ context.Context, options service.Options) (service.StatusResult, error) {
+		targets = append(targets, options.Target)
+		return service.StatusResult{Target: service.TargetInfo{Target: options.Target, Application: "x", ApplicationUUID: "u"}, Status: "running"}, nil
+	}}
+	if _, _, err := execute(t, app, "status", "api"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "status", "--target", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "status", "-t", "web", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "status", "-t", "web", "api"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("conflicting targets: %v", err)
+	}
+	if _, _, err := execute(t, app, "status", "a", "b"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("two positional targets: %v", err)
+	}
+	if !reflect.DeepEqual(targets, []string{"api", "web", "web"}) {
+		t.Fatalf("targets %v", targets)
+	}
+	out, _, _ := execute(t, app, "status", "api")
+	if !strings.HasPrefix(out, "Target: api\n") {
+		t.Fatalf("named target not shown: %q", out)
 	}
 }

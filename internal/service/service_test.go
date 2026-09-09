@@ -31,6 +31,7 @@ type fakeBackend struct {
 	upserts      [][]models.EnvironmentVariableInput
 	deleted      []string
 	lastDeploy   models.DeployRequest
+	more         map[string]models.Application // applications beyond app-1
 }
 
 func newBackend() *fakeBackend {
@@ -99,10 +100,13 @@ func (f *fakeBackend) GetEnvironment(_ context.Context, projectID, id string) (m
 }
 func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Application, error) {
 	f.calls["application"]++
-	if id != "app-1" {
-		return models.Application{}, errors.New("wrong application")
+	if id == "app-1" {
+		return f.application, nil
 	}
-	return f.application, nil
+	if application, ok := f.more[id]; ok {
+		return application, nil
+	}
+	return models.Application{}, errors.New("wrong application")
 }
 func (f *fakeBackend) Deploy(_ context.Context, request models.DeployRequest) ([]models.DeploymentReceipt, error) {
 	f.calls["deploy"]++
@@ -840,5 +844,50 @@ func TestPreviewDeploymentCarriesPullRequestAndSurfacesRefusal(t *testing.T) {
 	}
 	if _, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: -1}, nil); !errors.Is(err, ErrInput) {
 		t.Fatalf("negative pull request: %v", err)
+	}
+}
+
+func TestLinkWritesNamedTargetsWithDirectoryRoots(t *testing.T) {
+	f := newBackend()
+	backend := models.Application{UUID: "app-2", Name: "backend", Status: "running:healthy"}
+	f.environments[0].Applications = append(f.environments[0].Applications, backend)
+	f.more = map[string]models.Application{"app-2": backend}
+	app, _, _ := testApp(f)
+	root := unlinkedDirectory(t)
+	for _, dir := range []string{"apps/web", "apps/api"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Linking a target from its directory records that directory as the root.
+	first := LinkOptions{Options: Options{CWD: filepath.Join(root, "apps/web"), Target: "web"}, Project: "Personal", Application: "api"}
+	result, err := app.Link(context.Background(), first, nil, nil)
+	if err != nil || result.Target.Target != "web" || result.Path != filepath.Join(root, "coolship.toml") {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	// A second target is added without review, and the first survives.
+	second := LinkOptions{Options: Options{CWD: filepath.Join(root, "apps/api"), Target: "api"}, Project: "Personal", ApplicationUUID: "app-2"}
+	if _, err := app.Link(context.Background(), second, nil, nil); err != nil {
+		t.Fatalf("second target: %v", err)
+	}
+	data, _ := os.ReadFile(result.Path)
+	parsed, err := config.Parse(data)
+	if err != nil || len(parsed.Apps) != 2 || parsed.Apps["web"].Root != "apps/web" || parsed.Apps["api"].Root != "apps/api" || parsed.Project.IsSet() {
+		t.Fatalf("configuration %s: %v", data, err)
+	}
+	// Selection follows the working directory, and TargetInfo names the target.
+	status, err := app.Status(context.Background(), Options{CWD: filepath.Join(root, "apps/api")})
+	if err != nil || status.Target.Target != "api" || status.Target.ApplicationUUID != "app-2" {
+		t.Fatalf("status from apps/api: %+v err=%v", status, err)
+	}
+	if _, err := app.Status(context.Background(), Options{CWD: root}); !errors.Is(err, ErrInput) {
+		t.Fatalf("repository root without a target must ask: %v", err)
+	}
+	// Converting to the single form requires review, and the plan says so.
+	var plan LinkPlan
+	convert := LinkOptions{Options: Options{CWD: root}, Project: "Personal", ApplicationUUID: "app-2"}
+	_, err = app.Link(context.Background(), convert, nil, func(_ context.Context, p LinkPlan) (bool, error) { plan = p; return false, nil })
+	if !errors.Is(err, ErrCancelled) || !plan.Replacing || !plan.Converting {
+		t.Fatalf("conversion plan=%+v err=%v", plan, err)
 	}
 }

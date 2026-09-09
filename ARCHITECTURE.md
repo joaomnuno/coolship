@@ -387,7 +387,7 @@ Debug output includes safe request metadata and status, not authorization header
 
 ### Monorepos
 
-Keep `Project`, `Target`, and resolved context separate now. Later accept named targets such as:
+Implemented. `config.Config` holds either one `[project]` binding or named `[apps.<name>]` bindings, never both: a mixed file is rejected so it has one meaning. Target names match `[A-Za-z0-9][A-Za-z0-9_-]*`, and `default` is reserved for the single form.
 
 ```toml
 version = 1
@@ -407,7 +407,9 @@ application = "backend"
 root = "apps/api"
 ```
 
-This is future syntax, not accepted MVP configuration. Define migration and mixed `[project]`/`[apps]` validation when implementing it. Select an explicit target argument first (`deploy web`, `logs api`), otherwise the most specific target root containing the effective directory. Ambiguous roots or a repository-root invocation with multiple candidates require explicit selection. Validate target roots against the configuration root, including symlinks. The resolver still receives exactly one target, so deployment and logs need no redesign.
+`project.Select` takes the target name and the effective working directory recorded by discovery. An explicit name (`--target`, or a positional argument on `deploy`, `logs`, `status`, and `open`) wins; otherwise the target whose resolved root most specifically contains the directory is chosen. Equal roots or a directory outside every root are errors that list the choices; nothing is guessed. Roots are validated against the configuration root, including symlinks, exactly as in the single form. The resolver still receives one target, so no workflow changed.
+
+Migration rules live in `project.Propose`, which both `link` and the writer use: adding a new named target keeps the others and needs no review; changing an existing target's binding needs review; converting between the single and named forms drops the other form's bindings and therefore needs review, which the prompt says explicitly. `link --target NAME` proposes the working directory relative to the configuration root as the root, so linking from `apps/web` records `apps/web`. An unchanged file is never rewritten, and a file that changed since discovery is a conflict.
 
 ### Environment variables
 

@@ -107,6 +107,11 @@ func (r *Renderer) LogEvent(event service.Event) error {
 }
 
 func (r *Renderer) target(target service.TargetInfo) error {
+	if target.Target != "" && target.Target != "default" {
+		if _, err := fmt.Fprintf(r.streams.Out, "Target: %s\n", singleLine(target.Target)); err != nil {
+			return err
+		}
+	}
 	_, err := fmt.Fprintf(r.streams.Out,
 		"Application: %s (%s)\nEnvironment: %s\nProject: %s\nContext: %s\n",
 		singleLine(target.Application), singleLine(target.ApplicationUUID),

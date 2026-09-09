@@ -16,7 +16,7 @@ func (a *App) Config(ctx context.Context, options Options) (ConfigResult, error)
 	if err != nil {
 		return ConfigResult{}, input(err)
 	}
-	target, err := project.Select(p, options.Environment)
+	target, err := project.Select(p, options.Target, options.Environment)
 	if err != nil {
 		return ConfigResult{}, input(err)
 	}
@@ -24,7 +24,11 @@ func (a *App) Config(ctx context.Context, options Options) (ConfigResult, error)
 		ConfigPath: p.ConfigPath, ConfigRoot: p.ConfigRoot, GitRoot: p.GitRoot,
 		Target: target.Key, AppRoot: target.AppRoot, Binding: target.Binding,
 	}
-	if options.Environment != "" && options.Environment != p.Config.Project.Environment {
+	configured := p.Config.Project.Environment
+	if p.Config.Named() {
+		configured = p.Config.Apps[target.Key].Environment
+	}
+	if options.Environment != "" && options.Environment != configured {
 		result.Overrides = map[string]string{"environment": options.Environment}
 	}
 	if options.Context != "" {

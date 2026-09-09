@@ -29,7 +29,7 @@ func TestRoundTripPreservesSelectorsAndPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err := config.Parse(encoded)
-	if err != nil || value != decoded {
+	if err != nil || !config.Equal(value, decoded) {
 		t.Fatalf("round trip: got %#v, error %v", decoded, err)
 	}
 }
@@ -73,5 +73,50 @@ application_uuid = "application-id"
 `))
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNamedTargetsRoundTripAndMixedFormIsRejected(t *testing.T) {
+	named := `version = 1
+
+[apps.web]
+project = "Personal"
+environment = "production"
+application = "frontend"
+root = "apps/web"
+
+[apps.api]
+project = "Personal"
+environment = "production"
+application = "backend"
+`
+	value, err := config.Parse([]byte(named))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.Named() || value.Project.IsSet() || value.Apps["api"].Root != "." || value.Apps["web"].Root != "apps/web" {
+		t.Fatalf("parsed %+v", value)
+	}
+	encoded, err := config.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "[project]") || strings.Contains(string(encoded), "[apps]\n") {
+		t.Fatalf("named form emitted a [project] table or an empty [apps] header:\n%s", encoded)
+	}
+	decoded, err := config.Parse(encoded)
+	if err != nil || !config.Equal(value, decoded) {
+		t.Fatalf("round trip: %v\n%s", err, encoded)
+	}
+	for name, input := range map[string]string{
+		"mixed":         named + "\n[project]\nproject = \"P\"\nenvironment = \"E\"\napplication = \"A\"\n",
+		"bad name":      "version = 1\n[apps.\"bad name\"]\nproject = \"P\"\nenvironment = \"E\"\napplication = \"A\"\n",
+		"reserved":      "version = 1\n[apps.default]\nproject = \"P\"\nenvironment = \"E\"\napplication = \"A\"\n",
+		"incomplete":    "version = 1\n[apps.web]\nproject = \"P\"\n",
+		"escaping root": "version = 1\n[apps.web]\nproject = \"P\"\nenvironment = \"E\"\napplication = \"A\"\nroot = \"../x\"\n",
+	} {
+		if _, err := config.Parse([]byte(input)); !errors.Is(err, config.ErrInvalid) {
+			t.Errorf("%s accepted: %v", name, err)
+		}
 	}
 }
