@@ -24,6 +24,13 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 - Keep credential files read-only. Never persist tokens or fetched secret values in project configuration, fixtures, debug output, or Git.
 - Update README examples, architecture decisions, and roadmap status when behavior changes. Do not document planned commands as implemented.
 
+## Versioning and changelog
+
+- Versions are Git tags `vMAJOR.MINOR.PATCH` following Semantic Versioning; before 1.0.0 a minor version may change command behavior. `CHANGELOG.md` follows Keep a Changelog.
+- Every user-visible change lands with an entry under `## [Unreleased]` in the same commit, in the past tense from the user's point of view (Added, Changed, Fixed, Removed, Compatibility). Internal refactors need no entry.
+- To release: move `[Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD` section, update the link references at the bottom, commit as `release: vX.Y.Z`, tag with `git tag -a vX.Y.Z -m "Coolship vX.Y.Z"`, and push the tag. Build with `scripts/build`, which stamps the version from `git describe`; a plain `go build` reports the VCS revision instead.
+- Bump the `Compatibility` note when the verified Coolify version changes.
+
 ## Parallel work
 
 When the user authorizes agents, delegate bounded packages with explicit ownership and agree on interfaces first. All agents share the working tree. Do not overwrite another agent's work. The coordinating agent handles integration, final checks, commits, and pushes.

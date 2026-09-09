@@ -55,10 +55,11 @@ Coolship needs Go 1.26 or newer, matching `coolify-cli` so code can move upstrea
 ```bash
 git clone https://github.com/joaomnuno/coolship.git
 cd coolship
-go build -o coolship .
+scripts/build            # bin/coolship, version stamped from the nearest tag
+coolship --version
 ```
 
-Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory.
+A plain `go build -o coolship .` also works and reports the Git revision it was built from. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Getting started
 

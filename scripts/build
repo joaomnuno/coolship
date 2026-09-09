@@ -1,0 +1,8 @@
+#!/bin/sh
+# Build coolship with its version stamped from the nearest tag.
+# Usage: scripts/build [output]   (default: bin/coolship)
+set -eu
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+version=$(git -C "$repo_root" describe --tags --always --dirty 2>/dev/null || echo dev)
+output=${1:-"$repo_root/bin/coolship"}
+exec "$repo_root/scripts/go" build -trimpath -ldflags "-s -w -X main.version=$version" -o "$output" "$repo_root"

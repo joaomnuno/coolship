@@ -5,6 +5,8 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strings"
 	"syscall"
 
 	"github.com/joaomnuno/coolship/cmd"
@@ -15,10 +17,42 @@ import (
 	"github.com/joaomnuno/coolship/internal/ui"
 )
 
-// version is replaced at build time with -ldflags "-X main.version=<tag>".
-var version = "dev"
+// version is set at build time with -ldflags "-X main.version=<tag>"; see
+// scripts/build. A plain go build leaves it empty and the VCS revision Go
+// records in the binary is reported instead.
+var version string
 
 func main() { os.Exit(run()) }
+
+// resolveVersion prefers the build-time version, then the VCS revision from
+// build info, then "dev", so --version always says which code is running.
+func resolveVersion(built string, info *debug.BuildInfo, ok bool) string {
+	if built != "" {
+		return built
+	}
+	if !ok || info == nil {
+		return "dev"
+	}
+	revision, modified := "", false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return "dev"
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		revision += "-dirty"
+	}
+	return "dev (" + revision + ")"
+}
 
 // run owns process concerns: signals, environment, streams, and the single
 // diagnostic written before an exit code is chosen.
@@ -35,7 +69,9 @@ func run() int {
 			return runner.Run(ctx, process.Spec{Dir: spec.Dir, Args: spec.Args, Shell: spec.Shell, Env: spec.Env})
 		},
 	})
-	err := cmd.NewRootCommand(app, streams, version, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
+	info, ok := debug.ReadBuildInfo()
+	resolved := resolveVersion(version, info, ok)
+	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
 		_ = ui.PrintError(streams.Err, err)
@@ -44,7 +80,7 @@ func run() int {
 }
 
 func newBackend(credentials auth.Credentials) (service.Backend, error) {
-	client, err := coolify.NewClient(credentials.URL, credentials.Token, coolify.WithUserAgent("coolship/"+version))
+	client, err := coolify.NewClient(credentials.URL, credentials.Token, coolify.WithUserAgent("coolship/"+userAgentVersion()))
 	if err != nil {
 		return nil, err
 	}
@@ -63,4 +99,14 @@ func interactive() bool {
 func isTerminal(file *os.File) bool {
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// userAgentVersion keeps the header short and free of spaces or parentheses.
+func userAgentVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	resolved := resolveVersion(version, info, ok)
+	if strings.HasPrefix(resolved, "dev") {
+		return "dev"
+	}
+	return resolved
 }
