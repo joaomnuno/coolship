@@ -113,3 +113,29 @@ func checkOriginal(value Project) (os.FileMode, error) {
 	}
 	return info.Mode().Perm(), nil
 }
+
+// RemoveBinding deletes the configuration file that discovery loaded, and only
+// that file: a change since discovery is a conflict, never an overwrite.
+func RemoveBinding(value Project) error {
+	if !value.Exists || value.ConfigPath == "" {
+		return ErrNotLinked
+	}
+	lock, err := os.OpenFile(value.ConfigPath+".lock", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		return ErrConflict
+	}
+	if err != nil {
+		return fmt.Errorf("lock project configuration: %w", err)
+	}
+	defer os.Remove(lock.Name())
+	if err := lock.Close(); err != nil {
+		return fmt.Errorf("close configuration lock: %w", err)
+	}
+	if _, err := checkOriginal(value); err != nil {
+		return err
+	}
+	if err := os.Remove(value.ConfigPath); err != nil {
+		return fmt.Errorf("remove project configuration: %w", err)
+	}
+	return nil
+}

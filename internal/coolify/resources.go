@@ -89,3 +89,18 @@ func (c *Client) Logs(ctx context.Context, uuid string, lines int) (models.LogSn
 	}
 	return models.LogSnapshot{Logs: *response.Logs}, nil
 }
+
+// Version reads the server version. Coolify 4.3.18 answers with plain text
+// (and an HTML content type), so this does not go through JSON decoding.
+func (c *Client) Version(ctx context.Context) (string, error) {
+	data, endpoint, err := c.fetch(ctx, http.MethodGet, []string{"version"}, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	version := strings.Trim(strings.TrimSpace(string(data)), `"`)
+	if version == "" || len(version) > 64 || !unicode.IsDigit(rune(version[0])) ||
+		strings.IndexFunc(version, func(r rune) bool { return r < ' ' || r > '~' }) >= 0 {
+		return "", &ProtocolError{Endpoint: endpoint, Reason: "response is not a version string"}
+	}
+	return version, nil
+}

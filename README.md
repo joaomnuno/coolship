@@ -11,6 +11,7 @@ coolship link
 coolship status
 coolship deploy
 coolship logs
+coolship open
 ```
 
 ## Why?
@@ -43,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, and `logs` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, and `doctor` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -154,6 +155,39 @@ coolship logs --lines 500
 coolship logs --follow
 ```
 
+### `coolship open`
+
+Open the application's public URL — or, with `--dashboard`, its page in Coolify — in your default browser. The URL is always printed on stdout, and nothing is launched when stdin is not a terminal or with `--print`, so it composes with other tools.
+
+```bash
+coolship open
+coolship open --dashboard
+coolship open --print | pbcopy
+```
+
+### `coolship doctor`
+
+Run every step a command performs and report each one: configuration, Git boundary, binding, credentials, context, server reachability and version, and whether the binding resolves to a running application. Exit status is 1 when any check fails; warnings do not.
+
+```text
+$ coolship doctor
+[ok]   Project configuration: /home/you/my-app/coolship.toml
+[ok]   Git repository: /home/you/my-app
+[ok]   Binding: Personal / production / fenix-bot in /home/you/my-app
+[ok]   Credentials: /home/you/.config/coolify/config.json (1 instance, default home)
+[ok]   Context: home at https://coolify.example.com
+[ok]   Server: Coolify 4.3.18
+[ok]   Application: fenix-bot (9f8e7d6c) is running:healthy
+```
+
+### `coolship config`
+
+Show the effective configuration for this directory after overrides: the discovered file, target, binding, and which credentials would be used. It reads files only — no request is made and no token is shown.
+
+### `coolship unlink`
+
+Delete `coolship.toml`. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
+
 ### Shared options
 
 | Flag | Purpose |
@@ -237,11 +271,6 @@ Limits worth knowing:
 None of the following exist yet; they are the directions the architecture is built to accommodate. See [ROADMAP.md](ROADMAP.md).
 
 ```text
-coolship open
-coolship unlink
-coolship config
-coolship doctor
-
 coolship env pull
 coolship env push
 coolship env diff

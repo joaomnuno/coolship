@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -81,6 +82,11 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 			fn(w, r, s.record(r.Method+" "+r.URL.Path))
 		})
 	}
+	handle("GET /api/v1/version", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		// Coolify 4.3.18 answers in plain text with an HTML content type.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("4.3.18"))
+	})
 	handle("GET /api/v1/projects", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{{"uuid": "project-1", "name": "Personal"}})
 	})
@@ -294,5 +300,65 @@ func TestServerFailureIsReportedWithoutWriting(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
 		t.Errorf("failed link wrote configuration: %v", err)
+	}
+}
+
+func TestDiagnosticCommandsAgainstTheServer(t *testing.T) {
+	s := &server{logs: []string{"2026-01-01T00:00:00Z ok\n"}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	out, _, err := run(t, instance.URL, dir, "", "doctor", "--format", "json")
+	if err != nil {
+		t.Fatalf("doctor: %v (%s)", err, out)
+	}
+	var doctor service.DoctorResult
+	if err := json.Unmarshal([]byte(out), &doctor); err != nil || doctor.Failed {
+		t.Fatalf("doctor result %s: %v", out, err)
+	}
+	found := map[string]string{}
+	for _, check := range doctor.Checks {
+		found[check.Name] = check.Detail
+	}
+	if !strings.Contains(found["Server"], "Coolify 4.3.18") || !strings.Contains(found["Application"], "fenix-bot") {
+		t.Fatalf("doctor checks %v", found)
+	}
+
+	out, _, err = run(t, instance.URL, dir, "", "open", "--print")
+	if err != nil || strings.TrimSpace(out) != "https://fenix.example.com" {
+		t.Fatalf("open: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "open", "--dashboard")
+	if err != nil || !strings.HasPrefix(out, instance.URL+"/project/project-1/environment/env-1/application/app-1") {
+		t.Fatalf("open --dashboard: out=%q err=%v", out, err)
+	}
+
+	out, _, err = run(t, instance.URL, dir, "", "config", "--format", "json")
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	var config service.ConfigResult
+	if err := json.Unmarshal([]byte(out), &config); err != nil || config.CredentialSource != "environment" || config.Binding.Application != "fenix-bot" {
+		t.Fatalf("config result %s: %v", out, err)
+	}
+	// config never contacts the server.
+	if s.counts()["GET /api/v1/version"] != 1 {
+		t.Fatalf("unexpected server traffic from config: %v", s.counts())
+	}
+
+	if _, _, err := run(t, instance.URL, dir, "", "unlink"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("noninteractive unlink without --yes: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "unlink", "--yes"); err != nil {
+		t.Fatalf("unlink --yes: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
+		t.Fatal("unlink left the configuration in place")
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "status"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("status after unlink should report not linked: %v", err)
 	}
 }

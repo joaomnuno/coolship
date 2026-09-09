@@ -112,25 +112,37 @@ func (c *Client) endpoint(parts ...string) (*url.URL, string, error) {
 }
 
 func (c *Client) request(ctx context.Context, method string, parts []string, query url.Values, body any, out any) error {
-	u, endpoint, err := c.endpoint(parts...)
+	data, endpoint, err := c.fetch(ctx, method, parts, query, body)
 	if err != nil {
 		return err
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) || json.Unmarshal(data, out) != nil {
+		return &ProtocolError{Endpoint: endpoint, Reason: "response does not match the expected JSON contract"}
+	}
+	return nil
+}
+
+// fetch performs one bounded request and returns the raw successful body.
+func (c *Client) fetch(ctx context.Context, method string, parts []string, query url.Values, body any) ([]byte, string, error) {
+	u, endpoint, err := c.endpoint(parts...)
+	if err != nil {
+		return nil, "", err
 	}
 	u.RawQuery = query.Encode()
 	var encoded []byte
 	if body != nil {
 		encoded, err = json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("encode Coolify request: %w", err)
+			return nil, "", fmt.Errorf("encode Coolify request: %w", err)
 		}
 	}
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, "", err
 		}
 		req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(encoded))
 		if err != nil {
-			return &RequestError{Method: method, Endpoint: endpoint, Err: err}
+			return nil, "", &RequestError{Method: method, Endpoint: endpoint, Err: err}
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		req.Header.Set("Accept", "application/json")
@@ -148,39 +160,36 @@ func (c *Client) request(ctx context.Context, method string, parts []string, que
 			}
 			if method == http.MethodGet && attempt < c.retries && ctx.Err() == nil {
 				if err := wait(ctx, c.backoff(attempt)); err != nil {
-					return err
+					return nil, "", err
 				}
 				continue
 			}
-			return &RequestError{Method: method, Endpoint: endpoint, Err: err}
+			return nil, "", &RequestError{Method: method, Endpoint: endpoint, Err: err}
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			resp.Body.Close()
 			delay, canRetry := c.retryAfter(resp.Header.Get("Retry-After"), attempt)
 			if method == http.MethodGet && attempt < c.retries && retryable(resp.StatusCode) && canRetry {
 				if err := wait(ctx, delay); err != nil {
-					return err
+					return nil, "", err
 				}
 				continue
 			}
-			return &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint}
+			return nil, "", &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint}
 		}
 		if strings.Contains(resp.Header.Get("Link"), `rel="next"`) || strings.Contains(resp.Header.Get("Link"), "rel=next") {
 			resp.Body.Close()
-			return &ProtocolError{Endpoint: endpoint, Reason: "unexpected pagination; refusing to use an incomplete resource list"}
+			return nil, "", &ProtocolError{Endpoint: endpoint, Reason: "unexpected pagination; refusing to use an incomplete resource list"}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		resp.Body.Close()
 		if readErr != nil {
-			return &RequestError{Method: method, Endpoint: endpoint, Err: readErr}
+			return nil, "", &RequestError{Method: method, Endpoint: endpoint, Err: readErr}
 		}
 		if len(data) > maxResponseBytes {
-			return &ProtocolError{Endpoint: endpoint, Reason: "response exceeds the 16 MiB limit"}
+			return nil, "", &ProtocolError{Endpoint: endpoint, Reason: "response exceeds the 16 MiB limit"}
 		}
-		if bytes.Equal(bytes.TrimSpace(data), []byte("null")) || json.Unmarshal(data, out) != nil {
-			return &ProtocolError{Endpoint: endpoint, Reason: "response does not match the expected JSON contract"}
-		}
-		return nil
+		return data, endpoint, nil
 	}
 }
 

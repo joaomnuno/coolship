@@ -137,3 +137,24 @@ func selectionFlags(kind string) string {
 		return "the corresponding link flags"
 	}
 }
+
+// ConfirmUnlink requires an explicit yes before the binding file is deleted.
+func (p *Prompter) ConfirmUnlink(ctx context.Context, plan service.UnlinkPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("unlinking requires --yes when input is noninteractive")}
+	}
+	b := plan.Binding
+	if _, err := fmt.Fprintf(p.streams.Err,
+		"Delete %s?\nCurrent binding: %s / %s / %s\nThe remote application is not affected.\nConfirm [y/N]: ",
+		singleLine(plan.Path), singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application)); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}

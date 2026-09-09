@@ -20,6 +20,23 @@ type fakeApplication struct {
 	deploy func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
 	logs   func(context.Context, service.LogsOptions, service.Emitter) error
 	link   func(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
+	open   func(context.Context, service.OpenOptions) (service.OpenResult, error)
+	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
+	config func(context.Context, service.Options) (service.ConfigResult, error)
+	doctor func(context.Context, service.Options) (service.DoctorResult, error)
+}
+
+func (f fakeApplication) Open(ctx context.Context, options service.OpenOptions) (service.OpenResult, error) {
+	return f.open(ctx, options)
+}
+func (f fakeApplication) Unlink(ctx context.Context, options service.UnlinkOptions, confirm service.ConfirmUnlink) (service.UnlinkResult, error) {
+	return f.unlink(ctx, options, confirm)
+}
+func (f fakeApplication) Config(ctx context.Context, options service.Options) (service.ConfigResult, error) {
+	return f.config(ctx, options)
+}
+func (f fakeApplication) Doctor(ctx context.Context, options service.Options) (service.DoctorResult, error) {
+	return f.doctor(ctx, options)
 }
 
 func (f fakeApplication) Status(ctx context.Context, options service.Options) (service.StatusResult, error) {
@@ -54,13 +71,13 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs"} {
-		if !strings.Contains(out, command) {
+	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor"} {
+		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
 	}
-	for _, command := range []string{"preview", "doctor", "completion"} {
-		if strings.Contains(out, command) {
+	for _, command := range []string{"preview", "env", "dev", "completion"} {
+		if strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help advertises unimplemented command %s", command)
 		}
 	}
@@ -279,5 +296,94 @@ func TestContextAndOperationalErrorReachBoundary(t *testing.T) {
 	_, _, err = execute(t, app, "status")
 	if !errors.Is(err, operationErr) || ui.ExitCode(err) != 1 {
 		t.Fatalf("operation error = %v", err)
+	}
+}
+
+func TestOpenPrintsURLAndLaunchesOnlyInteractively(t *testing.T) {
+	app := fakeApplication{open: func(_ context.Context, options service.OpenOptions) (service.OpenResult, error) {
+		kind, url := "application", "https://app.example.com"
+		if options.Dashboard {
+			kind, url = "dashboard", "https://coolify.example.com/project/p/environment/e/application/a"
+		}
+		return service.OpenResult{Kind: kind, URL: url}, nil
+	}}
+	var launched []string
+	opener := cmd.WithOpener(func(url string) error { launched = append(launched, url); return nil })
+
+	// Noninteractive: print only.
+	var out, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic}, "test", opener)
+	root.SetArgs([]string{"open"})
+	if err := root.ExecuteContext(context.Background()); err != nil || out.String() != "https://app.example.com\n" || len(launched) != 0 || diagnostic.String() != "" {
+		t.Fatalf("noninteractive: out=%q err=%v launched=%v diagnostic=%q", out.String(), err, launched, diagnostic.String())
+	}
+	// Interactive: print and launch, reporting the launch on stderr.
+	out.Reset()
+	root = cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: true}, "test", opener)
+	root.SetArgs([]string{"open", "--dashboard"})
+	if err := root.ExecuteContext(context.Background()); err != nil || !strings.HasPrefix(out.String(), "https://coolify.example.com/") || len(launched) != 1 || !strings.Contains(diagnostic.String(), "Opening dashboard") {
+		t.Fatalf("interactive: out=%q err=%v launched=%v diagnostic=%q", out.String(), err, launched, diagnostic.String())
+	}
+	// --print never launches, even interactively.
+	out.Reset()
+	root = cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: true}, "test", opener)
+	root.SetArgs([]string{"open", "--print"})
+	if err := root.ExecuteContext(context.Background()); err != nil || len(launched) != 1 {
+		t.Fatalf("--print launched: err=%v launched=%v", err, launched)
+	}
+	// A launcher failure is reported, with the URL already printed.
+	out.Reset()
+	root = cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: true}, "test",
+		cmd.WithOpener(func(string) error { return errors.New("no display") }))
+	root.SetArgs([]string{"open"})
+	if err := root.ExecuteContext(context.Background()); err == nil || !strings.Contains(err.Error(), "no display") || out.String() != "https://app.example.com\n" {
+		t.Fatalf("launch failure: out=%q err=%v", out.String(), err)
+	}
+}
+
+func TestDoctorExitCodeFollowsFailures(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		app := fakeApplication{doctor: func(context.Context, service.Options) (service.DoctorResult, error) {
+			return service.DoctorResult{Checks: []service.Check{{Name: "Server", Status: "ok", Detail: "Coolify 4.3.18"}, {Name: "Binding", Status: map[bool]string{false: "warning", true: "failed"}[failed], Detail: "x"}}, Failed: failed}, nil
+		}}
+		out, _, err := execute(t, app, "doctor")
+		if !strings.Contains(out, "[ok]   Server: Coolify 4.3.18") {
+			t.Fatalf("output %q", out)
+		}
+		if failed && (!errors.Is(err, service.ErrChecksFailed) || ui.ExitCode(err) != 1) {
+			t.Fatalf("failed checks: err=%v code=%d", err, ui.ExitCode(err))
+		}
+		if !failed && err != nil {
+			t.Fatalf("warnings must not fail: %v", err)
+		}
+	}
+}
+
+func TestUnlinkAndConfigRender(t *testing.T) {
+	app := fakeApplication{
+		unlink: func(_ context.Context, options service.UnlinkOptions, confirm service.ConfirmUnlink) (service.UnlinkResult, error) {
+			if !options.Yes {
+				if _, err := confirm(context.Background(), service.UnlinkPlan{Path: "/p/coolship.toml"}); err != nil {
+					return service.UnlinkResult{}, err
+				}
+			}
+			return service.UnlinkResult{Path: "/p/coolship.toml"}, nil
+		},
+		config: func(context.Context, service.Options) (service.ConfigResult, error) {
+			return service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file", CredentialPath: "/home/u/.config/coolify/config.json", Instance: "home", InstanceURL: "https://coolify.example.com", Overrides: map[string]string{"environment": "staging"}}, nil
+		},
+	}
+	// Noninteractive unlink without --yes is an input error and prints nothing on stdout.
+	out, _, err := execute(t, app, "unlink")
+	if !errors.Is(err, service.ErrInput) || out != "" {
+		t.Fatalf("unlink without --yes: out=%q err=%v", out, err)
+	}
+	out, _, err = execute(t, app, "unlink", "--yes")
+	if err != nil || out != "Unlinked /p/coolship.toml\n" {
+		t.Fatalf("unlink --yes: out=%q err=%v", out, err)
+	}
+	out, _, err = execute(t, app, "config")
+	if err != nil || !strings.Contains(out, "home at https://coolify.example.com") || !strings.Contains(out, "Override environment: staging") {
+		t.Fatalf("config: out=%q err=%v", out, err)
 	}
 }

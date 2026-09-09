@@ -14,6 +14,9 @@ type HTTPError struct {
 	Endpoint   string
 }
 
+// HTTPStatusCode lets callers classify a failure without importing this package.
+func (e *HTTPError) HTTPStatusCode() int { return e.StatusCode }
+
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("Coolify %s %s: HTTP %d %s", e.Method, e.Endpoint, e.StatusCode, http.StatusText(e.StatusCode))
 }

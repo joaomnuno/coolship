@@ -16,16 +16,39 @@ type Application interface {
 	Deploy(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
 	Logs(context.Context, service.LogsOptions, service.Emitter) error
 	Link(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
+	Open(context.Context, service.OpenOptions) (service.OpenResult, error)
+	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
+	Config(context.Context, service.Options) (service.ConfigResult, error)
+	Doctor(context.Context, service.Options) (service.DoctorResult, error)
+}
+
+// Option configures process-level behavior the command tree cannot own.
+type Option func(*settings)
+
+type settings struct {
+	openBrowser func(string) error
+}
+
+// WithOpener supplies the browser launcher used by open. Without one, open
+// only prints the URL.
+func WithOpener(open func(string) error) Option {
+	return func(s *settings) { s.openBrowser = open }
 }
 
 // NewRootCommand constructs an offline command tree with explicit dependencies.
-func NewRootCommand(app Application, streams ui.Streams, version string) *cobra.Command {
+func NewRootCommand(app Application, streams ui.Streams, version string, opts ...Option) *cobra.Command {
 	streams = streams.Normalized()
+	var config settings
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&config)
+		}
+	}
 	options := &commandOptions{format: "human"}
 	root := &cobra.Command{
 		Use:           "coolship",
 		Short:         "Project-local deployment workflows for Coolify",
-		Long:          "Link this repository to an existing Coolify application, then inspect, deploy, and read its logs.",
+		Long:          "Link this repository to an existing Coolify application, then inspect, deploy, open, and read the logs of that application.",
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -56,7 +79,9 @@ func NewRootCommand(app Application, streams ui.Streams, version string) *cobra.
 	root.PersistentFlags().StringVarP(&options.Environment, "environment", "e", "", "Remote environment name for this invocation")
 	root.PersistentFlags().StringVar(&options.format, "format", "human", "Output format: human or json (logs uses NDJSON)")
 	root.AddCommand(newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
-		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams))
+		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
+		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
+		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams))
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about a command",

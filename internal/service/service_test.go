@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,6 +26,7 @@ type fakeBackend struct {
 	snapshots    []string
 	calls        map[string]int
 	readError    error
+	versionError error
 }
 
 func newBackend() *fakeBackend {
@@ -37,6 +39,14 @@ func newBackend() *fakeBackend {
 		deployments:  []models.Deployment{{UUID: "deploy-1", Status: "finished"}},
 		snapshots:    []string{"2026-09-09T10:00:00Z hello\n"}, calls: map[string]int{},
 	}
+}
+
+func (f *fakeBackend) Version(context.Context) (string, error) {
+	f.calls["version"]++
+	if f.versionError != nil {
+		return "", f.versionError
+	}
+	return "4.3.18", nil
 }
 
 func (f *fakeBackend) ListProjects(context.Context) ([]models.Project, error) {
@@ -98,6 +108,10 @@ func testApp(f *fakeBackend) (*App, *int, *int) {
 			credentials++
 			return auth.Credentials{Name: "home", URL: "https://coolify.example.com", Token: "private-token"}, nil
 		},
+		InspectCredentials: func(auth.Options) auth.Report {
+			return auth.Report{Source: "file", Path: "/home/test/.config/coolify/config.json", Exists: true, Mode: 0o600,
+				Instances: []auth.Instance{{Name: "home", URL: "https://coolify.example.com", Default: true}}, Default: "home"}
+		},
 		ListInstances: func(auth.Options) ([]auth.Instance, error) {
 			return []auth.Instance{{Name: "home", URL: "https://coolify.example.com", Default: true}}, nil
 		},
@@ -115,6 +129,10 @@ func linkedOptions(t *testing.T) Options {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "coolship.toml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// A Git marker bounds discovery to this directory, whatever contains it.
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	return Options{CWD: dir}
@@ -448,4 +466,163 @@ func TestDeploymentToleratesWithheldAndUnreadableBuildLogs(t *testing.T) {
 			}
 		})
 	}
+}
+
+type statusError struct{ code int }
+
+func (e statusError) Error() string       { return fmt.Sprintf("http %d", e.code) }
+func (e statusError) HTTPStatusCode() int { return e.code }
+
+func TestOpenResolvesApplicationOrDashboardURL(t *testing.T) {
+	f := newBackend()
+	f.application.FQDN = "https://app.example.com, https://alias.example.com,javascript:alert(1)"
+	f.environments[0].Applications[0] = f.application
+	app, _, _ := testApp(f)
+	result, err := app.Open(context.Background(), OpenOptions{Options: linkedOptions(t)})
+	if err != nil || result.Kind != "application" || result.URL != "https://app.example.com" || len(result.Warnings) != 1 || strings.Contains(result.Warnings[0], "javascript") {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	result, err = app.Open(context.Background(), OpenOptions{Options: linkedOptions(t), Dashboard: true})
+	if err != nil || result.Kind != "dashboard" || result.URL != "https://coolify.example.com/project/project-1/environment/env-1/application/app-1" {
+		t.Fatalf("dashboard result=%+v err=%v", result, err)
+	}
+	f.application.FQDN = ""
+	f.environments[0].Applications[0] = f.application
+	if _, err := app.Open(context.Background(), OpenOptions{Options: linkedOptions(t)}); !errors.Is(err, ErrInput) {
+		t.Fatalf("no domain should be an input error, got %v", err)
+	}
+}
+
+func TestUnlinkRemovesOnlyTheReviewedFile(t *testing.T) {
+	f := newBackend()
+	app, credentials, _ := testApp(f)
+	options := linkedOptions(t)
+	path := filepath.Join(options.CWD, "coolship.toml")
+	if _, err := app.Unlink(context.Background(), UnlinkOptions{Options: options}, nil); !errors.Is(err, ErrInput) {
+		t.Fatalf("nil confirm must be an input error, got %v", err)
+	}
+	declined := func(context.Context, UnlinkPlan) (bool, error) { return false, nil }
+	if _, err := app.Unlink(context.Background(), UnlinkOptions{Options: options}, declined); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("declined confirm: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("declined unlink removed the file")
+	}
+	var plan UnlinkPlan
+	accepted := func(_ context.Context, p UnlinkPlan) (bool, error) { plan = p; return true, nil }
+	result, err := app.Unlink(context.Background(), UnlinkOptions{Options: options}, accepted)
+	if err != nil || result.Path != path || plan.Binding.Application != "api" {
+		t.Fatalf("result=%+v plan=%+v err=%v", result, plan, err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("file still exists after unlink")
+	}
+	if *credentials != 0 || f.calls["projects"] != 0 {
+		t.Fatal("unlink must not touch credentials or the server")
+	}
+	if _, err := app.Unlink(context.Background(), UnlinkOptions{Options: options, Yes: true}, nil); !errors.Is(err, ErrInput) {
+		t.Fatalf("unlinking an unlinked project: %v", err)
+	}
+}
+
+func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
+	f := newBackend()
+	app, _, factories := testApp(f)
+	options := linkedOptions(t)
+	options.Environment = "staging"
+	options.Context = "other"
+	result, err := app.Config(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Binding.Environment != "staging" || result.Overrides["environment"] != "staging" || result.Overrides["context"] != "other" {
+		t.Fatalf("overrides not applied: %+v", result)
+	}
+	if result.Instance != "home" || result.CredentialSource != "file" || *factories != 0 || f.calls["projects"] != 0 {
+		t.Fatalf("config must resolve credentials locally and never build a backend: %+v factories=%d calls=%v", result, *factories, f.calls)
+	}
+	broken := New(Dependencies{
+		ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
+			return auth.Credentials{}, errors.New("no default instance")
+		},
+		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{Source: "file", Path: "/nowhere"} },
+		NewBackend:         func(auth.Credentials) (Backend, error) { return f, nil },
+	})
+	result, err = broken.Config(context.Background(), linkedOptions(t))
+	if err != nil || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "no default instance") {
+		t.Fatalf("credential failure should be a warning: result=%+v err=%v", result, err)
+	}
+}
+
+func TestDoctorReportsEveryStep(t *testing.T) {
+	statuses := func(result DoctorResult) map[string]string {
+		out := map[string]string{}
+		for _, check := range result.Checks {
+			if _, seen := out[check.Name]; !seen {
+				out[check.Name] = check.Status
+			}
+		}
+		return out
+	}
+	t.Run("healthy", func(t *testing.T) {
+		f := newBackend()
+		app, _, _ := testApp(f)
+		result, err := app.Doctor(context.Background(), linkedOptions(t))
+		if err != nil || result.Failed {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		got := statuses(result)
+		for _, name := range []string{"Project configuration", "Binding", "Credentials", "Context", "Server", "Application"} {
+			if got[name] != "ok" {
+				t.Errorf("%s = %q, want ok (all: %v)", name, got[name], got)
+			}
+		}
+		if got["Git repository"] != "ok" {
+			t.Errorf("Git repository = %q", got["Git repository"])
+		}
+	})
+	t.Run("unlinked still checks credentials and server", func(t *testing.T) {
+		f := newBackend()
+		app, _, _ := testApp(f)
+		result, err := app.Doctor(context.Background(), Options{CWD: unlinkedDirectory(t)})
+		if err != nil || !result.Failed {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		got := statuses(result)
+		if got["Project configuration"] != "failed" || got["Server"] != "ok" || got["Application"] != "skipped" {
+			t.Fatalf("unexpected statuses %v", got)
+		}
+	})
+	t.Run("rejected token stops at the server", func(t *testing.T) {
+		f := newBackend()
+		f.versionError = statusError{code: 401}
+		app, _, _ := testApp(f)
+		result, _ := app.Doctor(context.Background(), linkedOptions(t))
+		got := statuses(result)
+		if got["Server"] != "failed" || got["Application"] != "" || !result.Failed {
+			t.Fatalf("unexpected statuses %v", got)
+		}
+		for _, check := range result.Checks {
+			if check.Name == "Server" && !strings.Contains(check.Detail, "401") {
+				t.Fatalf("server detail should classify the status: %q", check.Detail)
+			}
+		}
+	})
+	t.Run("missing credentials file", func(t *testing.T) {
+		f := newBackend()
+		app := New(Dependencies{
+			ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
+				return auth.Credentials{}, errors.New("read Coolify CLI configuration: no such file")
+			},
+			InspectCredentials: func(auth.Options) auth.Report {
+				return auth.Report{Source: "file", Path: "/nowhere/config.json", Err: os.ErrNotExist}
+			},
+			NewBackend: func(auth.Credentials) (Backend, error) { return f, nil },
+		})
+		result, _ := app.Doctor(context.Background(), linkedOptions(t))
+		got := statuses(result)
+		if got["Credentials"] != "failed" || got["Context"] != "failed" || got["Server"] != "" {
+			t.Fatalf("unexpected statuses %v", got)
+		}
+	})
 }

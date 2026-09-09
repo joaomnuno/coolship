@@ -346,9 +346,12 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `status` | Resolve once and return observed application status and identity. Preserve unfamiliar server status strings. | Shared resolution, then `GET /applications/{uuid}`. |
 | `deploy` | Resolve once, submit exactly the selected application, and observe the returned deployment UUID. | `POST /deploy` with the application UUID; `GET /deployments/{deployment_uuid}` while waiting. |
 | `logs` | Resolve once, fetch runtime logs, optionally follow snapshots. | `GET /applications/{uuid}/logs?lines=…&show_timestamps=true`. |
-| `open` (optional) | Resolve the application URL; UI invokes an injected browser opener. | Application details; dashboard URL construction needs separate route verification. |
+| `open` | Resolve the application URL, or the dashboard page `/project/{p}/environment/{e}/application/{a}` verified in `routes/web.php`; the command invokes an injected browser opener only when interactive. Only web URLs reach the opener. | Shared resolution. |
+| `doctor` | Run each preparation step separately and report all of them; local checks continue past failures, remote checks stop at the first. Exit 1 on any failure. | `GET /version` (plain text), then shared resolution. |
+| `config` | Report the effective local configuration and credential source after overrides. | None. |
+| `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
 
-The proposed hierarchy leaves room for `init`, `unlink`, `env pull|push|diff`, `dev`, `preview`, `config`, and `doctor`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
+The hierarchy leaves room for `init`, `env pull|push|diff`, `dev`, and `preview`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
 ### Deployment semantics
 

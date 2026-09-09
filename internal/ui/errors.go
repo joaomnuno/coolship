@@ -31,6 +31,10 @@ func PrintError(w io.Writer, err error) error {
 		return nil
 	}
 	text := err.Error()
+	if errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled) {
+		_, writeErr := fmt.Fprintln(w, "Cancelled")
+		return writeErr
+	}
 	if errors.Is(err, context.Canceled) {
 		text = strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")
 		if text == "interrupted" {

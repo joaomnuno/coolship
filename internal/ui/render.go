@@ -152,3 +152,106 @@ func singleLine(value string) string {
 	}
 	return out.String()
 }
+
+// Open prints the resolved URL on stdout so it can be piped; launching is
+// reported separately by the command on stderr.
+func (r *Renderer) Open(result service.OpenResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	_, err := fmt.Fprintln(r.streams.Out, singleLine(result.URL))
+	return err
+}
+
+func (r *Renderer) Unlink(result service.UnlinkResult) error {
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "Unlinked %s\n", singleLine(result.Path))
+	return err
+}
+
+func (r *Renderer) Config(result service.ConfigResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	b := result.Binding
+	rows := [][2]string{
+		{"Configuration", result.ConfigPath},
+		{"Git root", result.GitRoot},
+		{"Target", result.Target},
+		{"Application root", result.AppRoot},
+		{"Context", b.Context},
+		{"Project", describeSelector(b.Project, b.ProjectUUID)},
+		{"Environment", describeSelector(b.Environment, b.EnvironmentUUID)},
+		{"Application", describeSelector(b.Application, b.ApplicationUUID)},
+		{"Credentials", describeCredentials(result)},
+		{"Instance", describeInstance(result)},
+	}
+	for key, value := range result.Overrides {
+		rows = append(rows, [2]string{"Override " + key, value})
+	}
+	for _, row := range rows {
+		if row[1] == "" {
+			continue
+		}
+		if _, err := fmt.Fprintf(r.streams.Out, "%-17s %s\n", row[0]+":", singleLine(row[1])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func describeSelector(name, uuid string) string {
+	switch {
+	case name != "" && uuid != "":
+		return name + " (" + uuid + ")"
+	case uuid != "":
+		return uuid
+	default:
+		return name
+	}
+}
+
+func describeCredentials(result service.ConfigResult) string {
+	if result.CredentialSource == "environment" {
+		return "COOLSHIP_URL and COOLSHIP_TOKEN"
+	}
+	return result.CredentialPath
+}
+
+func describeInstance(result service.ConfigResult) string {
+	if result.Instance == "" {
+		return ""
+	}
+	return result.Instance + " at " + result.InstanceURL
+}
+
+// Doctor renders one line per check with an ASCII marker, so the output reads
+// the same in every terminal and in CI logs.
+func (r *Renderer) Doctor(result service.DoctorResult) error {
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	markers := map[string]string{"ok": "[ok]  ", "warning": "[warn]", "failed": "[FAIL]", "skipped": "[skip]"}
+	for _, check := range result.Checks {
+		marker, known := markers[check.Status]
+		if !known {
+			marker = "[" + check.Status + "]"
+		}
+		line := marker + " " + check.Name
+		if check.Detail != "" {
+			line += ": " + singleLine(check.Detail)
+		}
+		if _, err := fmt.Fprintln(r.streams.Out, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}

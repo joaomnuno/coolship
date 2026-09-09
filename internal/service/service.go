@@ -21,6 +21,9 @@ func New(deps Dependencies) *App {
 	if deps.ListInstances == nil {
 		deps.ListInstances = auth.List
 	}
+	if deps.InspectCredentials == nil {
+		deps.InspectCredentials = auth.Inspect
+	}
 	if deps.PollInterval <= 0 {
 		deps.PollInterval = 2 * time.Second
 	}
