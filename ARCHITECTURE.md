@@ -98,6 +98,10 @@ coolship/
 │   ├── auth/
 │   │   ├── credentials.go          # Instance identity and private credentials
 │   │   └── coolify_cli.go          # Read existing contexts and select credentials
+│   ├── process/
+│   │   └── process.go              # Local child process: shell, environment, signals, status
+│   ├── envfile/
+│   │   └── envfile.go              # Dotenv codec preserving comments and order
 │   ├── models/
 │   │   └── models.go               # Resource, deployment, and log identities
 │   ├── coolify/
@@ -351,9 +355,10 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `config` | Report the effective local configuration and credential source after overrides. | None. |
 | `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
 | `preview` | Deploy the preview Coolify already holds for a pull request through the deployment service; the number comes from `--pr` or `GITHUB_REF`. A refusal (unknown pull request) is the server's receipt message, repeated with guidance. | `POST /deploy` with `uuid` and `pr`; `GET /deployments/{deployment_uuid}` while waiting. |
+| `dev` | Run a local command in the application root with the target's runtime variables injected, through an injected process runner; the child's exit status becomes the exit code. | `GET /applications/{uuid}/envs`. |
 | `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 
-The hierarchy leaves room for `init` and `dev`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
+The hierarchy leaves room for `init`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
 ### Deployment semantics
 
@@ -421,7 +426,7 @@ Pull must not write masked or omitted values as if they were real secrets: a wit
 
 ### Development and previews
 
-`dev` can later resolve a development target, fetch selected variables, and pass an explicit environment plus argument vector to a process runner. Keep process supervision and signal forwarding separate from deployment services. Do not embed a local runtime, proxy, Docker manager, or process handle inside `project.Context`.
+`dev` is implemented as designed: the service resolves the target, fetches the selected scope's runtime variables — injecting resolved values, where `env pull` keeps references — and hands a `ProcessSpec` (directory, argument vector or shell line, injected pairs) to a runner injected through `Dependencies`. `internal/process` owns execution: the platform shell for a configured `dev` line, the inherited environment beneath the injected pairs, an interrupt forwarded on cancellation with a kill after a grace period, and the exit status, which `service.ExitError` carries to the process exit code without a second diagnostic. No local runtime, proxy, Docker manager, or process handle lives in `project.Context`.
 
 `preview` is implemented against the verified 4.3.18 contract. `POST /deploy` accepts `pr`, but only for a pull request Coolify already holds as an `ApplicationPreview`; otherwise it answers HTTP 200 with a receipt carrying a message and no deployment UUID. The API exposes `PATCH` and `DELETE` on `/applications/{uuid}/previews/{pull_request_id}` and nothing that creates or lists previews; creation happens through the UI or the `pull_request` webhook at `/webhooks/source/github/events/manual`, gated by `is_preview_deployments_enabled`. Coolship therefore deploys and observes an existing preview through the same deployment service, taking the number from `--pr` or from `GITHUB_REF`, and surfaces the server's refusal with guidance. Verified live: a webhook-created preview for a public repository deployed in 12 seconds. Preview URLs follow the application's `preview_url_template` but are not readable through the API, so `open` does not offer them.
 

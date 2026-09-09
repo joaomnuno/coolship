@@ -33,6 +33,8 @@ type Binding struct {
 	ProjectUUID     string `toml:"project_uuid,omitempty" json:"project_uuid,omitempty"`
 	EnvironmentUUID string `toml:"environment_uuid,omitempty" json:"environment_uuid,omitempty"`
 	ApplicationUUID string `toml:"application_uuid,omitempty" json:"application_uuid,omitempty"`
+	// Dev is the local command `coolship dev` runs, through the platform shell.
+	Dev string `toml:"dev,omitempty" json:"dev,omitempty"`
 }
 
 // IsSet reports whether the binding names any remote resource.

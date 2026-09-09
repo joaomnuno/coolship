@@ -44,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, and `preview` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, and `dev` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -199,6 +199,23 @@ coolship preview               # in a GitHub Actions pull_request job, reads GIT
 
 Coolify must already know the pull request: enable *Preview Deployments* on the application and let Coolify's GitHub webhook (or its UI) register the PR. The API offers no way to create a preview, so this command cannot either — when the server does not know the PR it says so, and Coolship repeats that answer with what to do about it. Verified live against a public repository through the webhook path.
 
+### `coolship dev`
+
+Run a local command in the application root with the application's **runtime** variables injected over your environment, so a process sees what it would see on Coolify — without pulling a `.env` file first.
+
+```bash
+coolship dev -- npm run dev
+coolship dev api -- go run .
+coolship dev                       # runs the binding's dev setting
+```
+
+```toml
+[project]
+dev = "npm run dev"
+```
+
+A command after `--` runs directly; the configured `dev` string runs through your shell. Unlike `env pull`, `dev` injects shared references as the values they resolve to. Withheld values are reported and left to your own environment. The command's exit status becomes Coolship's, and Ctrl-C is forwarded to it.
+
 ### `coolship env`
 
 Synchronize a local dotenv file with the linked application's variables. The file defaults to `.env` in the application root and is created with private permissions.
@@ -333,11 +350,7 @@ Limits worth knowing:
 
 ## Planned
 
-None of the following exist yet; they are the directions the architecture is built to accommodate. See [ROADMAP.md](ROADMAP.md).
-
-```text
-coolship dev
-```
+Every command from the original brief is implemented. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for scaffolding new applications, and sharing packages with `coolify-cli` once their interfaces settle.
 
 ## What Coolship is not
 

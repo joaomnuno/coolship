@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/joaomnuno/coolship/internal/auth"
@@ -46,6 +47,30 @@ type LogsOptions struct {
 	Lines  int
 	Follow bool
 }
+
+// DevOptions runs a local command with the target's runtime variables.
+// Command runs directly; when empty, the binding's dev setting runs through
+// the shell.
+type DevOptions struct {
+	Options
+	Preview bool
+	Command []string
+}
+
+// ProcessSpec is what the service asks the process runner to execute. It
+// carries only the injected variables; the runner layers them over the
+// inherited environment.
+type ProcessSpec struct {
+	Dir   string
+	Args  []string
+	Shell string
+	Env   []string
+}
+
+// ExitError carries a child process's nonzero status to the exit code.
+type ExitError struct{ Code int }
+
+func (e *ExitError) Error() string { return fmt.Sprintf("command exited with status %d", e.Code) }
 
 type OpenOptions struct {
 	Options
@@ -185,6 +210,7 @@ type Dependencies struct {
 	CredentialURL      string
 	CredentialToken    string
 	PollInterval       time.Duration
+	RunProcess         func(context.Context, ProcessSpec) (int, error)
 }
 
 var ErrInput = errors.New("invalid command input")

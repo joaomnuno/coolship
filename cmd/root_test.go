@@ -29,6 +29,11 @@ type fakeApplication struct {
 	pull   func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
 	diff   func(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
 	push   func(context.Context, service.EnvPushOptions, service.ConfirmPush) (service.EnvPushResult, error)
+	dev    func(context.Context, service.DevOptions, service.Emitter) error
+}
+
+func (f fakeApplication) Dev(ctx context.Context, options service.DevOptions, emit service.Emitter) error {
+	return f.dev(ctx, options, emit)
 }
 
 func (f fakeApplication) EnvPull(ctx context.Context, options service.EnvOptions) (service.EnvPullResult, error) {
@@ -86,12 +91,12 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview"} {
+	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
 	}
-	for _, command := range []string{"dev", "completion"} {
+	for _, command := range []string{"completion"} {
 		if strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help advertises unimplemented command %s", command)
 		}
@@ -513,5 +518,42 @@ func TestPositionalTargetSelectsAndCannotConflict(t *testing.T) {
 	out, _, _ := execute(t, app, "status", "api")
 	if !strings.HasPrefix(out, "Target: api\n") {
 		t.Fatalf("named target not shown: %q", out)
+	}
+}
+
+func TestDevSplitsTargetFromCommandAndPropagatesExitStatus(t *testing.T) {
+	var seen []service.DevOptions
+	app := fakeApplication{dev: func(_ context.Context, options service.DevOptions, _ service.Emitter) error {
+		seen = append(seen, options)
+		if len(options.Command) > 0 && options.Command[0] == "false" {
+			return &service.ExitError{Code: 7}
+		}
+		return nil
+	}}
+	if _, _, err := execute(t, app, "dev", "--", "npm", "run", "dev", "--port", "3000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "dev", "api", "--preview", "--", "make"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(seen[0].Command, []string{"npm", "run", "dev", "--port", "3000"}) || seen[0].Target != "" ||
+		!reflect.DeepEqual(seen[1].Command, []string{"make"}) || seen[1].Target != "api" || !seen[1].Preview ||
+		len(seen[2].Command) != 0 {
+		t.Fatalf("options %+v", seen)
+	}
+	out, diagnostic, err := execute(t, app, "dev", "--", "false")
+	var exit *service.ExitError
+	if !errors.As(err, &exit) || ui.ExitCode(err) != 7 || out != "" || diagnostic != "" {
+		t.Fatalf("exit status: err=%v code=%d out=%q diag=%q", err, ui.ExitCode(err), out, diagnostic)
+	}
+	var buffer bytes.Buffer
+	if err := ui.PrintError(&buffer, err); err != nil || buffer.Len() != 0 {
+		t.Fatalf("child exit printed a diagnostic: %q", buffer.String())
+	}
+	if _, _, err := execute(t, app, "dev", "a", "b", "--", "x"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("two targets: %v", err)
 	}
 }

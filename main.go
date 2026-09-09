@@ -10,6 +10,7 @@ import (
 	"github.com/joaomnuno/coolship/cmd"
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/coolify"
+	"github.com/joaomnuno/coolship/internal/process"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -25,10 +26,14 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	streams := ui.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Interactive: interactive()}
+	runner := process.New(os.Stdin, os.Stdout, os.Stderr)
 	app := service.New(service.Dependencies{
 		NewBackend:      newBackend,
 		CredentialURL:   os.Getenv("COOLSHIP_URL"),
 		CredentialToken: os.Getenv("COOLSHIP_TOKEN"),
+		RunProcess: func(ctx context.Context, spec service.ProcessSpec) (int, error) {
+			return runner.Run(ctx, process.Spec{Dir: spec.Dir, Args: spec.Args, Shell: spec.Shell, Env: spec.Env})
+		},
 	})
 	err := cmd.NewRootCommand(app, streams, version, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
 	if err != nil {

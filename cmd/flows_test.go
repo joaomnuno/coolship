@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -196,6 +197,11 @@ func run(t *testing.T, url, dir string, in string, args ...string) (string, stri
 		CredentialURL:   url,
 		CredentialToken: testToken,
 		PollInterval:    time.Millisecond,
+		RunProcess: func(_ context.Context, spec service.ProcessSpec) (int, error) {
+			// Record what a real runner would receive; flows do not spawn processes.
+			fmt.Fprintf(&out, "spec dir=%s args=%v shell=%q env=%v\n", filepath.Base(spec.Dir), spec.Args, spec.Shell, spec.Env)
+			return 0, nil
+		},
 	})
 	streams := ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic, Interactive: in != ""}
 	root := cmd.NewRootCommand(app, streams, "test-version")
@@ -523,5 +529,22 @@ func TestMonorepoTargetsAgainstTheServer(t *testing.T) {
 	}
 	if s.counts()["POST /api/v1/deploy"] != 1 {
 		t.Fatalf("deploy calls: %v", s.counts())
+	}
+}
+
+func TestDevReceivesServerVariables(t *testing.T) {
+	s := &server{variables: []map[string]any{
+		{"uuid": "e1", "key": "SHARED", "value": "{{team.X}}", "real_value": "resolved", "is_preview": false, "is_runtime": true, "is_shared": true},
+		{"uuid": "e2", "key": "PLAIN", "value": "p", "real_value": "p", "is_preview": false, "is_runtime": true},
+		{"uuid": "e3", "key": "PLAIN", "value": "pp", "real_value": "pp", "is_preview": true, "is_runtime": true},
+	}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	out, _, err := run(t, instance.URL, dir, "", "dev", "--", "printenv", "PLAIN")
+	if err != nil || !strings.Contains(out, "args=[printenv PLAIN]") || !strings.Contains(out, "env=[PLAIN=p SHARED=resolved]") {
+		t.Fatalf("dev: out=%q err=%v", out, err)
 	}
 }

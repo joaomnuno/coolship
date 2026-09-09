@@ -32,6 +32,8 @@ type fakeBackend struct {
 	deleted      []string
 	lastDeploy   models.DeployRequest
 	more         map[string]models.Application // applications beyond app-1
+	processes    []ProcessSpec
+	exitCode     int
 }
 
 func newBackend() *fakeBackend {
@@ -139,6 +141,10 @@ func (f *fakeBackend) Logs(_ context.Context, id string, _ int) (models.LogSnaps
 func testApp(f *fakeBackend) (*App, *int, *int) {
 	credentials, factories := 0, 0
 	app := New(Dependencies{
+		RunProcess: func(_ context.Context, spec ProcessSpec) (int, error) {
+			f.processes = append(f.processes, spec)
+			return f.exitCode, nil
+		},
 		ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
 			credentials++
 			return auth.Credentials{Name: "home", URL: "https://coolify.example.com", Token: "private-token"}, nil
@@ -889,5 +895,54 @@ func TestLinkWritesNamedTargetsWithDirectoryRoots(t *testing.T) {
 	_, err = app.Link(context.Background(), convert, nil, func(_ context.Context, p LinkPlan) (bool, error) { plan = p; return false, nil })
 	if !errors.Is(err, ErrCancelled) || !plan.Replacing || !plan.Converting {
 		t.Fatalf("conversion plan=%+v err=%v", plan, err)
+	}
+}
+
+func TestDevInjectsResolvedRuntimeVariablesAndPropagatesStatus(t *testing.T) {
+	f := newBackend()
+	shared := variable("SHARED", "{{team.TOKEN}}", false)
+	shared.RealValue, shared.IsShared = str("resolved"), true
+	buildOnly := variable("BUILD_ONLY", "b", false)
+	buildOnly.IsRuntime = false
+	withheld := variable("SECRET", "", false)
+	withheld.Value, withheld.RealValue, withheld.IsShownOnce = nil, nil, true
+	f.variables = []models.EnvironmentVariable{variable("PLAIN", "p", false), shared, buildOnly, withheld, variable("PLAIN", "preview-p", true)}
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+	var messages []string
+	emit := func(e Event) error { messages = append(messages, e.Type+": "+e.Message); return nil }
+	if err := app.Dev(context.Background(), DevOptions{Options: options, Command: []string{"printenv"}}, emit); err != nil {
+		t.Fatal(err)
+	}
+	spec := f.processes[0]
+	if !reflect.DeepEqual(spec.Args, []string{"printenv"}) || spec.Shell != "" || spec.Dir != options.CWD ||
+		!reflect.DeepEqual(spec.Env, []string{"PLAIN=p", "SHARED=resolved"}) {
+		t.Fatalf("spec %+v", spec)
+	}
+	if len(messages) != 2 || !strings.Contains(messages[0], "SECRET") || !strings.Contains(messages[1], "2 regular variable(s)") {
+		t.Fatalf("messages %v", messages)
+	}
+	// Preview scope, configured shell command, and exit status.
+	data, _ := config.Marshal(config.Config{Version: 1, Project: config.Binding{Context: "home", Project: "Personal", Environment: "production", Application: "api", Dev: "npm run dev"}})
+	if err := os.WriteFile(filepath.Join(options.CWD, "coolship.toml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.exitCode = 5
+	err := app.Dev(context.Background(), DevOptions{Options: options, Preview: true}, nil)
+	var exit *ExitError
+	if !errors.As(err, &exit) || exit.Code != 5 {
+		t.Fatalf("exit status: %v", err)
+	}
+	spec = f.processes[1]
+	if spec.Shell != "npm run dev" || len(spec.Args) != 0 || !reflect.DeepEqual(spec.Env, []string{"PLAIN=preview-p"}) {
+		t.Fatalf("configured spec %+v", spec)
+	}
+	// No command anywhere is an input error before any process runs.
+	data, _ = config.Marshal(config.Config{Version: 1, Project: config.Binding{Context: "home", Project: "Personal", Environment: "production", Application: "api"}})
+	if err := os.WriteFile(filepath.Join(options.CWD, "coolship.toml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Dev(context.Background(), DevOptions{Options: options}, nil); !errors.Is(err, ErrInput) || len(f.processes) != 2 {
+		t.Fatalf("no command: err=%v processes=%d", err, len(f.processes))
 	}
 }

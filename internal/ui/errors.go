@@ -19,15 +19,23 @@ func ExitCode(err error) int {
 		return 130
 	case errors.Is(err, service.ErrInput):
 		return 2
-	default:
-		return 1
 	}
+	var exit *service.ExitError
+	if errors.As(err, &exit) && exit.Code > 0 {
+		return exit.Code
+	}
+	return 1
 }
 
 // PrintError renders the single diagnostic owned by the executable boundary.
 // An interrupt is reported as such, keeping any recovery detail wrapped around it.
 func PrintError(w io.Writer, err error) error {
 	if err == nil {
+		return nil
+	}
+	// A child process has already said what it had to say; only its status is kept.
+	var exit *service.ExitError
+	if errors.As(err, &exit) && !errors.Is(err, context.Canceled) {
 		return nil
 	}
 	text := err.Error()
