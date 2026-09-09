@@ -49,7 +49,7 @@ Ideas, feedback, and contributions are welcome.
 
 ## Install
 
-Coolship needs Go 1.26 or newer.
+Coolship needs Go 1.26 or newer, matching `coolify-cli` so code can move upstream. Newer toolchains build it unchanged.
 
 ```bash
 git clone https://github.com/joaomnuno/coolship.git

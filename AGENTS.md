@@ -15,6 +15,7 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 ## Go conventions and validation
 
 - Use `./scripts/go` for Go commands. It keeps caches and temporary build/test files inside the repository.
+- Keep the `go` directive equal to Coolify CLI's, currently `go 1.26`, because its CI derives the Go version from `go.mod` and upstreamed code cannot require a newer floor. Develop with any newer toolchain; raise the directive only when Coolify CLI raises its own, or when a language or standard library feature genuinely requires it.
 - Format changed Go files with `gofmt`. Wrap errors with `%w` when callers need the cause; use `errors.Is` and `errors.As`.
 - Keep HTTP requests cancellable. Never automatically replay a deployment POST after an uncertain response.
 - Return typed data and errors from lower layers. Print and classify errors once at the executable boundary.
