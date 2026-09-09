@@ -34,6 +34,7 @@ type fakeBackend struct {
 	more         map[string]models.Application // applications beyond app-1
 	processes    []ProcessSpec
 	exitCode     int
+	domainUpdate models.DomainUpdate
 }
 
 func newBackend() *fakeBackend {
@@ -71,6 +72,16 @@ func (f *fakeBackend) DeleteEnvironmentVariable(_ context.Context, id, variableU
 		return errors.New("wrong application")
 	}
 	f.deleted = append(f.deleted, variableUUID)
+	return nil
+}
+
+func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, update models.DomainUpdate) error {
+	f.calls["domains"]++
+	if id != "app-1" {
+		return errors.New("wrong application")
+	}
+	f.domainUpdate = update
+	f.application.FQDN = strings.Join(update.Domains, ",")
 	return nil
 }
 
@@ -944,5 +955,55 @@ func TestDevInjectsResolvedRuntimeVariablesAndPropagatesStatus(t *testing.T) {
 	}
 	if err := app.Dev(context.Background(), DevOptions{Options: options}, nil); !errors.Is(err, ErrInput) || len(f.processes) != 2 {
 		t.Fatalf("no command: err=%v processes=%d", err, len(f.processes))
+	}
+}
+
+func TestDomainShowsGeneratedAndSetsWithConfirmation(t *testing.T) {
+	f := newBackend()
+	f.application.FQDN = "https://app-1.coolify.example.com"
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+	result, err := app.Domain(context.Background(), options)
+	if err != nil || !result.Generated || !reflect.DeepEqual(result.Domains, []string{"https://app-1.coolify.example.com"}) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	set := DomainSetOptions{Options: options, Domains: []string{"App.Example.com", "https://www.example.com/"}}
+	if _, err := app.DomainSet(context.Background(), set, nil); !errors.Is(err, ErrInput) || f.calls["domains"] != 0 {
+		t.Fatalf("noninteractive without --yes: err=%v calls=%d", err, f.calls["domains"])
+	}
+	declined := func(context.Context, DomainPlan) (bool, error) { return false, nil }
+	if _, err := app.DomainSet(context.Background(), set, declined); !errors.Is(err, ErrCancelled) || f.calls["domains"] != 0 {
+		t.Fatalf("declined: err=%v", err)
+	}
+	var plan DomainPlan
+	accepted := func(_ context.Context, p DomainPlan) (bool, error) { plan = p; return true, nil }
+	changed, err := app.DomainSet(context.Background(), set, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"https://app.example.com", "https://www.example.com"}
+	if !reflect.DeepEqual(plan.Current, []string{"https://app-1.coolify.example.com"}) || !reflect.DeepEqual(plan.Domains, want) ||
+		!reflect.DeepEqual(f.domainUpdate.Domains, want) || f.domainUpdate.Force || len(changed.Warnings) == 0 {
+		t.Fatalf("plan=%+v update=%+v warnings=%v", plan, f.domainUpdate, changed.Warnings)
+	}
+	after, _ := app.Domain(context.Background(), options)
+	if after.Generated || !reflect.DeepEqual(after.Domains, want) {
+		t.Fatalf("after=%+v", after)
+	}
+	// Same domains again is a no-op, not a request.
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: want, Yes: true}, nil); err != nil || f.calls["domains"] != 1 {
+		t.Fatalf("no-op: err=%v calls=%d", err, f.calls["domains"])
+	}
+	for _, bad := range [][]string{{}, {"ftp://x.example.com"}, {"https://"}, {"https://a.example.com?x=1"}, {"javascript:alert(1)"}} {
+		if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: bad, Yes: true}, nil); !errors.Is(err, ErrInput) {
+			t.Errorf("%v accepted: %v", bad, err)
+		}
+	}
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: want, Redirect: "sideways", Yes: true}, nil); !errors.Is(err, ErrInput) {
+		t.Fatal("bad redirect accepted")
+	}
+	// Force and redirect are passed through.
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"other.example.com"}, Redirect: "non-www", Force: true, Yes: true}, nil); err != nil || !f.domainUpdate.Force || f.domainUpdate.Redirect != "non-www" {
+		t.Fatalf("update=%+v err=%v", f.domainUpdate, err)
 	}
 }

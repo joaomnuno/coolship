@@ -105,3 +105,11 @@ type EnvironmentVariableInput struct {
 	IsMultiline *bool  `json:"is_multiline,omitempty"`
 	IsShownOnce *bool  `json:"is_shown_once,omitempty"`
 }
+
+// DomainUpdate replaces an application's domains. Redirect is "www",
+// "non-www", or "both"; Force bypasses the server's in-use check.
+type DomainUpdate struct {
+	Domains  []string
+	Redirect string
+	Force    bool
+}

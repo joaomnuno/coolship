@@ -72,6 +72,36 @@ type ExitError struct{ Code int }
 
 func (e *ExitError) Error() string { return fmt.Sprintf("command exited with status %d", e.Code) }
 
+type DomainResult struct {
+	Target  TargetInfo `json:"target"`
+	Domains []string   `json:"domains"`
+	// Generated reports Coolify's automatic <uuid>.<wildcard> domain.
+	Generated bool     `json:"generated"`
+	Warnings  []string `json:"warnings,omitempty"`
+}
+
+type DomainSetOptions struct {
+	Options
+	Domains  []string
+	Redirect string
+	Force    bool
+	Yes      bool
+}
+
+type DomainPlan struct {
+	Target   TargetInfo `json:"target"`
+	Current  []string   `json:"current"`
+	Domains  []string   `json:"domains"`
+	Redirect string     `json:"redirect,omitempty"`
+}
+
+type ConfirmDomain func(context.Context, DomainPlan) (bool, error)
+
+type DomainSetResult struct {
+	Plan     DomainPlan `json:"plan"`
+	Warnings []string   `json:"warnings,omitempty"`
+}
+
 type OpenOptions struct {
 	Options
 	Dashboard bool
@@ -200,6 +230,7 @@ type Backend interface {
 	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)
 	UpsertEnvironmentVariables(context.Context, string, []models.EnvironmentVariableInput) error
 	DeleteEnvironmentVariable(context.Context, string, string) error
+	UpdateApplicationDomains(context.Context, string, models.DomainUpdate) error
 }
 
 type Dependencies struct {

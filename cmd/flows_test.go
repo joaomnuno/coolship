@@ -102,6 +102,16 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	handle("GET /api/v1/applications/app-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, application)
 	})
+	handle("PATCH /api/v1/applications/app-1", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("patch body: %v", err)
+		}
+		if domains, ok := body["domains"].(string); ok {
+			application["fqdn"] = domains
+		}
+		write(w, map[string]any{"uuid": "app-1"})
+	})
 	handle("GET /api/v1/applications/app-2", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, second)
 	})
@@ -546,5 +556,25 @@ func TestDevReceivesServerVariables(t *testing.T) {
 	out, _, err := run(t, instance.URL, dir, "", "dev", "--", "printenv", "PLAIN")
 	if err != nil || !strings.Contains(out, "args=[printenv PLAIN]") || !strings.Contains(out, "env=[PLAIN=p SHARED=resolved]") {
 		t.Fatalf("dev: out=%q err=%v", out, err)
+	}
+}
+
+func TestDomainRoundTripAgainstTheServer(t *testing.T) {
+	s := &server{}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	out, _, err := run(t, instance.URL, dir, "", "domain")
+	if err != nil || strings.TrimSpace(out) != "https://fenix.example.com" {
+		t.Fatalf("domain: out=%q err=%v", out, err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "domain", "set", "new.example.com", "--yes"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
+	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {
+		t.Fatalf("status after set: out=%q err=%v", out, err)
 	}
 }

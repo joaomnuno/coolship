@@ -355,6 +355,7 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `config` | Report the effective local configuration and credential source after overrides. | None. |
 | `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
 | `preview` | Deploy the preview Coolify already holds for a pull request through the deployment service; the number comes from `--pr` or `GITHUB_REF`. A refusal (unknown pull request) is the server's receipt message, repeated with guidance. | `POST /deploy` with `uuid` and `pr`; `GET /deployments/{deployment_uuid}` while waiting. |
+| `domain`, `domain set` | Show the application's domains; replace them after confirmation, then read the application back to report what the server kept. Compose applications are refused by the server, which the error explains. | Shared resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`. |
 | `dev` | Run a local command in the application root with the target's runtime variables injected, through an injected process runner; the child's exit status becomes the exit code. | `GET /applications/{uuid}/envs`. |
 | `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 

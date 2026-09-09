@@ -134,3 +134,17 @@ func (c *Client) DeleteEnvironmentVariable(ctx context.Context, uuid, variableUU
 	var response json.RawMessage
 	return c.request(ctx, http.MethodDelete, []string{"applications", uuid, "envs", variableUUID}, nil, nil, &response)
 }
+
+// UpdateApplicationDomains sends the full domain list; the server treats it as
+// a replacement. A PATCH is never retried here.
+func (c *Client) UpdateApplicationDomains(ctx context.Context, uuid string, update models.DomainUpdate) error {
+	body := map[string]any{"domains": strings.Join(update.Domains, ",")}
+	if update.Redirect != "" {
+		body["redirect"] = update.Redirect
+	}
+	if update.Force {
+		body["force_domain_override"] = true
+	}
+	var response json.RawMessage
+	return c.request(ctx, http.MethodPatch, []string{"applications", uuid}, nil, body, &response)
+}

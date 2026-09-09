@@ -44,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, and `dev` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `domain` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -198,6 +198,18 @@ coolship preview               # in a GitHub Actions pull_request job, reads GIT
 ```
 
 Coolify must already know the pull request: enable *Preview Deployments* on the application and let Coolify's GitHub webhook (or its UI) register the PR. The API offers no way to create a preview, so this command cannot either — when the server does not know the PR it says so, and Coolship repeats that answer with what to do about it. Verified live against a public repository through the webhook path.
+
+### `coolship domain`
+
+Show the linked application's domains — Coolify generates one from the application UUID until you set your own — and replace them.
+
+```bash
+coolship domain
+coolship domain set app.example.com                       # bare host means https://
+coolship domain set https://app.example.com https://www.example.com --redirect non-www
+```
+
+`set` shows the change and asks first (`--yes` when noninteractive), refuses a domain Coolify sees in use elsewhere unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment. Docker Compose applications take per-service domains, which this command does not set.
 
 ### `coolship dev`
 

@@ -190,3 +190,26 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 	}
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
+
+// ConfirmDomain shows the replacement before the server is changed.
+func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("changing domains requires --yes when input is noninteractive")}
+	}
+	current := strings.Join(plan.Current, ", ")
+	if current == "" {
+		current = "(none)"
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "Change domains of %s?\n  from: %s\n  to:   %s\nConfirm [y/N]: ",
+		singleLine(plan.Target.Application), singleLine(current), singleLine(strings.Join(plan.Domains, ", "))); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
