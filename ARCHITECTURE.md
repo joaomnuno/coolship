@@ -358,7 +358,7 @@ Default deployment behavior should wait, with `--no-wait` returning an explicitl
 
 Observe that exact UUID, not the latest deployment for the application, which could belong to another user. Interpret the server's [ApplicationDeploymentStatus](../coolify/app/Enums/ApplicationDeploymentStatus.php): `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. Only a confirmed successful terminal state completes a waiting command successfully. Unknown states remain visible and bounded by a timeout. Report deployment completion separately from any separately observed application health; do not invent build or health-check phases absent from server data.
 
-Build logs belong to deployment observation; `logs` means application runtime logs. Progress can continue when deployment logs are unavailable due to permissions. Interrupting observation stops local waiting and reports the known UUID; it does not automatically cancel the remote deployment.
+Build logs belong to deployment observation; `logs` means application runtime logs. The deployment record carries its build log as a JSON document; the service emits each visible entry once, ahead of the status change it led to, and continues without logs when the server withholds them or the document is unreadable. Interrupting observation stops local waiting and reports the known UUID; it does not automatically cancel the remote deployment.
 
 ### HTTP and log-follow policy
 

@@ -2,12 +2,13 @@ package coolify
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/joaomnuno/coolship/internal/models"
 )
 
 // The testdata fixtures preserve the response shapes observed on Coolify 4.3.18
@@ -57,13 +58,9 @@ func TestObservedDeploymentShape(t *testing.T) {
 	if deployment.Logs == nil {
 		t.Fatal("deployment logs were present on the server but decoded as absent")
 	}
-	var entries []struct {
-		Output string `json:"output"`
-		Hidden bool   `json:"hidden"`
-		Type   string `json:"type"`
-	}
-	if err := json.Unmarshal([]byte(*deployment.Logs), &entries); err != nil {
-		t.Fatalf("deployment logs are not a JSON array: %v", err)
+	entries, err := models.ParseDeploymentLogs(*deployment.Logs)
+	if err != nil {
+		t.Fatal(err)
 	}
 	visible, hidden := 0, 0
 	for _, entry := range entries {

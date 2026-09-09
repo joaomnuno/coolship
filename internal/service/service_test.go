@@ -381,3 +381,71 @@ func TestCredentialPairOverridesCommittedContextButNotExplicitFlags(t *testing.T
 		t.Fatal(got.Context)
 	}
 }
+
+func TestDeploymentStreamsVisibleBuildLogsOnce(t *testing.T) {
+	f := newBackend()
+	first := `[{"command":null,"output":"Starting deployment.","type":"stdout","hidden":false},{"command":"docker build","output":"internal","type":"stdout","hidden":true}]`
+	second := first[:len(first)-1] + `,{"command":null,"output":"Building docker image started.\n","type":"stdout","hidden":false}]`
+	f.deployments = []models.Deployment{
+		{UUID: "deploy-1", Status: "in_progress", Logs: &first},
+		{UUID: "deploy-1", Status: "in_progress", Logs: &second},
+		{UUID: "deploy-1", Status: "finished", Logs: &second},
+	}
+	app, _, _ := testApp(f)
+	var builds []string
+	warnings := 0
+	_, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, func(e Event) error {
+		switch e.Type {
+		case "build":
+			builds = append(builds, e.Logs)
+		case "warning":
+			warnings++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(builds, []string{"Starting deployment.\n", "Building docker image started.\n"}) || warnings != 0 {
+		t.Fatalf("builds=%q warnings=%d", builds, warnings)
+	}
+}
+
+func TestDeploymentToleratesWithheldAndUnreadableBuildLogs(t *testing.T) {
+	broken := `{"not":"an array"}`
+	for _, test := range []struct {
+		name     string
+		logs     *string
+		warnings int
+	}{
+		{"withheld", nil, 0},
+		{"unreadable", &broken, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newBackend()
+			f.deployments = []models.Deployment{
+				{UUID: "deploy-1", Status: "in_progress", Logs: test.logs},
+				{UUID: "deploy-1", Status: "in_progress", Logs: test.logs},
+				{UUID: "deploy-1", Status: "finished", Logs: test.logs},
+			}
+			app, _, _ := testApp(f)
+			builds, warnings := 0, 0
+			result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, func(e Event) error {
+				switch e.Type {
+				case "build":
+					builds++
+				case "warning":
+					warnings++
+				}
+				return nil
+			})
+			if err != nil || result.Status != "finished" {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			// An unreadable document warns exactly once across all polls and never fails the deployment.
+			if builds != 0 || warnings != test.warnings {
+				t.Fatalf("builds=%d warnings=%d", builds, warnings)
+			}
+		})
+	}
+}

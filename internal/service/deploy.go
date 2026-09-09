@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/joaomnuno/coolship/internal/models"
 )
 
 // Deploy submits one deployment and optionally observes that exact deployment.
@@ -60,6 +63,7 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 		return result, nil
 	}
 	lastStatus := result.Status
+	logs := buildLogCursor{}
 	for {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -70,6 +74,12 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 		}
 		if deployment.UUID != result.DeploymentUUID {
 			return fail(errors.New("server returned a different deployment identity; observation stopped"))
+		}
+		// Build output precedes the status it led to, so a terminal status line is last.
+		if event, ok := logs.advance(deployment, result.DeploymentUUID); ok {
+			if err := emitEvent(emit, event); err != nil {
+				return fail(err)
+			}
 		}
 		result.Status = deployment.Status
 		if result.Status != lastStatus {
@@ -88,4 +98,40 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 			return fail(fmt.Errorf("observation stopped; remote deployment may still be running: %w", err))
 		}
 	}
+}
+
+// buildLogCursor emits each visible build log line once. Build logs are
+// progress, so an unreadable document produces one warning and observation
+// continues without them; a withheld document produces nothing.
+type buildLogCursor struct {
+	shown  int
+	broken bool
+}
+
+func (c *buildLogCursor) advance(deployment models.Deployment, uuid string) (Event, bool) {
+	if c.broken || deployment.Logs == nil {
+		return Event{}, false
+	}
+	entries, err := models.ParseDeploymentLogs(*deployment.Logs)
+	if err != nil {
+		c.broken = true
+		return Event{Type: "warning", Message: "Build logs are unreadable; continuing without them: " + err.Error()}, true
+	}
+	if c.shown > len(entries) {
+		c.shown = 0
+	}
+	var lines []string
+	for _, entry := range entries[c.shown:] {
+		if entry.Hidden {
+			continue
+		}
+		if output := strings.TrimRight(entry.Output, "\r\n"); output != "" {
+			lines = append(lines, output)
+		}
+	}
+	c.shown = len(entries)
+	if len(lines) == 0 {
+		return Event{}, false
+	}
+	return Event{Type: "build", DeploymentUUID: uuid, Logs: strings.Join(lines, "\n") + "\n"}, true
 }

@@ -126,7 +126,23 @@ coolship deploy --force          # rebuild without cache
 coolship deploy --timeout 20m
 ```
 
-Coolship submits one deployment and then observes exactly the UUID that submission returned, never "the latest deployment", which could belong to someone else. Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up.
+Coolship submits one deployment and then observes exactly the UUID that submission returned, never "the latest deployment", which could belong to someone else. While waiting, the server's build log streams to stderr — clone, build, rolling update, health checks — when your token may read it; otherwise progress continues without it. Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up.
+
+```text
+$ coolship deploy
+Deployment 03dusayin5rleswixblvdqba: queued
+Deployment 03dusayin5rleswixblvdqba: in_progress
+Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
+Building docker image started.
+Building docker image completed.
+Rolling update started.
+Attempt 2 of 10 | Healthcheck status: "healthy"
+Rolling update completed.
+Deployment 03dusayin5rleswixblvdqba: finished
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+```
 
 ### `coolship logs`
 
