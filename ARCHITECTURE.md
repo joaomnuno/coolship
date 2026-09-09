@@ -434,13 +434,28 @@ Gates 1 to 3 are complete; gates 4 and 5 remain. [ROADMAP.md](ROADMAP.md) tracks
 
 ### Supported server baseline
 
-No Coolify instance has been contacted. Every endpoint expectation comes from reading the server source listed in section 1, and is exercised only against a controlled `httptest.Server` in this repository. Until gate 4 runs, Coolship states no verified server version range, and the following limits apply:
+**Verified: Coolify 4.3.18**, reached through Cloudflare, with a token holding read, write, deploy, and sensitive-read abilities. The reference checkout is 4.3.19 (`424dbd3`); a transient fetch of upstream tag `v4.3.18` showed no change between the two in `routes/api.php`, `DeployController`, `ProjectController`, the sensitive-data middleware, or the deployment-status enum. The only `ApplicationsController` change is inside application creation, which Coolship never calls. The source observations in section 1 therefore describe the verified server exactly for every endpoint Coolship uses.
+
+Validation ran `link`, `status`, `deploy` (observed to `finished` in 29 s), `logs`, and `logs --follow` against a Dockerfile application created for that purpose ([example-coolify-project](https://github.com/joaomnuno/example-coolify-project)), plus read-only `link`, `status`, and `logs` against a pre-existing application. Sanitized fixtures preserving the observed response shapes live in `internal/coolify/testdata/`; they contain no identifiers, hostnames, or values from the validating instance.
+
+Observed behavior that shapes the client, none of which was visible from source alone:
+
+- **Runtime log snapshots omit the newline after the final line.** Overlap detection therefore compares lines without terminators, and every emitted chunk ends with a newline. The original terminator-sensitive comparison reset on every poll.
+- **`GET /version` returns plain text** (`4.3.18`) with an HTML content type, not JSON.
+- **Deployment logs are present** when the token can read sensitive data: `logs` is a JSON-encoded string holding an array of `{batch, command, hidden, output, timestamp, type}`; roughly half the entries are `hidden`. Without that ability the field is absent, which the client reports as unavailable rather than empty.
+- **A deployment response identifies its application by integer `application_id` and `application_name`**, not by UUID. Coolship verifies the returned `deployment_uuid` against the one it submitted.
+- **Creating a regular environment variable also creates a preview-scope twin** through the model's `created` hook. Preview scope is a separate dimension that every variable workflow selects explicitly.
+- **`is_shown_once` withholds `value` and `real_value`** from the regular row, but the auto-created preview twin is returned with the value in clear. Coolship never reads around a withheld value; the twin is a server defect to report upstream.
+- **The variable API accepts `is_buildtime` and `is_runtime`**; `is_build_time` is rejected with 422. Bulk creation is `PATCH /applications/{uuid}/envs/bulk` with `{"data": [...]}`; deletion is by variable UUID.
+- **`POST /deploy` accepts `pr`** (pull request id) alongside `uuid` and `force`; preview support is defined against that in section 9.
+- **A Cloudflare bot rule in front of the validating instance rejects some default user agents.** Coolship sends `coolship/<version>`; Coolify CLI sends Go's default. Both are accepted; a generic scripting-language default was not.
+
+Limits that remain, independent of the version:
 
 - **Deployment states** are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unrecognized state is reported verbatim and waits until the timeout rather than being guessed as terminal.
-- **Log follow** polls snapshots and compares overlapping lines. The endpoint has no cursor, so rotation, container restarts, or a gap larger than the requested line count can produce gaps or duplicates. Coolship reports the reset instead of claiming lossless streaming.
-- **Container selection** is not exposed. This checkout's log handler ignores the `service_name` parameter that Coolify CLI sends and returns the first container, so a flag would silently mislead.
-- **Deployment build logs** and secret values can be withheld by token ability and team role. Withheld data is reported as unavailable and never rendered as empty data.
-- **Pagination** is not assumed. A `Link` header advertising a next page is refused rather than treated as a complete candidate list, because an incomplete list could turn an ambiguous name into a false unique match.
+- **Log follow** has no server cursor. Rotation or a gap larger than the requested line count can still produce gaps or duplicates, which Coolship reports rather than hiding.
+- **Container selection** is not exposed: the server's log handler ignores the `service_name` parameter Coolify CLI sends and returns the first container.
+- **Pagination** is not assumed. A `Link` header advertising a next page is refused rather than treated as a complete candidate list.
 - **Deployment submission is never replayed.** The API defines no idempotency key, so an uncertain `POST /deploy` result is surfaced with the information needed to recover manually.
 
 Run focused behavioral tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for a milestone.

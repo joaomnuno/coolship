@@ -27,7 +27,11 @@ type Client struct {
 	http       *http.Client
 	retries    int
 	retryDelay time.Duration
+	userAgent  string
 }
+
+// DefaultUserAgent identifies Coolship when no version is supplied.
+const DefaultUserAgent = "coolship/dev"
 
 type Option func(*Client)
 
@@ -52,6 +56,16 @@ func WithRetryDelay(delay time.Duration) Option {
 	return func(c *Client) { c.retryDelay = min(max(delay, 0), maxRetryDelay) }
 }
 
+// WithUserAgent identifies the client to the server and to any proxy in front
+// of it. Control characters are rejected so the header cannot be split.
+func WithUserAgent(agent string) Option {
+	return func(c *Client) {
+		if agent != "" && strings.IndexFunc(agent, unicode.IsControl) < 0 {
+			c.userAgent = agent
+		}
+	}
+}
+
 func NewClient(baseURL, token string, opts ...Option) (*Client, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.Opaque != "" {
@@ -72,7 +86,7 @@ func NewClient(baseURL, token string, opts ...Option) (*Client, error) {
 		return nil, errors.New("Coolify URL has an invalid path")
 	}
 	u.RawPath = path
-	c := &Client{baseURL: u, token: token, http: &http.Client{Timeout: 30 * time.Second}, retries: 2, retryDelay: 200 * time.Millisecond}
+	c := &Client{baseURL: u, token: token, http: &http.Client{Timeout: 30 * time.Second}, retries: 2, retryDelay: 200 * time.Millisecond, userAgent: DefaultUserAgent}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
@@ -120,6 +134,7 @@ func (c *Client) request(ctx context.Context, method string, parts []string, que
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", c.userAgent)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}

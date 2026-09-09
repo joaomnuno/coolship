@@ -39,7 +39,7 @@ func run() int {
 }
 
 func newBackend(credentials auth.Credentials) (service.Backend, error) {
-	client, err := coolify.NewClient(credentials.URL, credentials.Token)
+	client, err := coolify.NewClient(credentials.URL, credentials.Token, coolify.WithUserAgent("coolship/"+version))
 	if err != nil {
 		return nil, err
 	}

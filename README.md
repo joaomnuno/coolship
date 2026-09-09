@@ -43,7 +43,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** The first milestone is implemented and tested: `link`, `status`, `deploy`, and `logs`. Nothing has yet been run against a live Coolify server — see [Server compatibility](#server-compatibility) before relying on it.
+🚧 **Early development.** `link`, `status`, `deploy`, and `logs` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -204,15 +204,17 @@ Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping
 
 ## Server compatibility
 
-Coolship has been developed against the Coolify server **source**, and is tested against a controlled HTTP server in this repository. It has not yet been run against a live instance, so there is no verified supported version range. Concretely:
+**Verified against Coolify 4.3.18.** `link`, `status`, `deploy`, and `logs` (including `--follow`) were run end to end against a live instance, deploying a real Dockerfile application. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+
+Limits worth knowing:
 
 * Deployment states are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed.
 * `logs --follow` polls snapshots and compares overlapping lines. The endpoint has no cursor, so log rotation or a container restart can cause gaps or duplicates. Coolship reports the reset rather than pretending the stream is lossless.
-* Selecting a container is not supported, because the inspected server ignores the parameter the Coolify CLI sends for it.
+* Selecting a container is not supported, because the server ignores the parameter the Coolify CLI sends for it.
 * Build logs and secret values can be withheld by token ability and team role. Withheld data is reported as unavailable, never as empty data.
 * An uncertain deployment submission is never retried automatically, since the API defines no idempotency key. Coolship reports what it knows so you can recover manually.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) records these limits and the source observations behind them.
+[ARCHITECTURE.md](ARCHITECTURE.md) records the verification and the server behaviors it uncovered.
 
 ## Planned
 
