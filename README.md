@@ -44,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, and `env pull|diff|push` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, and `preview` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -188,6 +188,17 @@ Show the effective configuration for this directory after overrides: the discove
 
 Delete `coolship.toml`. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
 
+### `coolship preview`
+
+Deploy the preview Coolify holds for a pull request, and observe it exactly like `deploy`.
+
+```bash
+coolship preview --pr 42
+coolship preview               # in a GitHub Actions pull_request job, reads GITHUB_REF
+```
+
+Coolify must already know the pull request: enable *Preview Deployments* on the application and let Coolify's GitHub webhook (or its UI) register the PR. The API offers no way to create a preview, so this command cannot either — when the server does not know the PR it says so, and Coolship repeats that answer with what to do about it. Verified live against a public repository through the webhook path.
+
 ### `coolship env`
 
 Synchronize a local dotenv file with the linked application's variables. The file defaults to `.env` in the application root and is created with private permissions.
@@ -292,7 +303,6 @@ None of the following exist yet; they are the directions the architecture is bui
 
 ```text
 coolship dev
-coolship preview
 ```
 
 Monorepo support is also planned. The configuration and discovery layers already keep the project, the selected target, and the application root as separate concepts, so named targets can be added without restructuring commands.

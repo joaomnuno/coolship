@@ -30,6 +30,7 @@ type fakeBackend struct {
 	variables    []models.EnvironmentVariable
 	upserts      [][]models.EnvironmentVariableInput
 	deleted      []string
+	lastDeploy   models.DeployRequest
 }
 
 func newBackend() *fakeBackend {
@@ -103,9 +104,10 @@ func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Appli
 	}
 	return f.application, nil
 }
-func (f *fakeBackend) Deploy(_ context.Context, id string, _ bool) ([]models.DeploymentReceipt, error) {
+func (f *fakeBackend) Deploy(_ context.Context, request models.DeployRequest) ([]models.DeploymentReceipt, error) {
 	f.calls["deploy"]++
-	if id != "app-1" {
+	f.lastDeploy = request
+	if request.ApplicationUUID != "app-1" {
 		return nil, errors.New("wrong deployment target")
 	}
 	return f.receipts, nil
@@ -819,5 +821,24 @@ func TestEnvPushPlansConfirmsAndAppliesWithinScope(t *testing.T) {
 	result, err = app.EnvPush(context.Background(), EnvPushOptions{EnvOptions: EnvOptions{Options: options}, Yes: true}, nil)
 	if err != nil || !result.Plan.Empty() || len(f.upserts) != 0 {
 		t.Fatalf("empty plan: result=%+v err=%v upserts=%v", result, err, f.upserts)
+	}
+}
+
+func TestPreviewDeploymentCarriesPullRequestAndSurfacesRefusal(t *testing.T) {
+	f := newBackend()
+	app, _, _ := testApp(f)
+	result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: 42, Force: true}, nil)
+	if err != nil || result.PullRequest != 42 || f.lastDeploy != (models.DeployRequest{ApplicationUUID: "app-1", Force: true, PullRequest: 42}) {
+		t.Fatalf("result=%+v request=%+v err=%v", result, f.lastDeploy, err)
+	}
+	// Coolify 4.3.18 answers an unknown pull request with HTTP 200 and a receipt
+	// that has a message but no deployment UUID.
+	f.receipts = []models.DeploymentReceipt{{ResourceUUID: "app-1", Message: "Pull request 42 not found for this resource."}}
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: 42}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Pull request 42 not found") || !strings.Contains(err.Error(), "enable preview deployments") {
+		t.Fatalf("refusal not surfaced: %v", err)
+	}
+	if _, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: -1}, nil); !errors.Is(err, ErrInput) {
+		t.Fatalf("negative pull request: %v", err)
 	}
 }

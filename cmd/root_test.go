@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -84,12 +86,12 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env"} {
+	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
 	}
-	for _, command := range []string{"preview", "dev", "completion"} {
+	for _, command := range []string{"dev", "completion"} {
 		if strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help advertises unimplemented command %s", command)
 		}
@@ -447,5 +449,39 @@ func TestEnvPushConfirmsOnlyInteractively(t *testing.T) {
 	root.SetArgs([]string{"env", "push"})
 	if err := root.ExecuteContext(context.Background()); err != nil || strings.Contains(diagnostic.String(), "secret") || !strings.Contains(diagnostic.String(), "create NEW") {
 		t.Fatalf("interactive push: err=%v stderr=%q", err, diagnostic.String())
+	}
+}
+
+func TestPreviewTakesPullRequestFromFlagOrGitHubActions(t *testing.T) {
+	var seen []int
+	app := fakeApplication{deploy: func(_ context.Context, options service.DeployOptions, _ service.Emitter) (service.DeployResult, error) {
+		seen = append(seen, options.PullRequest)
+		return service.DeployResult{DeploymentUUID: "d1", PullRequest: options.PullRequest, Status: "finished"}, nil
+	}}
+	out, _, err := execute(t, app, "preview", "--pr", "12")
+	if err != nil || !strings.Contains(out, "Pull request: 12") {
+		t.Fatalf("--pr: out=%q err=%v", out, err)
+	}
+	if _, _, err := execute(t, app, "preview"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("no pull request and no environment: %v", err)
+	}
+	for ref, want := range map[string]int{"refs/pull/34/merge": 34, "refs/pull/56/head": 56} {
+		var out bytes.Buffer
+		root := cmd.NewRootCommand(app, ui.Streams{Out: &out}, "test", cmd.WithEnvironment(func(name string) string {
+			if name == "GITHUB_REF" {
+				return ref
+			}
+			return ""
+		}))
+		root.SetArgs([]string{"preview"})
+		if err := root.ExecuteContext(context.Background()); err != nil || !strings.Contains(out.String(), fmt.Sprintf("Pull request: %d", want)) {
+			t.Fatalf("%s: out=%q err=%v", ref, out.String(), err)
+		}
+	}
+	if !reflect.DeepEqual(seen, []int{12, 34, 56}) && !reflect.DeepEqual(seen, []int{12, 56, 34}) {
+		t.Fatalf("pull requests seen %v", seen)
+	}
+	if _, _, err := execute(t, app, "preview", "--pr", "0"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("--pr 0: %v", err)
 	}
 }

@@ -57,6 +57,14 @@ func ParseDeploymentLogs(document string) ([]DeploymentLogEntry, error) {
 	return entries, nil
 }
 
+// DeployRequest names exactly one deployment. PullRequest selects the preview
+// Coolify already holds for that pull request; zero means the configured branch.
+type DeployRequest struct {
+	ApplicationUUID string
+	Force           bool
+	PullRequest     int
+}
+
 type DeploymentReceipt struct {
 	ResourceUUID   string `json:"resource_uuid"`
 	DeploymentUUID string `json:"deployment_uuid"`

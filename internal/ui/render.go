@@ -60,9 +60,16 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	_, err := fmt.Fprintf(r.streams.Out, "Deployment: %s\nApplication: %s (%s)\nStatus: %s\n",
-		singleLine(result.DeploymentUUID), singleLine(result.Target.Application),
-		singleLine(result.Target.ApplicationUUID), singleLine(result.Status))
+	if _, err := fmt.Fprintf(r.streams.Out, "Deployment: %s\n", singleLine(result.DeploymentUUID)); err != nil {
+		return err
+	}
+	if result.PullRequest > 0 {
+		if _, err := fmt.Fprintf(r.streams.Out, "Pull request: %d\n", result.PullRequest); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "Application: %s (%s)\nStatus: %s\n",
+		singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID), singleLine(result.Status))
 	return err
 }
 

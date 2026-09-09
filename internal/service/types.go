@@ -34,9 +34,10 @@ type LinkOptions struct {
 
 type DeployOptions struct {
 	Options
-	Force   bool
-	NoWait  bool
-	Timeout time.Duration
+	Force       bool
+	NoWait      bool
+	Timeout     time.Duration
+	PullRequest int // deploy the preview Coolify holds for this pull request
 }
 
 type LogsOptions struct {
@@ -127,6 +128,7 @@ type StatusResult struct {
 type DeployResult struct {
 	Target         TargetInfo `json:"target"`
 	DeploymentUUID string     `json:"deployment_uuid"`
+	PullRequest    int        `json:"pull_request,omitempty"`
 	Status         string     `json:"status"`
 	Warnings       []string   `json:"warnings,omitempty"`
 }
@@ -162,7 +164,7 @@ type Emitter func(Event) error
 type Backend interface {
 	resolver.Catalog
 	Version(context.Context) (string, error)
-	Deploy(context.Context, string, bool) ([]models.DeploymentReceipt, error)
+	Deploy(context.Context, models.DeployRequest) ([]models.DeploymentReceipt, error)
 	GetDeployment(context.Context, string) (models.Deployment, error)
 	Logs(context.Context, string, int) (models.LogSnapshot, error)
 	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)

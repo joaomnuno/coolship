@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/joaomnuno/coolship/internal/models"
 	"time"
 )
 
@@ -90,7 +92,7 @@ func TestEndpointContracts(t *testing.T) {
 	if value, err := client.GetApplication(ctx, "a1"); err != nil || value.UUID != "a1" || value.Status != "running:healthy" {
 		t.Fatalf("application = %#v, %v", value, err)
 	}
-	if values, err := client.Deploy(ctx, "a1", true); err != nil || len(values) != 1 || values[0].DeploymentUUID != "d1" || values[0].ResourceUUID != "a1" {
+	if values, err := client.Deploy(ctx, models.DeployRequest{ApplicationUUID: "a1", Force: true}); err != nil || len(values) != 1 || values[0].DeploymentUUID != "d1" || values[0].ResourceUUID != "a1" {
 		t.Fatalf("deploy = %#v, %v", values, err)
 	}
 	if value, err := client.GetDeployment(ctx, "d1"); err != nil || value.UUID != "d1" || value.Logs != nil {
@@ -259,7 +261,7 @@ func TestPOSTIsNeverReplayed(t *testing.T) {
 			}, WithRetries(5), WithRetryDelay(0))
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			_, err := client.Deploy(ctx, "a1", false)
+			_, err := client.Deploy(ctx, models.DeployRequest{ApplicationUUID: "a1", Force: false})
 			var uncertain *UncertainSubmissionError
 			if !errors.As(err, &uncertain) || attempts.Load() != 1 || uncertain.ResourceUUID != "a1" {
 				t.Fatalf("attempts = %d, error = %v", attempts.Load(), err)
@@ -277,7 +279,7 @@ func TestPOSTKnownRejectionAndCancelledBeforeSend(t *testing.T) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusTooManyRequests)
 	}, WithRetries(5))
-	_, err := client.Deploy(context.Background(), "a1", false)
+	_, err := client.Deploy(context.Background(), models.DeployRequest{ApplicationUUID: "a1", Force: false})
 	var responseError *HTTPError
 	var uncertain *UncertainSubmissionError
 	if !errors.As(err, &responseError) || errors.As(err, &uncertain) || attempts.Load() != 1 {
@@ -285,12 +287,12 @@ func TestPOSTKnownRejectionAndCancelledBeforeSend(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = client.Deploy(ctx, "a1", false)
+	_, err = client.Deploy(ctx, models.DeployRequest{ApplicationUUID: "a1", Force: false})
 	if !errors.Is(err, context.Canceled) || errors.As(err, &uncertain) || attempts.Load() != 1 {
 		t.Fatalf("before-send cancellation: attempts = %d, error = %v", attempts.Load(), err)
 	}
 	for _, uuid := range []string{"", "a1,a2", "a1 a2", "a1\n"} {
-		if _, err := client.Deploy(context.Background(), uuid, false); err == nil || attempts.Load() != 1 {
+		if _, err := client.Deploy(context.Background(), models.DeployRequest{ApplicationUUID: uuid, Force: false}); err == nil || attempts.Load() != 1 {
 			t.Fatalf("invalid deployment UUID %q accepted", uuid)
 		}
 	}

@@ -30,12 +30,20 @@ type Option func(*settings)
 
 type settings struct {
 	openBrowser func(string) error
+	environment func(string) string
 }
 
 // WithOpener supplies the browser launcher used by open. Without one, open
 // only prints the URL.
 func WithOpener(open func(string) error) Option {
 	return func(s *settings) { s.openBrowser = open }
+}
+
+// WithEnvironment supplies process environment lookup for commands that can
+// infer a value from CI, such as preview reading GITHUB_REF. Without it,
+// nothing is inferred.
+func WithEnvironment(lookup func(string) string) Option {
+	return func(s *settings) { s.environment = lookup }
 }
 
 // NewRootCommand constructs an offline command tree with explicit dependencies.
@@ -85,7 +93,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
 		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
 		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams),
-		newEnvCommand(app, options, streams))
+		newEnvCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment))
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about a command",

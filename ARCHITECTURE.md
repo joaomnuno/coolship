@@ -350,9 +350,10 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `doctor` | Run each preparation step separately and report all of them; local checks continue past failures, remote checks stop at the first. Exit 1 on any failure. | `GET /version` (plain text), then shared resolution. |
 | `config` | Report the effective local configuration and credential source after overrides. | None. |
 | `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
+| `preview` | Deploy the preview Coolify already holds for a pull request through the deployment service; the number comes from `--pr` or `GITHUB_REF`. A refusal (unknown pull request) is the server's receipt message, repeated with guidance. | `POST /deploy` with `uuid` and `pr`; `GET /deployments/{deployment_uuid}` while waiting. |
 | `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 
-The hierarchy leaves room for `init`, `dev`, and `preview`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
+The hierarchy leaves room for `init` and `dev`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
 ### Deployment semantics
 
@@ -420,7 +421,7 @@ Pull must not write masked or omitted values as if they were real secrets: a wit
 
 `dev` can later resolve a development target, fetch selected variables, and pass an explicit environment plus argument vector to a process runner. Keep process supervision and signal forwarding separate from deployment services. Do not embed a local runtime, proxy, Docker manager, or process handle inside `project.Context`.
 
-`preview` can later combine the existing resolved binding with separately obtained Git branch/commit/PR metadata and Coolify preview capabilities. Resolve Git metadata only for workflows that need it. Do not assume that an arbitrary branch is a supported Coolify preview or add GitHub integration before the server contract is defined.
+`preview` is implemented against the verified 4.3.18 contract. `POST /deploy` accepts `pr`, but only for a pull request Coolify already holds as an `ApplicationPreview`; otherwise it answers HTTP 200 with a receipt carrying a message and no deployment UUID. The API exposes `PATCH` and `DELETE` on `/applications/{uuid}/previews/{pull_request_id}` and nothing that creates or lists previews; creation happens through the UI or the `pull_request` webhook at `/webhooks/source/github/events/manual`, gated by `is_preview_deployments_enabled`. Coolship therefore deploys and observes an existing preview through the same deployment service, taking the number from `--pr` or from `GITHUB_REF`, and surfaces the server's refusal with guidance. Verified live: a webhook-created preview for a public repository deployed in 12 seconds. Preview URLs follow the application's `preview_url_template` but are not readable through the API, so `open` does not offer them.
 
 ### Possible upstream integration
 
@@ -453,7 +454,7 @@ Observed behavior that shapes the client, none of which was visible from source 
 - **Creating a regular environment variable also creates a preview-scope twin** through the model's `created` hook. Preview scope is a separate dimension that every variable workflow selects explicitly.
 - **`is_shown_once` withholds `value` and `real_value`** from the regular row, but the auto-created preview twin is returned with the value in clear. Coolship never reads around a withheld value; the twin is a server defect to report upstream.
 - **The variable API accepts `is_buildtime` and `is_runtime`**; `is_build_time` is rejected with 422. Bulk creation is `PATCH /applications/{uuid}/envs/bulk` with `{"data": [...]}`; deletion is by variable UUID.
-- **`POST /deploy` accepts `pr`** (pull request id) alongside `uuid` and `force`; preview support is defined against that in section 9.
+- **`POST /deploy` accepts `pr`** (pull request id) alongside `uuid` and `force`, and answers HTTP 200 with a message-only receipt when the pull request has no preview record. No endpoint creates previews; section 9 defines `preview` against that.
 - **A Cloudflare bot rule in front of the validating instance rejects some default user agents.** Coolship sends `coolship/<version>`; Coolify CLI sends Go's default. Both are accepted; a generic scripting-language default was not.
 
 Limits that remain, independent of the version:

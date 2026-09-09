@@ -24,7 +24,10 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 	if err != nil {
 		return DeployResult{}, err
 	}
-	result := DeployResult{Target: targetInfo(s.project), Warnings: s.warnings}
+	if options.PullRequest < 0 {
+		return DeployResult{}, input(errors.New("pull request number must be positive"))
+	}
+	result := DeployResult{Target: targetInfo(s.project), Warnings: s.warnings, PullRequest: options.PullRequest}
 	for _, warning := range s.warnings {
 		if err := emitEvent(emit, Event{Type: "warning", Message: warning}); err != nil {
 			return result, err
@@ -33,15 +36,19 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	receipts, err := s.backend.Deploy(ctx, s.project.Application.UUID, options.Force)
+	receipts, err := s.backend.Deploy(ctx, models.DeployRequest{ApplicationUUID: s.project.Application.UUID, Force: options.Force, PullRequest: options.PullRequest})
 	if err != nil {
 		return result, err
 	}
+	var messages []string
 	for _, receipt := range receipts {
 		if receipt.ResourceUUID != s.project.Application.UUID {
 			continue
 		}
 		if receipt.DeploymentUUID == "" {
+			if receipt.Message != "" {
+				messages = append(messages, receipt.Message)
+			}
 			continue
 		}
 		if result.DeploymentUUID != "" {
@@ -50,7 +57,15 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 		result.DeploymentUUID = receipt.DeploymentUUID
 	}
 	if result.DeploymentUUID == "" {
-		return result, fmt.Errorf("server did not confirm a deployment UUID for application %s; inspect Coolify before retrying", s.project.Application.UUID)
+		// The server explains a refusal in the receipt, e.g. an unknown pull request.
+		detail := "inspect Coolify before retrying"
+		if len(messages) > 0 {
+			detail = strings.Join(messages, "; ")
+			if options.PullRequest > 0 {
+				detail += " (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)"
+			}
+		}
+		return result, fmt.Errorf("server did not confirm a deployment for application %s: %s", s.project.Application.UUID, detail)
 	}
 	result.Status = "queued"
 	fail := func(err error) (DeployResult, error) {

@@ -37,18 +37,23 @@ func (c *Client) GetApplication(ctx context.Context, uuid string) (models.Applic
 	return application, err
 }
 
-func (c *Client) Deploy(ctx context.Context, uuid string, force bool) ([]models.DeploymentReceipt, error) {
+func (c *Client) Deploy(ctx context.Context, request models.DeployRequest) ([]models.DeploymentReceipt, error) {
+	uuid := request.ApplicationUUID
 	// The server treats a comma-delimited UUID string as multiple deployments.
 	if uuid == "" || strings.Contains(uuid, ",") || strings.IndexFunc(uuid, unicode.IsSpace) >= 0 || strings.IndexFunc(uuid, unicode.IsControl) >= 0 {
 		return nil, errors.New("deployment requires exactly one nonempty application UUID")
+	}
+	if request.PullRequest < 0 {
+		return nil, errors.New("pull request number must be positive")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	body := struct {
-		UUID  string `json:"uuid"`
-		Force bool   `json:"force"`
-	}{UUID: uuid, Force: force}
+		UUID        string `json:"uuid"`
+		Force       bool   `json:"force"`
+		PullRequest int    `json:"pr,omitempty"`
+	}{UUID: uuid, Force: request.Force, PullRequest: request.PullRequest}
 	var response struct {
 		Deployments *[]models.DeploymentReceipt `json:"deployments"`
 	}

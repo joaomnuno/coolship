@@ -30,7 +30,7 @@ func run() int {
 		CredentialURL:   os.Getenv("COOLSHIP_URL"),
 		CredentialToken: os.Getenv("COOLSHIP_TOKEN"),
 	})
-	err := cmd.NewRootCommand(app, streams, version, cmd.WithOpener(ui.OpenBrowser)).ExecuteContext(ctx)
+	err := cmd.NewRootCommand(app, streams, version, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
 		_ = ui.PrintError(streams.Err, err)

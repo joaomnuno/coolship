@@ -101,15 +101,20 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		write(w, application)
 	})
 	handle("POST /api/v1/deploy", func(w http.ResponseWriter, r *http.Request, calls int) {
-		if calls > 1 {
-			t.Errorf("deployment submitted %d times", calls)
-		}
 		var body struct {
-			UUID  string `json:"uuid"`
-			Force bool   `json:"force"`
+			UUID        string `json:"uuid"`
+			Force       bool   `json:"force"`
+			PullRequest int    `json:"pr"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID != "app-1" {
 			t.Errorf("unexpected deployment body %+v (%v)", body, err)
+		}
+		// Coolify 4.3.18 answers an unknown pull request with 200 and no UUID.
+		if body.PullRequest == 9 {
+			write(w, map[string]any{"deployments": []map[string]any{
+				{"resource_uuid": "app-1", "message": "Pull request 9 not found for this resource."},
+			}})
+			return
 		}
 		write(w, map[string]any{"deployments": []map[string]any{
 			{"resource_uuid": "app-1", "deployment_uuid": "deploy-1", "message": "queued"},
@@ -449,5 +454,26 @@ func TestEnvRoundTripAgainstTheServer(t *testing.T) {
 	out, _, err = run(t, instance.URL, dir, "", "env", "diff", "--preview", "--show-values")
 	if err != nil || !strings.Contains(out, "~ KEEP: local changed, remote preview-k") {
 		t.Fatalf("preview scope: out=%q err=%v", out, err)
+	}
+}
+
+func TestPreviewDeploymentAgainstTheServer(t *testing.T) {
+	s := &server{deployment: []string{"finished"}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	out, _, err := run(t, instance.URL, dir, "", "preview", "--pr", "7", "--format", "json")
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	var result service.DeployResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.PullRequest != 7 || result.Status != "finished" {
+		t.Fatalf("preview result %s: %v", out, err)
+	}
+	_, _, err = run(t, instance.URL, dir, "", "preview", "--pr", "9")
+	if err == nil || !strings.Contains(err.Error(), "Pull request 9 not found") || ui.ExitCode(err) != 1 {
+		t.Fatalf("unknown pull request: %v", err)
 	}
 }
