@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coolship</title>
+<meta name="description" content="Coolship is a project-local CLI for Coolify: link a repository to its application once, then deploy, read logs, and sync variables from the terminal.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b6e69'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='700' fill='%23fff' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f9f8;
+  --fg: #14201e;
+  --muted: #5a6b68;
+  --rule: #d3ddda;
+  --accent: #0b6e69;
+  --accent-fg: #ffffff;
+  --code-bg: #e7efec;
+  --term-bg: #0d1614;
+  --term-fg: #d9e6e3;
+  --term-muted: #86988f;
+  --term-ok: #5fd3a8;
+  --term-bar: #16211f;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1615;
+    --fg: #e4ecea;
+    --muted: #97a8a4;
+    --rule: #25332f;
+    --accent: #4fc9bd;
+    --accent-fg: #0b1110;
+    --code-bg: #182220;
+    --term-bg: #080e0d;
+    --term-bar: #121b19;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  padding-inline: 1.25rem;
+  padding-block: 0 4rem;
+}
+code, pre, kbd, .cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+::selection { background: var(--accent); color: var(--accent-fg); }
+
+.wrap { max-width: 44rem; margin-inline: auto; }
+p { max-width: 65ch; }
+h1, h2, h3 { line-height: 1.15; text-wrap: balance; letter-spacing: -0.015em; }
+h2 { font-size: 1.5rem; margin: 0 0 0.75rem; }
+h2 + p { margin-top: 0; }
+section { margin-top: 4rem; }
+.eyebrow {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 0.35rem;
+}
+
+/* Hero */
+header { padding-top: clamp(3rem, 9vw, 6rem); }
+.brand { display: flex; align-items: center; gap: 0.6rem; margin: 0; }
+.brand svg { flex: none; }
+.brand span { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.01em; }
+header h1 {
+  font-size: clamp(2.4rem, 7vw, 4.25rem);
+  font-weight: 700;
+  margin: 1.25rem 0 0.5rem;
+  letter-spacing: -0.03em;
+}
+.lede { font-size: 1.25rem; color: var(--muted); margin: 0; }
+
+/* Install block */
+.install { margin-top: 2.25rem; }
+.install .box {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.install pre {
+  margin: 0;
+  padding: 0.95rem 1.1rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+}
+.install button {
+  flex: none;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--term-bar);
+  background: var(--term-bar);
+  color: var(--term-fg);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0 1rem;
+  cursor: pointer;
+}
+.install button:hover { background: var(--accent); color: var(--accent-fg); }
+.install button:focus-visible { outline-offset: -3px; outline-color: var(--term-ok); }
+.install .alt { margin: 0.75rem 0 0; font-size: 0.95rem; color: var(--muted); }
+
+/* Terminal demo */
+.term {
+  margin: 1.5rem 0 0;
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.term figcaption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--term-bar);
+  color: var(--term-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+.term figcaption::before {
+  content: "";
+  width: 0.55rem; height: 0.55rem;
+  border-radius: 50%;
+  background: var(--term-ok);
+}
+.term pre {
+  margin: 0;
+  padding: 1rem 1.1rem 1.1rem;
+  overflow-x: auto;
+  line-height: 1.55;
+  font-size: 0.86rem;
+}
+.term .prompt { color: var(--term-muted); }
+.term .ok { color: var(--term-ok); }
+.term .dim { color: var(--term-muted); }
+.after-term { margin-top: 1.5rem; }
+.after-list { margin-top: 1.75rem; }
+
+/* Commands list */
+dl.cmds {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 1.5rem;
+  row-gap: 0.85rem;
+  margin: 1.5rem 0 0;
+}
+dl.cmds dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  padding-top: 0.1rem;
+}
+dl.cmds dd { margin: 0; }
+dl.cmds dd code { background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 4px; }
+@media (max-width: 40rem) {
+  dl.cmds { grid-template-columns: 1fr; row-gap: 0.25rem; }
+  dl.cmds dt { white-space: normal; }
+  dl.cmds dd { margin-bottom: 0.85rem; }
+}
+
+/* Inline code blocks (toml) */
+pre.file {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin: 1rem 0 0;
+  overflow-x: auto;
+  line-height: 1.5;
+  font-size: 0.88rem;
+}
+p code { background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 4px; }
+
+/* Verified */
+.verified {
+  margin-top: 4rem;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  background: var(--code-bg);
+  border-radius: 0 8px 8px 0;
+}
+.verified p { margin: 0; }
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+footer nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="brand" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 32 32" role="presentation"><rect width="32" height="32" rx="6" fill="var(--accent)"/><text x="16" y="22" font-family="ui-monospace, Menlo, monospace" font-size="17" font-weight="700" fill="var(--accent-fg)" text-anchor="middle">&gt;_</text></svg>
+    <span>coolship</span>
+  </p>
+  <h1>Link once, then ship.</h1>
+  <p class="lede">Coolship is a project-local CLI for <a href="https://coolify.io/">Coolify</a>. It binds the repository you are in to its Coolify application, so <code>deploy</code>, <code>logs</code>, and <code>env</code> work from the terminal without UUIDs or dashboard navigation.</p>
+
+  <div class="install">
+    <p class="eyebrow" id="install-label">Install</p>
+    <div class="box">
+      <pre id="install-cmd" aria-labelledby="install-label"><code>curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh</code></pre>
+      <button type="button" data-copy="install-cmd" hidden>Copy</button>
+    </div>
+    <p class="alt">or <code>go install github.com/joaomnuno/coolship@latest</code>, or <a href="https://github.com/joaomnuno/coolship#install">build from source</a> with Go 1.26 or newer.</p>
+  </div>
+</header>
+
+<main>
+
+<section aria-labelledby="demo-h">
+  <p class="eyebrow">In the terminal</p>
+  <h2 id="demo-h">One deployment, observed exactly</h2>
+  <p>After <code>coolship link</code>, no command needs a resource identifier. <code>deploy</code> submits one deployment and follows the UUID that submission returned, streaming the server's build log while it waits.</p>
+
+  <figure class="term">
+    <figcaption>coolship deploy</figcaption>
+<pre><span class="prompt">$</span> coolship deploy
+Deployment 03dusayin5rleswixblvdqba: queued
+Deployment 03dusayin5rleswixblvdqba: in_progress
+<span class="dim">Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
+Building docker image started.
+Building docker image completed.
+Rolling update started.
+Attempt 2 of 10 | Healthcheck status: "healthy"
+Rolling update completed.</span>
+Deployment 03dusayin5rleswixblvdqba: <span class="ok">finished</span>
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: <span class="ok">finished</span></pre>
+  </figure>
+
+  <p class="after-term">When something is off, <code>doctor</code> runs every step a command performs and reports each one.</p>
+
+  <figure class="term">
+    <figcaption>coolship doctor</figcaption>
+<pre><span class="prompt">$</span> coolship doctor
+<span class="ok">[ok]</span>   Project configuration: /home/you/my-app/coolship.toml
+<span class="ok">[ok]</span>   Git repository: /home/you/my-app
+<span class="ok">[ok]</span>   Binding: Personal / production / fenix-bot in /home/you/my-app
+<span class="ok">[ok]</span>   Credentials: /home/you/.config/coolify/config.json (1 instance, default home)
+<span class="ok">[ok]</span>   Context: home at https://coolify.example.com
+<span class="ok">[ok]</span>   Server: Coolify 4.3.18
+<span class="ok">[ok]</span>   Application: fenix-bot (9f8e7d6c) is running:healthy</pre>
+  </figure>
+</section>
+
+<section aria-labelledby="cmds-h">
+  <p class="eyebrow">Commands</p>
+  <h2 id="cmds-h">What it does</h2>
+  <p>Everything reads the binding that <code>link</code> wrote. Every command takes <code>--format json</code>; results go to stdout, progress and prompts to stderr.</p>
+
+  <dl class="cmds">
+    <dt>link</dt>
+    <dd>Bind the repository to an existing Coolify application and write a credential-free <code>coolship.toml</code>; it never creates remote resources.</dd>
+
+    <dt>status</dt>
+    <dd>Report the linked application's current status and URL.</dd>
+
+    <dt>deploy</dt>
+    <dd>Deploy from the source and branch already configured in Coolify, wait for that exact deployment, and stream its build log; <code>--no-wait</code>, <code>--force</code>, and <code>--timeout</code> adjust it.</dd>
+
+    <dt>logs</dt>
+    <dd>Read the application's runtime logs, with <code>--follow</code> to keep polling and <code>--lines</code> to choose how far back.</dd>
+
+    <dt>open</dt>
+    <dd>Open the application's public URL in your browser, or its Coolify page with <code>--dashboard</code>; <code>--print</code> only prints it.</dd>
+
+    <dt>doctor</dt>
+    <dd>Check configuration, Git boundary, binding, credentials, context, server version, and the application itself, exiting 1 when a check fails.</dd>
+
+    <dt>env pull · diff · push</dt>
+    <dd>Synchronize a local <code>.env</code> with one scope of the application's variables; withheld values are never invented, and shared references stay references.</dd>
+
+    <dt>preview</dt>
+    <dd>Deploy the preview Coolify already holds for a pull request, from <code>--pr</code> or <code>GITHUB_REF</code> in GitHub Actions.</dd>
+
+    <dt>dev</dt>
+    <dd>Run a local command with the application's runtime variables injected over your environment, exit status and Ctrl-C forwarded.</dd>
+
+    <dt>domain</dt>
+    <dd>Show the application's domains, and replace them with <code>domain set</code>, reading the application back to confirm.</dd>
+
+    <dt>targets</dt>
+    <dd>In a monorepo, <code>[apps.&lt;name&gt;]</code> tables are selected by the directory you are in or by name: <code>coolship deploy api</code>.</dd>
+  </dl>
+
+  <p class="after-list"><code>link</code> writes one small, versioned file at the repository root. Commit it; tokens and secret values are never written to it.</p>
+<pre class="file"><code>version = 1
+
+[project]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "fenix-bot"
+root = "."</code></pre>
+</section>
+
+<section aria-labelledby="why-h">
+  <p class="eyebrow">Scope</p>
+  <h2 id="why-h">How it relates to coolify-cli</h2>
+  <p>Coolify already has <a href="https://github.com/coollabsio/coolify-cli"><code>coolify-cli</code></a>, and Coolship is not meant to replace it. <code>coolify-cli</code> manages Coolify resources; Coolship manages the developer workflow around the project you are currently working on. Creating servers, private keys, or team members stays out of scope.</p>
+  <p>Credentials are shared: Coolship reads the contexts <code>coolify-cli</code> already stores in <code>~/.config/coolify/config.json</code>, so if you have authenticated there, you are ready to go. In CI, <code>COOLSHIP_URL</code> and <code>COOLSHIP_TOKEN</code> stand in for it.</p>
+</section>
+
+<aside class="verified" aria-label="Compatibility">
+  <p><strong>Verified against Coolify 4.3.18.</strong> Every command was run end to end against a live instance. The 4.3.19 source has no changes to any endpoint Coolship uses; other versions are untested. <a href="https://github.com/joaomnuno/coolship#server-compatibility">Known limits</a>.</p>
+</aside>
+
+</main>
+
+<footer>
+  <nav aria-label="Project links">
+    <ul>
+      <li><a href="https://github.com/joaomnuno/coolship">GitHub</a></li>
+      <li><a href="https://github.com/joaomnuno/coolship/blob/main/CHANGELOG.md">Changelog</a></li>
+      <li><a href="https://github.com/joaomnuno/coolship/blob/main/LICENSE">MIT license</a></li>
+    </ul>
+  </nav>
+</footer>
+
+</div>
+<script>
+(function () {
+  if (!navigator.clipboard) return;
+  document.querySelectorAll("button[data-copy]").forEach(function (button) {
+    var source = document.getElementById(button.getAttribute("data-copy"));
+    if (!source) return;
+    button.hidden = false;
+    button.addEventListener("click", function () {
+      navigator.clipboard.writeText(source.textContent.trim()).then(function () {
+        button.textContent = "Copied";
+      }, function () {
+        button.textContent = "Copy failed";
+      });
+      setTimeout(function () { button.textContent = "Copy"; }, 1600);
+    });
+  });
+})();
+</script>
+</body>
+</html>
