@@ -242,10 +242,22 @@ func (r *Renderer) Init(result service.InitResult) error {
 			singleLine(key.Repository), singleLine(key.Name))
 		return err
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s (%s) from %s at %s\n%s %s, port %d\n",
+	buildPack := singleLine(plan.BuildPack)
+	if plan.Port > 0 {
+		buildPack += fmt.Sprintf(", port %d", plan.Port)
+	}
+	if plan.Static {
+		buildPack += ", static"
+	}
+	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s (%s) from %s at %s\n%s %s\n",
 		singleLine(plan.Name), singleLine(result.Target.ApplicationUUID), singleLine(plan.Repository), singleLine(plan.Branch),
-		r.out.key("Build pack"), singleLine(plan.BuildPack), plan.Port); err != nil {
+		r.out.key("Build pack"), buildPack); err != nil {
 		return err
+	}
+	for _, detail := range buildDetails(plan) {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key(detail[0]), detail[1]); err != nil {
+			return err
+		}
 	}
 	switch plan.Source {
 	case service.SourceGitHubApp:

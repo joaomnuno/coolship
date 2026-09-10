@@ -578,7 +578,8 @@ func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
 		result.Plan.Repository != "https://github.com/joaomnuno/"+name || result.URL != "https://app-"+name+".coolify.example.com" {
 		t.Fatalf("unexpected init result %+v", result)
 	}
-	if len(s.creations) != 2 || s.creations[1]["ports_exposes"] != "80" || s.creations[1]["build_pack"] != "dockerfile" || s.creations[1]["git_branch"] != "main" {
+	if len(s.creations) != 2 || s.creations[1]["ports_exposes"] != "80" || s.creations[1]["build_pack"] != "dockerfile" || s.creations[1]["git_branch"] != "main" ||
+		s.creations[1]["health_check_enabled"] != false || s.creations[1]["dockerfile_location"] != nil {
 		t.Fatalf("creations %v", s.creations)
 	}
 	written, err := os.ReadFile(filepath.Join(dir, "coolship.toml"))
@@ -605,6 +606,44 @@ func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
 	// Nothing was deployed, and no request went to the unusable server.
 	if counts := s.counts(); counts["POST /api/v1/deploy"] != 0 || counts["POST /api/v1/applications/public"] != 2 {
 		t.Fatalf("requests %v", counts)
+	}
+}
+
+func TestInitCreatesComposeApplications(t *testing.T) {
+	s := &server{}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	for _, name := range []string{"compose.yml", "Dockerfile"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The compose file wins over the Dockerfile, is named in the plan, and
+	// the services' domains travel with the request; the port is Coolify's.
+	_, diagnostic, err := run(t, instance.URL, dir, "n\n", "init", "--project", "Personal", "--compose-domain", "web=https://web.example.com")
+	if !errors.Is(err, service.ErrCancelled) || !strings.Contains(diagnostic, "Build pack:  dockercompose\n") || !strings.Contains(diagnostic, "Compose file: /compose.yml") || !strings.Contains(diagnostic, "Service web: https://web.example.com") || strings.Contains(diagnostic, "port") {
+		t.Fatalf("declined: err=%v stderr=%q", err, diagnostic)
+	}
+	out, diagnostic, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--compose-domain", "web=https://web.example.com", "--yes")
+	if err != nil || strings.Contains(diagnostic, "No service has a domain") || !strings.Contains(out, "Build pack: dockercompose\n") || !strings.Contains(out, "Compose file: /compose.yml") || !strings.Contains(out, "Service web: https://web.example.com") {
+		t.Fatalf("compose init: err=%v stdout=%q stderr=%q", err, out, diagnostic)
+	}
+	domains, _ := json.Marshal(s.creations[0]["docker_compose_domains"])
+	if len(s.creations) != 1 || s.creations[0]["build_pack"] != "dockercompose" || s.creations[0]["docker_compose_location"] != "/compose.yml" || s.creations[0]["ports_exposes"] != "80" ||
+		string(domains) != `[{"domain":"https://web.example.com","name":"web"}]` || s.creations[0]["health_check_enabled"] != nil {
+		t.Fatalf("creation %v", s.creations[0])
+	}
+	// Without a domain, the result warns that the services have none.
+	dir = projectDirectory(t)
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, diagnostic, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--name", "stack", "--yes"); err != nil || !strings.Contains(diagnostic, "No service has a domain") {
+		t.Fatalf("compose without domains: err=%v stderr=%q", err, diagnostic)
+	}
+	// --port has no meaning for a compose application and is refused before any request.
+	if _, _, err := run(t, instance.URL, projectDirectory(t), "", "init", "--project", "Personal", "--build-pack", "dockercompose", "--port", "80", "--yes"); !errors.Is(err, service.ErrInput) || len(s.creations) != 2 {
+		t.Fatalf("compose with --port: err=%v creations=%d", err, len(s.creations))
 	}
 }
 

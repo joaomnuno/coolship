@@ -30,7 +30,23 @@ func TestCreationEndpointsAndRefusalMessages(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body["instant_deploy"] != false || body["ports_exposes"] != "80" || body["build_pack"] != "dockerfile" || body["is_static"] != nil || body["base_directory"] != nil {
+			switch body["build_pack"] {
+			case "dockerfile":
+				if body["instant_deploy"] != false || body["ports_exposes"] != "80" || body["is_static"] != nil || body["base_directory"] != nil ||
+					body["dockerfile_location"] != nil || body["docker_compose_location"] != nil || body["docker_compose_domains"] != nil || body["health_check_enabled"] != false {
+					t.Errorf("application body = %#v", body)
+				}
+			case "dockercompose":
+				domains, _ := json.Marshal(body["docker_compose_domains"])
+				if body["ports_exposes"] != "80" || body["docker_compose_location"] != "/compose.yml" || string(domains) != `[{"domain":"https://web.example.test","name":"web"}]` ||
+					body["health_check_enabled"] != nil || body["is_static"] != nil || body["publish_directory"] != nil {
+					t.Errorf("compose body = %#v", body)
+				}
+			case "nixpacks":
+				if body["ports_exposes"] != "80" || body["is_static"] != true || body["publish_directory"] != "/build" || body["install_command"] != "npm ci" || body["build_command"] != "npm run build" || body["start_command"] != nil {
+					t.Errorf("static build body = %#v", body)
+				}
+			default:
 				t.Errorf("application body = %#v", body)
 			}
 			if body["git_repository"] == "https://github.com/owner/private" {
@@ -54,11 +70,25 @@ func TestCreationEndpointsAndRefusalMessages(t *testing.T) {
 	if err != nil || project.UUID != "p9" || project.Name != "New" {
 		t.Fatalf("project = %#v, %v", project, err)
 	}
+	off := false
 	spec := models.ApplicationSpec{ProjectUUID: "p1", EnvironmentName: "production", ServerUUID: "s1", Name: "web",
-		GitRepository: "https://github.com/owner/repo", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80"}
+		GitRepository: "https://github.com/owner/repo", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80", HealthCheckEnabled: &off}
 	created, err := client.CreateApplication(ctx, spec)
 	if err != nil || created.UUID != "a9" || created.Domains != "https://a9.example.test" {
 		t.Fatalf("created = %#v, %v", created, err)
+	}
+	// The build pack refinements are sent only when set, under the server's names.
+	compose := spec
+	compose.BuildPack, compose.HealthCheckEnabled, compose.DockerComposeLocation = "dockercompose", nil, "/compose.yml"
+	compose.DockerComposeDomains = []models.ComposeDomain{{Name: "web", Domain: "https://web.example.test"}}
+	if _, err := client.CreateApplication(ctx, compose); err != nil {
+		t.Fatalf("compose: %v", err)
+	}
+	static := spec
+	static.BuildPack, static.HealthCheckEnabled, static.IsStatic, static.PublishDirectory = "nixpacks", nil, true, "/build"
+	static.InstallCommand, static.BuildCommand = "npm ci", "npm run build"
+	if _, err := client.CreateApplication(ctx, static); err != nil {
+		t.Fatalf("static build: %v", err)
 	}
 	spec.GitRepository = "https://github.com/owner/private"
 	_, err = client.CreateApplication(ctx, spec)

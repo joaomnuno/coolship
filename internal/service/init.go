@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,14 +16,6 @@ import (
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 )
-
-// buildPacks are the ones init can create. Docker Compose is refused: its
-// domains and variables are per service, which no other Coolship command
-// models yet.
-var buildPacks = []string{"nixpacks", "dockerfile", "static"}
-
-// composeFiles are the names Coolify itself looks for.
-var composeFiles = []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}
 
 // probeTimeout bounds the anonymous ls-remote; an unreachable host must not
 // hold the command for git's own connection timeout.
@@ -43,14 +34,8 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	if err != nil {
 		return InitResult{}, err
 	}
-	if options.BuildPack != "" && !slices.Contains(buildPacks, options.BuildPack) {
-		if options.BuildPack == "dockercompose" {
-			return InitResult{}, input(errors.New(composeRefusal))
-		}
-		return InitResult{}, input(fmt.Errorf("--build-pack must be one of %s, not %q", strings.Join(buildPacks, ", "), options.BuildPack))
-	}
-	if options.Port < 0 || options.Port > 65535 {
-		return InitResult{}, input(fmt.Errorf("--port must be between 1 and 65535, not %d", options.Port))
+	if err := validateBuildOptions(options.BuildOptions); err != nil {
+		return InitResult{}, err
 	}
 	if options.CreateProject && options.Project == "" {
 		return InitResult{}, input(errors.New("--create-project needs --project NAME"))
@@ -70,15 +55,9 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	if err != nil {
 		return InitResult{}, err
 	}
-	buildPack := options.BuildPack
-	if buildPack == "" {
-		if buildPack, err = detectBuildPack(appRoot); err != nil {
-			return InitResult{}, err
-		}
-	}
-	port := options.Port
-	if port == 0 {
-		port = defaultPort(buildPack)
+	build, err := settleBuild(options.BuildOptions, appRoot)
+	if err != nil {
+		return InitResult{}, err
 	}
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
@@ -107,6 +86,9 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 		return InitResult{}, err
 	}
 	warnings := origin.warnings
+	if build.BuildPack == BuildPackCompose && len(build.ComposeDomains) == 0 {
+		warnings = append(warnings, "No service has a domain yet; set them per service in Coolify (domain set does not apply to Compose applications).")
+	}
 	projects, err := backend.ListProjects(ctx)
 	if err != nil {
 		return InitResult{}, err
@@ -150,7 +132,10 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 		return InitResult{}, input(fmt.Errorf("%s already binds this target; run coolship unlink first, or coolship link to change the binding without creating an application", p.ConfigPath))
 	}
 	plan := InitPlan{Path: p.ConfigPath, Target: proposal.Key, Root: root, Repository: origin.remote, Branch: repository.Branch,
-		BuildPack: buildPack, Port: port, Static: options.Static, Name: name, Instance: credentials.Name,
+		BuildPack: build.BuildPack, Port: build.Port, Static: build.Static, PublishDirectory: build.PublishDirectory,
+		Dockerfile: build.Dockerfile, ComposeFile: build.ComposeFile, ComposeDomains: build.ComposeDomains,
+		InstallCommand: build.InstallCommand, BuildCommand: build.BuildCommand, StartCommand: build.StartCommand,
+		Name: name, Instance: credentials.Name,
 		Project: remoteProject.Name, NewProject: newProject, Environment: environmentName, Server: server.Name, Deploy: options.Deploy,
 		GitHubApp: origin.app.Name, DeployKey: origin.key.Name, NewDeployKey: origin.newKey != ""}
 	if origin.source != SourcePublic {
@@ -197,9 +182,9 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 		}
 	}
 	spec := models.ApplicationSpec{ProjectUUID: remoteProject.UUID, EnvironmentName: environment.Name, ServerUUID: server.UUID,
-		Name: name, GitRepository: origin.remote, GitBranch: repository.Branch, BuildPack: buildPack,
-		PortsExposes: fmt.Sprint(port), IsStatic: options.Static,
+		Name: name, GitRepository: origin.remote, GitBranch: repository.Branch,
 		Source: origin.source, GitHubAppUUID: origin.app.UUID, PrivateKeyUUID: origin.key.UUID}
+	build.apply(&spec)
 	if root != "." {
 		spec.BaseDirectory = "/" + filepath.ToSlash(root)
 	}
@@ -233,8 +218,6 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	result.Deployment = &deployment
 	return result, nil
 }
-
-const composeRefusal = "this is a Docker Compose project; init does not create compose applications, whose domains and variables are per service. Create it in Coolify, then run coolship link"
 
 // initSource settles the source the flags ask for: --github-app implies a
 // GitHub App and either key flag implies a deploy key, while a --source that
@@ -601,30 +584,6 @@ func (a *App) createDeployKey(ctx context.Context, backend Backend, name, remote
 		return DeployKeyResult{}, fmt.Errorf("create deploy key %q: %w (if the request reached the server, the key exists; check Coolify before retrying)", name, err)
 	}
 	return DeployKeyResult{Name: name, UUID: created.UUID, PublicKey: pair.Public, Repository: remote}, nil
-}
-
-// detectBuildPack reads the application root the way Coolify's own detection
-// would: a compose file is refused, a Dockerfile builds itself, anything else
-// is handed to Nixpacks.
-func detectBuildPack(dir string) (string, error) {
-	for _, name := range composeFiles {
-		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() {
-			return "", input(errors.New(composeRefusal))
-		}
-	}
-	if info, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil && !info.IsDir() {
-		return "dockerfile", nil
-	}
-	return "nixpacks", nil
-}
-
-// defaultPort is what each build pack's typical result listens on; the plan
-// shows it so the user can check before creation.
-func defaultPort(buildPack string) int {
-	if buildPack == "nixpacks" {
-		return 3000
-	}
-	return 80
 }
 
 // chooseProject selects by name, creates on request, or prompts among all.

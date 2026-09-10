@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -38,8 +37,8 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 		t.Fatal("cancelled init wrote configuration")
 	}
 	want := InitPlan{Path: filepath.Join(dir, "coolship.toml"), Target: "default", Root: ".", Repository: "https://github.com/owner/new-app", Branch: "main",
-		BuildPack: "dockerfile", Port: 80, Name: "new-app", Instance: "home", Project: "Personal", Environment: "production", Server: "Master"}
-	if plan != want {
+		BuildPack: "dockerfile", Port: 80, Dockerfile: "/Dockerfile", Name: "new-app", Instance: "home", Project: "Personal", Environment: "production", Server: "Master"}
+	if !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan=%+v\nwant %+v", plan, want)
 	}
 	if !reflect.DeepEqual(f.inspected, []string{dir, dir}) {
@@ -52,11 +51,12 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Plan != want || result.Target.ApplicationUUID != "app-new-app" || result.Target.Application != "new-app" || result.URL != "https://app-new-app.example.com" || result.Deployment != nil {
+	if !reflect.DeepEqual(result.Plan, want) || result.Target.ApplicationUUID != "app-new-app" || result.Target.Application != "new-app" || result.URL != "https://app-new-app.example.com" || result.Deployment != nil {
 		t.Fatalf("result %+v", result)
 	}
-	if len(f.created) != 1 || f.created[0] != (models.ApplicationSpec{ProjectUUID: "project-1", EnvironmentName: "production", ServerUUID: "server-1",
-		Name: "new-app", GitRepository: "https://github.com/owner/new-app", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80", Source: SourcePublic}) {
+	healthCheck := false
+	if len(f.created) != 1 || !reflect.DeepEqual(f.created[0], models.ApplicationSpec{ProjectUUID: "project-1", EnvironmentName: "production", ServerUUID: "server-1",
+		Name: "new-app", GitRepository: "https://github.com/owner/new-app", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80", Source: SourcePublic, HealthCheckEnabled: &healthCheck}) {
 		t.Fatalf("created %+v", f.created)
 	}
 	// A public repository was probed once per attempt and needed no source prompt.
@@ -85,37 +85,58 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 	}
 }
 
-func TestInitDetectsBuildPackAndRefusesCompose(t *testing.T) {
+func TestInitSettlesBuildPack(t *testing.T) {
+	off := false
+	web := ComposeDomain{Service: "web", Domain: "https://web.example.com"}
 	for _, test := range []struct {
-		name      string
-		files     []string
-		options   InitOptions
-		buildPack string
-		port      int
-		static    bool
-		refused   string
+		name    string
+		files   []string
+		build   BuildOptions
+		plan    InitPlan               // build fields only
+		spec    models.ApplicationSpec // build fields only
+		warning string
+		refused string
 	}{
-		{"nixpacks", nil, InitOptions{}, "nixpacks", 3000, false, ""},
-		{"dockerfile", []string{"Dockerfile"}, InitOptions{}, "dockerfile", 80, false, ""},
-		{"compose", []string{"docker-compose.yml"}, InitOptions{}, "", 0, false, "Docker Compose"},
-		{"compose yaml", []string{"compose.yaml", "Dockerfile"}, InitOptions{}, "", 0, false, "Docker Compose"},
-		{"explicit static", nil, InitOptions{BuildPack: "static", Port: 8080, Static: true}, "static", 8080, true, ""},
-		{"explicit compose", []string{"Dockerfile"}, InitOptions{BuildPack: "dockercompose"}, "", 0, false, "Docker Compose"},
-		{"unknown pack", nil, InitOptions{BuildPack: "buildpacks"}, "", 0, false, "--build-pack"},
-		{"bad port", nil, InitOptions{Port: 70000}, "", 0, false, "--port"},
+		{"railpack by default", nil, BuildOptions{}, InitPlan{BuildPack: "railpack", Port: 3000}, models.ApplicationSpec{BuildPack: "railpack", PortsExposes: "3000"}, "", ""},
+		{"dockerfile", []string{"Dockerfile"}, BuildOptions{}, InitPlan{BuildPack: "dockerfile", Port: 80, Dockerfile: "/Dockerfile"}, models.ApplicationSpec{BuildPack: "dockerfile", PortsExposes: "80", HealthCheckEnabled: &off}, "", ""},
+		{"named dockerfile", []string{"Dockerfile", "deploy/Dockerfile.prod"}, BuildOptions{Dockerfile: "deploy/Dockerfile.prod", Port: 8080}, InitPlan{BuildPack: "dockerfile", Port: 8080, Dockerfile: "/deploy/Dockerfile.prod"}, models.ApplicationSpec{BuildPack: "dockerfile", PortsExposes: "8080", DockerfileLocation: "/deploy/Dockerfile.prod", HealthCheckEnabled: &off}, "", ""},
+		{"compose before dockerfile", []string{"compose.yaml", "Dockerfile"}, BuildOptions{}, InitPlan{BuildPack: "dockercompose", ComposeFile: "/compose.yaml"}, models.ApplicationSpec{BuildPack: "dockercompose", PortsExposes: "80", DockerComposeLocation: "/compose.yaml"}, "No service has a domain", ""},
+		{"compose in coolify's order", []string{"compose.yml", "docker-compose.yml"}, BuildOptions{}, InitPlan{BuildPack: "dockercompose", ComposeFile: "/docker-compose.yml"}, models.ApplicationSpec{BuildPack: "dockercompose", PortsExposes: "80", DockerComposeLocation: "/docker-compose.yml"}, "No service has a domain", ""},
+		{"compose with domains", []string{"docker-compose.yaml", "deploy/stack.yml"}, BuildOptions{ComposeFile: "deploy/stack.yml", ComposeDomains: []ComposeDomain{web}}, InitPlan{BuildPack: "dockercompose", ComposeFile: "/deploy/stack.yml", ComposeDomains: []ComposeDomain{web}}, models.ApplicationSpec{BuildPack: "dockercompose", PortsExposes: "80", DockerComposeLocation: "/deploy/stack.yml", DockerComposeDomains: []models.ComposeDomain{{Name: "web", Domain: "https://web.example.com"}}}, "", ""},
+		{"static page", []string{"index.html"}, BuildOptions{}, InitPlan{BuildPack: "static", Port: 80}, models.ApplicationSpec{BuildPack: "static", PortsExposes: "80"}, "", ""},
+		{"page with a manifest builds", []string{"index.html", "package.json"}, BuildOptions{}, InitPlan{BuildPack: "railpack", Port: 3000}, models.ApplicationSpec{BuildPack: "railpack", PortsExposes: "3000"}, "", ""},
+		{"static pack with publish dir", nil, BuildOptions{BuildPack: "static", PublishDirectory: "public/", Port: 8080}, InitPlan{BuildPack: "static", Port: 8080, PublishDirectory: "/public"}, models.ApplicationSpec{BuildPack: "static", PortsExposes: "8080", PublishDirectory: "/public"}, "", ""},
+		{"static build", []string{"package.json"}, BuildOptions{Static: true}, InitPlan{BuildPack: "railpack", Port: 80, Static: true, PublishDirectory: "/dist"}, models.ApplicationSpec{BuildPack: "railpack", PortsExposes: "80", IsStatic: true, PublishDirectory: "/dist"}, "", ""},
+		{"nixpacks with commands", nil, BuildOptions{BuildPack: "nixpacks", Static: true, PublishDirectory: "build", InstallCommand: "npm ci", BuildCommand: "npm run build", StartCommand: "npm start"}, InitPlan{BuildPack: "nixpacks", Port: 80, Static: true, PublishDirectory: "/build", InstallCommand: "npm ci", BuildCommand: "npm run build", StartCommand: "npm start"}, models.ApplicationSpec{BuildPack: "nixpacks", PortsExposes: "80", IsStatic: true, PublishDirectory: "/build", InstallCommand: "npm ci", BuildCommand: "npm run build", StartCommand: "npm start"}, "", ""},
+		{"unknown pack", nil, BuildOptions{BuildPack: "buildpacks"}, InitPlan{}, models.ApplicationSpec{}, "", "--build-pack"},
+		{"bad port", nil, BuildOptions{Port: 70000}, InitPlan{}, models.ApplicationSpec{}, "", "--port"},
+		{"static twice", nil, BuildOptions{BuildPack: "static", Static: true}, InitPlan{}, models.ApplicationSpec{}, "", "--static is implied"},
+		{"static dockerfile", []string{"Dockerfile"}, BuildOptions{Static: true}, InitPlan{}, models.ApplicationSpec{}, "", "--static applies"},
+		{"publish dir without static", nil, BuildOptions{PublishDirectory: "dist"}, InitPlan{}, models.ApplicationSpec{}, "", "--publish-dir applies"},
+		{"commands on dockerfile", []string{"Dockerfile"}, BuildOptions{StartCommand: "run"}, InitPlan{}, models.ApplicationSpec{}, "", "--start-command apply"},
+		{"dockerfile flag on railpack", nil, BuildOptions{Dockerfile: "Dockerfile"}, InitPlan{}, models.ApplicationSpec{}, "", "--dockerfile applies"},
+		{"missing dockerfile", []string{"Dockerfile"}, BuildOptions{Dockerfile: "Dockerfile.prod"}, InitPlan{}, models.ApplicationSpec{}, "", "no such file"},
+		{"dockerfile outside the root", []string{"Dockerfile"}, BuildOptions{Dockerfile: "../Dockerfile"}, InitPlan{}, models.ApplicationSpec{}, "", "inside the application root"},
+		{"compose flags on dockerfile", []string{"Dockerfile"}, BuildOptions{ComposeDomains: []ComposeDomain{web}}, InitPlan{}, models.ApplicationSpec{}, "", "--compose-domain apply"},
+		{"compose without a file", nil, BuildOptions{BuildPack: "dockercompose"}, InitPlan{}, models.ApplicationSpec{}, "", "--compose-file PATH"},
+		{"missing compose file", []string{"compose.yml"}, BuildOptions{ComposeFile: "stack.yml"}, InitPlan{}, models.ApplicationSpec{}, "", "no such file"},
+		{"compose port", []string{"compose.yml"}, BuildOptions{Port: 80}, InitPlan{}, models.ApplicationSpec{}, "", "--port does not apply"},
+		{"compose domain without scheme", []string{"compose.yml"}, BuildOptions{ComposeDomains: []ComposeDomain{{Service: "web", Domain: "web.example.com"}}}, InitPlan{}, models.ApplicationSpec{}, "", "http://"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newBackend()
 			app, _, _ := testApp(f)
 			dir := unlinkedDirectory(t)
 			for _, name := range test.files {
-				if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644); err != nil {
+				path := filepath.Join(dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			options := test.options
-			options.Options = Options{CWD: dir}
-			options.Project, options.Yes = "Personal", true
+			options := InitOptions{Options: Options{CWD: dir}, BuildOptions: test.build, Project: "Personal", Yes: true}
 			result, err := app.Init(context.Background(), options, nil, nil, nil)
 			if test.refused != "" {
 				if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), test.refused) || f.calls["projects"] != 0 || f.calls["create-application"] != 0 {
@@ -126,9 +147,21 @@ func TestInitDetectsBuildPackAndRefusesCompose(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Plan.BuildPack != test.buildPack || result.Plan.Port != test.port || result.Plan.Static != test.static ||
-				f.created[0].BuildPack != test.buildPack || f.created[0].PortsExposes != strconv.Itoa(test.port) || f.created[0].IsStatic != test.static {
-				t.Fatalf("plan=%+v created=%+v", result.Plan, f.created[0])
+			plan := result.Plan
+			got := InitPlan{BuildPack: plan.BuildPack, Port: plan.Port, Static: plan.Static, PublishDirectory: plan.PublishDirectory, Dockerfile: plan.Dockerfile,
+				ComposeFile: plan.ComposeFile, ComposeDomains: plan.ComposeDomains, InstallCommand: plan.InstallCommand, BuildCommand: plan.BuildCommand, StartCommand: plan.StartCommand}
+			if !reflect.DeepEqual(got, test.plan) {
+				t.Fatalf("plan=%+v\nwant %+v", got, test.plan)
+			}
+			created := f.created[0]
+			sent := models.ApplicationSpec{BuildPack: created.BuildPack, PortsExposes: created.PortsExposes, IsStatic: created.IsStatic, PublishDirectory: created.PublishDirectory,
+				InstallCommand: created.InstallCommand, BuildCommand: created.BuildCommand, StartCommand: created.StartCommand, DockerfileLocation: created.DockerfileLocation,
+				DockerComposeLocation: created.DockerComposeLocation, DockerComposeDomains: created.DockerComposeDomains, HealthCheckEnabled: created.HealthCheckEnabled}
+			if !reflect.DeepEqual(sent, test.spec) {
+				t.Fatalf("created=%+v\nwant %+v", sent, test.spec)
+			}
+			if test.warning == "" && len(result.Warnings) != 0 || test.warning != "" && (len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], test.warning)) {
+				t.Fatalf("warnings=%q want %q", result.Warnings, test.warning)
 			}
 		})
 	}

@@ -202,6 +202,24 @@ type ApplicationSpec struct {
 	Source          string `json:"-"`
 	GitHubAppUUID   string `json:"github_app_uuid,omitempty"`
 	PrivateKeyUUID  string `json:"private_key_uuid,omitempty"`
+
+	// Build pack refinements; each applies to some packs only, and the
+	// server ignores the rest. Locations are relative to the base directory
+	// and start with a slash, as the server stores them.
+	PublishDirectory      string          `json:"publish_directory,omitempty"`
+	InstallCommand        string          `json:"install_command,omitempty"`
+	BuildCommand          string          `json:"build_command,omitempty"`
+	StartCommand          string          `json:"start_command,omitempty"`
+	DockerfileLocation    string          `json:"dockerfile_location,omitempty"`
+	DockerComposeLocation string          `json:"docker_compose_location,omitempty"`
+	DockerComposeDomains  []ComposeDomain `json:"docker_compose_domains,omitempty"`
+	HealthCheckEnabled    *bool           `json:"health_check_enabled,omitempty"`
+}
+
+// ComposeDomain assigns a domain to one service of a Compose application.
+type ComposeDomain struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain"`
 }
 
 // GitHubApp is a GitHub App registered in Coolify. ID addresses the branch

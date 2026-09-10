@@ -37,17 +37,15 @@ type LinkOptions struct {
 }
 
 // InitOptions creates an application for the current repository and binds it.
-// Repository and Branch are read from Git when empty; BuildPack is detected
-// from the application root when empty. Source chooses how Coolify clones:
-// auto probes the remote anonymously and picks public when that works,
-// otherwise asks which private source to use.
+// Repository and Branch are read from Git when empty; the build pack is
+// detected from the application root when BuildOptions leaves it empty.
+// Source chooses how Coolify clones: auto probes the remote anonymously and
+// picks public when that works, otherwise asks which private source to use.
 type InitOptions struct {
 	Options
+	BuildOptions
 	Repository      string
 	Branch          string
-	BuildPack       string // nixpacks, dockerfile, or static
-	Port            int    // 0 means the build pack's default
-	Static          bool   // serve the build output as a static site
 	Name            string // defaults to the repository name
 	Project         string
 	CreateProject   bool
@@ -75,27 +73,36 @@ const (
 // clone or a GitHub App, the SSH form for a deploy key. Source names a
 // private source; it is empty for a public clone, which keeps the JSON of a
 // public plan as it was. NewDeployKey means only the key is created now: the
-// application follows once the key is registered on the repository.
+// application follows once the key is registered on the repository. Port is
+// 0 for a Compose application, whose services publish their own ports; the
+// build fields that do not apply to the pack are omitted.
 type InitPlan struct {
-	Path         string `json:"path"`
-	Target       string `json:"target"`
-	Root         string `json:"root"`
-	Repository   string `json:"repository"`
-	Branch       string `json:"branch"`
-	BuildPack    string `json:"build_pack"`
-	Port         int    `json:"port"`
-	Static       bool   `json:"static,omitempty"`
-	Name         string `json:"name"`
-	Instance     string `json:"instance"`
-	Project      string `json:"project"`
-	NewProject   bool   `json:"new_project,omitempty"`
-	Environment  string `json:"environment"`
-	Server       string `json:"server"`
-	Deploy       bool   `json:"deploy,omitempty"`
-	Source       string `json:"source,omitempty"`
-	GitHubApp    string `json:"github_app,omitempty"`
-	DeployKey    string `json:"deploy_key,omitempty"`
-	NewDeployKey bool   `json:"new_deploy_key,omitempty"`
+	Path             string          `json:"path"`
+	Target           string          `json:"target"`
+	Root             string          `json:"root"`
+	Repository       string          `json:"repository"`
+	Branch           string          `json:"branch"`
+	BuildPack        string          `json:"build_pack"`
+	Port             int             `json:"port"`
+	Static           bool            `json:"static,omitempty"`
+	PublishDirectory string          `json:"publish_directory,omitempty"`
+	Dockerfile       string          `json:"dockerfile,omitempty"`
+	ComposeFile      string          `json:"compose_file,omitempty"`
+	ComposeDomains   []ComposeDomain `json:"compose_domains,omitempty"`
+	InstallCommand   string          `json:"install_command,omitempty"`
+	BuildCommand     string          `json:"build_command,omitempty"`
+	StartCommand     string          `json:"start_command,omitempty"`
+	Name             string          `json:"name"`
+	Instance         string          `json:"instance"`
+	Project          string          `json:"project"`
+	NewProject       bool            `json:"new_project,omitempty"`
+	Environment      string          `json:"environment"`
+	Server           string          `json:"server"`
+	Deploy           bool            `json:"deploy,omitempty"`
+	Source           string          `json:"source,omitempty"`
+	GitHubApp        string          `json:"github_app,omitempty"`
+	DeployKey        string          `json:"deploy_key,omitempty"`
+	NewDeployKey     bool            `json:"new_deploy_key,omitempty"`
 }
 
 type ConfirmInit func(context.Context, InitPlan) (bool, error)
