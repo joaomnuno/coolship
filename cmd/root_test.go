@@ -36,6 +36,27 @@ type fakeApplication struct {
 	setDom func(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
 	login  func(context.Context, service.LoginOptions) (service.LoginResult, error)
 	logout func(context.Context, service.LogoutOptions) (service.LogoutResult, error)
+	stop   func(context.Context, service.StopOptions, service.ConfirmStop, service.Emitter) (service.StopResult, error)
+	start  func(context.Context, service.StartOptions, service.Emitter) (service.DeployResult, error)
+	rstart func(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error)
+	list   func(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error)
+	cancel func(context.Context, service.CancelOptions, service.ConfirmCancel) (service.CancelResult, error)
+}
+
+func (f fakeApplication) Stop(ctx context.Context, options service.StopOptions, confirm service.ConfirmStop, emit service.Emitter) (service.StopResult, error) {
+	return f.stop(ctx, options, confirm, emit)
+}
+func (f fakeApplication) Start(ctx context.Context, options service.StartOptions, emit service.Emitter) (service.DeployResult, error) {
+	return f.start(ctx, options, emit)
+}
+func (f fakeApplication) Restart(ctx context.Context, options service.StartOptions, confirm service.ConfirmRestart, emit service.Emitter) (service.DeployResult, error) {
+	return f.rstart(ctx, options, confirm, emit)
+}
+func (f fakeApplication) Deployments(ctx context.Context, options service.DeploymentsOptions) (service.DeploymentsResult, error) {
+	return f.list(ctx, options)
+}
+func (f fakeApplication) Cancel(ctx context.Context, options service.CancelOptions, confirm service.ConfirmCancel) (service.CancelResult, error) {
+	return f.cancel(ctx, options, confirm)
 }
 
 func (f fakeApplication) Login(ctx context.Context, options service.LoginOptions) (service.LoginResult, error) {
@@ -115,6 +136,7 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 	}
 	out, _, _ := execute(t, nil, "--help")
 	for _, command := range []string{"init", "link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout", "completion"} {
+	for _, command := range []string{"init", "link", "status", "deploy", "deployments", "cancel", "stop", "start", "restart", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
@@ -139,6 +161,8 @@ func TestInvalidInputReturnsOneUnprintedError(t *testing.T) {
 		{"completion", "nope"}, {"completion", "bash", "extra"},
 		{"login", "--url", "coolify.example.com", "--name", "home", "--token-stdin"},
 		{"login", "--token-stdin"},
+		{"stop", "--timeout", "0s"}, {"start", "--timeout", "0s"}, {"restart", "--timeout=-1s"}, {"stop", "a", "b"},
+		{"deployments", "-n", "0"}, {"deployments", "--limit", "-1"}, {"cancel", "a", "b", "c"}, {"cancel", "--target", "web", "api", "d-1"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, diagnostic, err := execute(t, nil, args...)

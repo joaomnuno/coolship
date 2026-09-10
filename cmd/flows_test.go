@@ -49,6 +49,7 @@ type server struct {
 	// goes away: later logs calls refuse as notRunning does, and the
 	// application reads exited:unhealthy from then on.
 	stopAfter int
+	history    []map[string]any // deployment rows, newest first, as the list endpoint returns them
 }
 
 func (s *server) record(entry string) int {
@@ -203,7 +204,62 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	})
 	handle("GET /api/v1/deployments/deploy-1", func(w http.ResponseWriter, _ *http.Request, calls int) {
 		status := s.deployment[min(calls-1, len(s.deployment)-1)]
-		write(w, map[string]any{"deployment_uuid": "deploy-1", "status": status})
+		write(w, map[string]any{"deployment_uuid": "deploy-1", "status": status, "application": map[string]any{"uuid": "app-1"}})
+	})
+	// History answers as Coolify 4.3.18 does: a count and the newest rows,
+	// build logs included for a token that may read them. Only app-1 has
+	// rows; every other application has an empty history.
+	handle("GET /api/v1/deployments/applications/{uuid}", func(w http.ResponseWriter, r *http.Request, _ int) {
+		take := 10
+		if value := r.URL.Query().Get("take"); value != "" {
+			fmt.Sscanf(value, "%d", &take)
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		rows, total := []map[string]any{}, 0
+		if r.PathValue("uuid") == "app-1" {
+			rows = append(rows, s.history[:min(take, len(s.history))]...)
+			total = len(s.history)
+		}
+		write(w, map[string]any{"count": total, "deployments": rows})
+	})
+	handle("GET /api/v1/deployments/d-old", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, map[string]any{"deployment_uuid": "d-old", "status": "finished", "commit": "0cd7c4a692347804dbd076a4d7e11c847e085473", "application": map[string]any{"uuid": "app-1"}})
+	})
+	handle("POST /api/v1/applications/app-1/stop", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		// The real job runs later; the controlled server flips the status at once.
+		application["status"] = "exited:unhealthy"
+		write(w, map[string]any{"message": "Application stopping request queued."})
+	})
+	handle("POST /api/v1/applications/app-1/start", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["force"] != false {
+			t.Errorf("start body %v (%v)", body, err)
+		}
+		application["status"] = "running:healthy"
+		write(w, map[string]any{"message": "Deployment request queued.", "deployment_uuid": "deploy-1"})
+	})
+	handle("POST /api/v1/applications/app-1/restart", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, map[string]any{"message": "Restart request queued.", "deployment_uuid": "deploy-1"})
+	})
+	handle("POST /api/v1/deployments/d-run/cancel", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, row := range s.history {
+			if row["deployment_uuid"] != "d-run" {
+				continue
+			}
+			if row["status"] != "queued" && row["status"] != "in_progress" {
+				w.WriteHeader(http.StatusBadRequest)
+				write(w, map[string]any{"message": fmt.Sprintf("Deployment cannot be cancelled. Current status: %s", row["status"])})
+				return
+			}
+			row["status"] = "cancelled-by-user"
+			write(w, map[string]any{"message": "Deployment cancelled successfully.", "deployment_uuid": "d-run", "status": "cancelled-by-user"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		write(w, map[string]any{"message": "Deployment not found."})
 	})
 	handle("GET /api/v1/applications/app-1/logs", func(w http.ResponseWriter, r *http.Request, calls int) {
 		if r.URL.Query().Get("show_timestamps") != "true" {
@@ -733,6 +789,115 @@ func TestDomainRoundTripAgainstTheServer(t *testing.T) {
 	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
 	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {
 		t.Fatalf("status after set: out=%q err=%v", out, err)
+	}
+}
+
+func TestLifecycleAgainstTheServer(t *testing.T) {
+	row := func(uuid, status string) map[string]any {
+		return map[string]any{"id": 1, "deployment_uuid": uuid, "pull_request_id": 0, "force_rebuild": false, "commit": "0cd7c4a692347804dbd076a4d7e11c847e085473",
+			"status": status, "is_webhook": false, "is_api": true, "restart_only": false, "rollback": false, "server_name": "Master Ubuntu",
+			"commit_message": "cool container", "logs": `[{"output":"secret build output","hidden":false}]`,
+			"created_at": "2026-09-10T11:37:12.000000Z", "updated_at": "2026-09-10T11:37:37.000000Z", "finished_at": "2026-09-10T11:37:36.000000Z"}
+	}
+	running := row("d-run", "in_progress")
+	running["finished_at"] = nil
+	s := &server{deployment: []string{"in_progress", "finished"}, history: []map[string]any{running, row("d-old", "finished")}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	// History is typed and never carries the build log the server sent.
+	out, _, err := run(t, instance.URL, dir, "", "deployments", "--format", "json")
+	if err != nil {
+		t.Fatalf("deployments: %v", err)
+	}
+	var history service.DeploymentsResult
+	if err := json.Unmarshal([]byte(out), &history); err != nil || history.Total != 2 || len(history.Deployments) != 2 || history.Deployments[0].Status != "in_progress" || history.Deployments[1].FinishedAt == "" {
+		t.Fatalf("deployments %s: %v", out, err)
+	}
+	if strings.Contains(out, "secret build output") || strings.Contains(out, "logs") {
+		t.Fatalf("history output carries build logs: %s", out)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "deployments", "-n", "1")
+	if err != nil || !strings.Contains(out, "(1 of 2)") || !strings.Contains(out, "d-run") || strings.Contains(out, "d-old") {
+		t.Fatalf("deployments -n 1: out=%q err=%v", out, err)
+	}
+	// status gains the last deployment from the same history.
+	out, _, err = run(t, instance.URL, dir, "", "status")
+	if err != nil || !strings.Contains(out, "Status: running:healthy\nURL: https://fenix.example.com\nLast deployment: d-run in_progress (0cd7c4a) ") {
+		t.Fatalf("status: out=%q err=%v", out, err)
+	}
+
+	// stop asks, or needs --yes; then the status is polled until it leaves running.
+	if _, _, err := run(t, instance.URL, dir, "", "stop"); !errors.Is(err, service.ErrInput) || s.counts()["POST /api/v1/applications/app-1/stop"] != 0 {
+		t.Fatalf("noninteractive stop without --yes: %v", err)
+	}
+	out, diagnostic, err := run(t, instance.URL, dir, "", "stop", "--yes")
+	if err != nil || !strings.Contains(out, "Status: exited:unhealthy") || !strings.Contains(diagnostic, "Application stopping request queued.") || !strings.Contains(diagnostic, "Application status: exited:unhealthy") {
+		t.Fatalf("stop: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
+	if err != nil || !strings.Contains(out, `"status":"exited:unhealthy"`) {
+		t.Fatalf("status after stop: out=%q err=%v", out, err)
+	}
+	// A second stop finds nothing running and sends nothing.
+	if _, diagnostic, err := run(t, instance.URL, dir, "", "stop", "--yes"); err != nil || !strings.Contains(diagnostic, "not running") || s.counts()["POST /api/v1/applications/app-1/stop"] != 1 {
+		t.Fatalf("stop when stopped: stderr=%q err=%v counts=%v", diagnostic, err, s.counts())
+	}
+
+	// start queues a deployment through the action and observes it like deploy.
+	out, diagnostic, err = run(t, instance.URL, dir, "", "start", "--format", "json")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var started service.DeployResult
+	if err := json.Unmarshal([]byte(out), &started); err != nil || started.Action != "start" || started.DeploymentUUID != "deploy-1" || started.Status != "finished" {
+		t.Fatalf("start result %s: %v", out, err)
+	}
+	if !strings.Contains(diagnostic, "Deployment deploy-1: in_progress") || !strings.Contains(diagnostic, "Deployment deploy-1: finished") {
+		t.Fatalf("start progress: %q", diagnostic)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "status")
+	if err != nil || !strings.Contains(out, "Status: running:healthy") {
+		t.Fatalf("status after start: out=%q err=%v", out, err)
+	}
+	// restart needs --yes noninteractively and returns the queued identity with --no-wait.
+	if _, _, err := run(t, instance.URL, dir, "", "restart", "--no-wait"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("noninteractive restart without --yes: %v", err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "restart", "--yes", "--no-wait", "--format", "json")
+	if err != nil || !strings.Contains(out, `"action":"restart"`) || !strings.Contains(out, `"status":"queued"`) {
+		t.Fatalf("restart: out=%q err=%v", out, err)
+	}
+
+	// cancel finds the one running deployment, then refuses when none is left.
+	if _, _, err := run(t, instance.URL, dir, "", "cancel"); !errors.Is(err, service.ErrInput) || s.counts()["POST /api/v1/deployments/d-run/cancel"] != 0 {
+		t.Fatalf("noninteractive cancel without --yes: %v", err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "cancel", "--yes")
+	if err != nil || !strings.Contains(out, "Deployment: d-run\n") || !strings.Contains(out, "Status: cancelled-by-user") {
+		t.Fatalf("cancel: out=%q err=%v", out, err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "cancel", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "no deployment") {
+		t.Fatalf("cancel with none running: %v", err)
+	}
+	// A named deployment that already ended is refused before any request.
+	if _, _, err := run(t, instance.URL, dir, "", "cancel", "d-old", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "is finished") {
+		t.Fatalf("cancel finished: %v", err)
+	}
+	counts := s.counts()
+	for endpoint, expected := range map[string]int{
+		"POST /api/v1/applications/app-1/stop":    1,
+		"POST /api/v1/applications/app-1/start":   1,
+		"POST /api/v1/applications/app-1/restart": 1,
+		"POST /api/v1/deployments/d-run/cancel":   1,
+		"POST /api/v1/deploy":                     0,
+	} {
+		if counts[endpoint] != expected {
+			t.Errorf("%s requested %d times, want %d", endpoint, counts[endpoint], expected)
+		}
 	}
 }
 

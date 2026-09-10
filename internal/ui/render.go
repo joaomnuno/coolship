@@ -6,7 +6,9 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -40,10 +42,172 @@ func (r *Renderer) Status(result service.StatusResult) error {
 		return err
 	}
 	if result.URL != "" {
-		_, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("URL"), singleLine(result.URL))
-		return err
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("URL"), singleLine(result.URL)); err != nil {
+			return err
+		}
+	}
+	if last := result.LastDeployment; last != nil {
+		status := singleLine(last.Status)
+		line := shortID(last.UUID) + " " + r.out.apply(deploymentStatus(status), status)
+		if commit := shortCommit(last.Commit); commit != "" {
+			line += " (" + commit + ")"
+		}
+		if when := localTime(last.CreatedAt); when != "" {
+			line += " " + when
+		}
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Last deployment"), line); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// shortID abbreviates a deployment UUID the way the history table does; a
+// prefix is enough to tell rows apart and to paste into cancel.
+func shortID(uuid string) string {
+	uuid = singleLine(uuid)
+	if len(uuid) > 8 {
+		return uuid[:8]
+	}
+	return uuid
+}
+
+// shortCommit abbreviates a sha; HEAD, the placeholder Coolify records until
+// the job resolves the commit, stays as it is.
+func shortCommit(commit string) string {
+	commit = singleLine(commit)
+	if len(commit) > 7 && isHex(commit) {
+		return commit[:7]
+	}
+	return commit
+}
+
+func isHex(value string) bool {
+	for _, r := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return value != ""
+}
+
+// localTime renders one of the server's timestamps in the viewer's zone; an
+// unreadable value is shown as the server sent it rather than dropped.
+func localTime(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return singleLine(value)
+	}
+	return parsed.Local().Format("2006-01-02 15:04:05")
+}
+
+// duration reports how long a deployment took, or has been running. Coolify
+// records finished_at only when the deployment job wraps up, so a deployment
+// cancelled before the job reached it has none; such a row has no duration
+// rather than one that grows with the clock.
+func duration(status, created, finished string, now time.Time) string {
+	start, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return ""
+	}
+	end := now
+	if finished != "" {
+		end, err = time.Parse(time.RFC3339Nano, finished)
+		if err != nil {
+			return ""
+		}
+	} else if status != "queued" && status != "in_progress" {
+		return ""
+	}
+	elapsed := end.Sub(start).Round(time.Second)
+	if elapsed < 0 {
+		return ""
+	}
+	return elapsed.String()
+}
+
+// Deployments renders the history as a table, newest first, without build
+// logs in any format.
+func (r *Renderer) Deployments(result service.DeploymentsResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	if len(result.Deployments) == 0 {
+		_, err := fmt.Fprintf(r.streams.Out, "%s has no deployments\n", singleLine(result.Target.Application))
+		return err
+	}
+	if _, err := fmt.Fprintf(r.streams.Out, "Deployments of %s (%d of %d)\n", singleLine(result.Target.Application), len(result.Deployments), result.Total); err != nil {
+		return err
+	}
+	rows := [][]string{{"UUID", "STATUS", "COMMIT", "TYPE", "CREATED", "DURATION"}}
+	now := time.Now()
+	for _, deployment := range result.Deployments {
+		kind := singleLine(deployment.Kind)
+		if deployment.PullRequest > 0 {
+			kind = "preview #" + strconv.Itoa(deployment.PullRequest)
+		}
+		rows = append(rows, []string{shortID(deployment.UUID), singleLine(deployment.Status), shortCommit(deployment.Commit), kind,
+			localTime(deployment.CreatedAt), duration(deployment.Status, deployment.CreatedAt, deployment.FinishedAt, now)})
+	}
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for i, cell := range row {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	for index, row := range rows {
+		var line strings.Builder
+		for i, cell := range row {
+			if i > 0 {
+				line.WriteString("  ")
+			}
+			padding := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
+			if index > 0 && i == 1 {
+				cell = r.out.apply(deploymentStatus(cell), cell)
+			}
+			line.WriteString(cell)
+			if i < len(row)-1 {
+				line.WriteString(padding)
+			}
+		}
+		if _, err := fmt.Fprintln(r.streams.Out, strings.TrimRight(line.String(), " ")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Stop renders the final result only; warnings already reached stderr as
+// events, as with Deploy.
+func (r *Renderer) Stop(result service.StopResult) error {
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
+		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
+		r.out.key("Status"), singleLine(result.Status))
+	return err
+}
+
+func (r *Renderer) Cancel(result service.CancelResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	status := singleLine(result.Status)
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s\n%s %s (%s)\n%s %s\n",
+		r.out.key("Deployment"), singleLine(result.DeploymentUUID),
+		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
+		r.out.key("Status"), r.out.apply(deploymentStatus(status), status))
+	return err
 }
 
 func (r *Renderer) Link(result service.LinkResult) error {
@@ -123,7 +287,12 @@ func (r *Renderer) DeploymentEvent(event service.Event) error {
 		return writeLogs(r.streams.Err, event.Logs)
 	}
 	message := singleLine(event.Message)
-	if message == "" && event.Status != "" {
+	if event.Type == "application" {
+		// Stop reports the server's receipt once, then each status it observes.
+		if message == "" {
+			message = "Application status: " + singleLine(event.Status)
+		}
+	} else if message == "" && event.Status != "" {
 		status := singleLine(event.Status)
 		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status)
 	}

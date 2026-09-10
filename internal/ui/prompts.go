@@ -279,6 +279,77 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
+// ConfirmStop names the application and its environment, since stopping
+// production is the case that must not be answered by reflex.
+func (p *Prompter) ConfirmStop(ctx context.Context, plan service.StopPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("stopping the application requires --yes when input is noninteractive")}
+	}
+	return p.confirmLifecycle(ctx, "Stop "+singleLine(plan.Target.Application)+" in "+singleLine(plan.Target.Environment)+"?", plan.Target, plan.Status,
+		"Its containers are stopped and removed; deploy or start brings them back.")
+}
+
+// ConfirmRestart shows what a restart interrupts before it is queued.
+func (p *Prompter) ConfirmRestart(ctx context.Context, plan service.RestartPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("restarting the application requires --yes when input is noninteractive")}
+	}
+	return p.confirmLifecycle(ctx, "Restart "+singleLine(plan.Target.Application)+" in "+singleLine(plan.Target.Environment)+"?", plan.Target, plan.Status,
+		"Coolify queues a deployment that restarts the containers.")
+}
+
+func (p *Prompter) confirmLifecycle(ctx context.Context, question string, target service.TargetInfo, status, note string) (bool, error) {
+	environment := singleLine(target.Environment)
+	if environment == "production" {
+		environment = p.style.apply(bold, environment)
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Application: %s (%s)\n  Environment: %s\n  Project:     %s\n  Status:      %s\n%s\n%s ",
+		p.question(question), singleLine(target.Application), singleLine(target.ApplicationUUID), environment,
+		singleLine(target.Project), singleLine(status), note, p.question("Confirm [y/N]:")); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+// ConfirmCancel shows the deployment that is about to be cancelled.
+func (p *Prompter) ConfirmCancel(ctx context.Context, plan service.CancelPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("cancelling a deployment requires --yes when input is noninteractive")}
+	}
+	d := plan.Deployment
+	detail := singleLine(d.Status)
+	if commit := shortCommit(d.Commit); commit != "" {
+		detail += ", commit " + commit
+	}
+	if d.PullRequest > 0 {
+		detail += ", pull request #" + strconv.Itoa(d.PullRequest)
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Deployment:  %s (%s)\n  Application: %s (%s)\n  Environment: %s\n%s ",
+		p.question("Cancel deployment "+singleLine(d.UUID)+" of "+singleLine(plan.Target.Application)+"?"),
+		singleLine(d.UUID), detail, singleLine(plan.Target.Application), singleLine(plan.Target.ApplicationUUID),
+		singleLine(plan.Target.Environment), p.question("Confirm [y/N]:")); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
 // ConfirmDomain shows the replacement before the server is changed.
 func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (bool, error) {
 	if err := ctx.Err(); err != nil {

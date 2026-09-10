@@ -28,10 +28,65 @@ type Application struct {
 type Deployment struct {
 	UUID   string `json:"deployment_uuid"`
 	Status string `json:"status"`
+	Commit string `json:"commit,omitempty"`
 	// Logs is the build log document as the server sends it: a JSON array
 	// encoded inside a JSON string. It is nil when the token cannot read
 	// sensitive data. Decode it with ParseDeploymentLogs.
 	Logs *string `json:"logs,omitempty"`
+	// Application is the owning application as GET /deployments/{uuid}
+	// embeds it; the history list does not carry it.
+	Application DeploymentOwner `json:"application"`
+}
+
+// DeploymentOwner is the part of an embedded application document a
+// deployment consumer needs: its identity.
+type DeploymentOwner struct {
+	UUID string `json:"uuid"`
+}
+
+// DeploymentRecord is one row of an application's deployment history as
+// Coolify's queue stores it, without the build log: the list endpoint sends
+// logs to tokens that may read sensitive data, and nothing here keeps them.
+// Commit is the full sha once the job resolved it, or HEAD while queued.
+// FinishedAt is empty until the deployment ends. PullRequest is zero for the
+// configured branch.
+type DeploymentRecord struct {
+	UUID          string `json:"deployment_uuid"`
+	Status        string `json:"status"`
+	Commit        string `json:"commit"`
+	CommitMessage string `json:"commit_message"`
+	PullRequest   int    `json:"pull_request_id"`
+	ForceRebuild  bool   `json:"force_rebuild"`
+	RestartOnly   bool   `json:"restart_only"`
+	Rollback      bool   `json:"rollback"`
+	IsWebhook     bool   `json:"is_webhook"`
+	IsAPI         bool   `json:"is_api"`
+	ServerName    string `json:"server_name"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	FinishedAt    string `json:"finished_at"`
+}
+
+// DeploymentPage is one page of an application's history, newest first, with
+// the total the server counted.
+type DeploymentPage struct {
+	Total       int
+	Deployments []DeploymentRecord
+}
+
+// ActionReceipt is the answer to an application start or restart. Coolify
+// queues a deployment for both and names it; a message alone means it
+// declined, e.g. because one is already queued for the same commit.
+type ActionReceipt struct {
+	Message        string `json:"message"`
+	DeploymentUUID string `json:"deployment_uuid"`
+}
+
+// CancelReceipt is the answer to a successful deployment cancellation.
+type CancelReceipt struct {
+	Message        string `json:"message"`
+	DeploymentUUID string `json:"deployment_uuid"`
+	Status         string `json:"status"`
 }
 
 // DeploymentLogEntry is one line of a deployment's build log. Hidden entries

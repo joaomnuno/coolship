@@ -78,6 +78,87 @@ func (c *Client) GetDeployment(ctx context.Context, uuid string) (models.Deploym
 	return deployment, err
 }
 
+// ListDeployments reads the newest take rows of an application's deployment
+// history. The server sends build logs in every row to a token that may read
+// sensitive data; decoding into DeploymentRecord drops them, so they never
+// leave this call.
+func (c *Client) ListDeployments(ctx context.Context, uuid string, take int) (models.DeploymentPage, error) {
+	if take < 1 {
+		return models.DeploymentPage{}, errors.New("deployment history size must be at least 1")
+	}
+	var response struct {
+		Count       *int                       `json:"count"`
+		Deployments *[]models.DeploymentRecord `json:"deployments"`
+	}
+	err := c.request(ctx, http.MethodGet, []string{"deployments", "applications", uuid}, url.Values{"take": {strconv.Itoa(take)}}, nil, &response)
+	if err != nil {
+		return models.DeploymentPage{}, err
+	}
+	if response.Deployments == nil || response.Count == nil {
+		return models.DeploymentPage{}, &ProtocolError{Endpoint: "/deployments/applications/{uuid}", Reason: "response omits the deployments array or count"}
+	}
+	return models.DeploymentPage{Total: *response.Count, Deployments: *response.Deployments}, nil
+}
+
+// StopApplication asks Coolify to stop the application's containers. The
+// server queues the job and answers with a message; the application's status
+// changes when the job runs. The server's docker_cleanup default (true, the
+// same as its UI) is left in place.
+func (c *Client) StopApplication(ctx context.Context, uuid string) (string, error) {
+	var response struct {
+		Message string `json:"message"`
+	}
+	if err := c.request(ctx, http.MethodPost, []string{"applications", uuid, "stop"}, nil, nil, &response); err != nil {
+		return "", err
+	}
+	return response.Message, nil
+}
+
+// StartApplication queues a deployment through the start action, which is
+// how Coolify brings a stopped application back. Force rebuilds without
+// cache. Like Deploy, the POST is never retried, and a failure without an
+// answer is uncertain.
+func (c *Client) StartApplication(ctx context.Context, uuid string, force bool) (models.ActionReceipt, error) {
+	body := struct {
+		Force bool `json:"force"`
+	}{Force: force}
+	return c.action(ctx, uuid, "start", body)
+}
+
+// RestartApplication queues a restart-only deployment. Coolify skips the
+// build when an image for the commit exists, except for Dockerfile and Docker
+// image applications, which it deploys in full.
+func (c *Client) RestartApplication(ctx context.Context, uuid string) (models.ActionReceipt, error) {
+	return c.action(ctx, uuid, "restart", nil)
+}
+
+func (c *Client) action(ctx context.Context, uuid, action string, body any) (models.ActionReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return models.ActionReceipt{}, err
+	}
+	var receipt models.ActionReceipt
+	err := c.request(ctx, http.MethodPost, []string{"applications", uuid, action}, nil, body, &receipt)
+	if err != nil {
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 && httpErr.StatusCode != http.StatusRequestTimeout {
+			return models.ActionReceipt{}, err
+		}
+		return models.ActionReceipt{}, &UncertainSubmissionError{ResourceUUID: uuid, Err: err}
+	}
+	return receipt, nil
+}
+
+// CancelDeployment cancels a queued or in-progress deployment. The server
+// refuses any other state with 400 and a message naming the current status,
+// which the error carries.
+func (c *Client) CancelDeployment(ctx context.Context, uuid string) (models.CancelReceipt, error) {
+	var receipt models.CancelReceipt
+	if err := c.request(ctx, http.MethodPost, []string{"deployments", uuid, "cancel"}, nil, nil, &receipt); err != nil {
+		return models.CancelReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func (c *Client) Logs(ctx context.Context, uuid string, lines int) (models.LogSnapshot, error) {
 	if lines < 1 || lines > 10000 {
 		return models.LogSnapshot{}, errors.New("log lines must be between 1 and 10000")

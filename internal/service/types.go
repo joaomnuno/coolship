@@ -278,17 +278,122 @@ type TargetInfo struct {
 }
 
 type StatusResult struct {
-	Target   TargetInfo `json:"target"`
-	Status   string     `json:"status"`
-	URL      string     `json:"url,omitempty"`
-	Warnings []string   `json:"warnings,omitempty"`
+	Target TargetInfo `json:"target"`
+	Status string     `json:"status"`
+	URL    string     `json:"url,omitempty"`
+	// LastDeployment is the newest row of the deployment history, when the
+	// history could be read and is not empty.
+	LastDeployment *DeploymentSummary `json:"last_deployment,omitempty"`
+	Warnings       []string           `json:"warnings,omitempty"`
 }
 
 type DeployResult struct {
 	Target         TargetInfo `json:"target"`
 	DeploymentUUID string     `json:"deployment_uuid"`
 	PullRequest    int        `json:"pull_request,omitempty"`
+	// Action names the server action that queued the deployment, start or
+	// restart; a plain deploy leaves it empty.
+	Action   string   `json:"action,omitempty"`
+	Status   string   `json:"status"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// StopOptions stops the application's containers. Timeout bounds the wait
+// for the status to leave running.
+type StopOptions struct {
+	Options
+	Yes     bool
+	Timeout time.Duration
+}
+
+// StopPlan is what stop shows before asking: the application and the state
+// it is in now.
+type StopPlan struct {
+	Target TargetInfo `json:"target"`
+	Status string     `json:"status"`
+}
+
+type ConfirmStop func(context.Context, StopPlan) (bool, error)
+
+// StopResult reports the status observed before the request and the last
+// one observed after it. Message is the server's receipt.
+type StopResult struct {
+	Target   TargetInfo `json:"target"`
+	Before   string     `json:"before"`
+	Status   string     `json:"status"`
+	Message  string     `json:"message,omitempty"`
+	Warnings []string   `json:"warnings,omitempty"`
+}
+
+// StartOptions drives start and restart, which both queue a deployment the
+// service observes like deploy.
+type StartOptions struct {
+	Options
+	Force   bool // start only: rebuild without cache
+	NoWait  bool
+	Timeout time.Duration
+	Yes     bool // restart only: skip confirmation
+}
+
+// RestartPlan is shown before a restart is queued.
+type RestartPlan struct {
+	Target TargetInfo `json:"target"`
+	Status string     `json:"status"`
+}
+
+type ConfirmRestart func(context.Context, RestartPlan) (bool, error)
+
+type DeploymentsOptions struct {
+	Options
+	Limit int
+}
+
+// DeploymentSummary is one deployment of the linked application, without its
+// build log. Kind is deploy, restart, rollback, or preview; Source is api,
+// webhook, or manual. Timestamps are the server's RFC 3339 strings;
+// FinishedAt is empty while the deployment runs.
+type DeploymentSummary struct {
+	UUID          string `json:"deployment_uuid"`
+	Status        string `json:"status"`
+	Commit        string `json:"commit"`
+	CommitMessage string `json:"commit_message,omitempty"`
+	Kind          string `json:"kind"`
+	Source        string `json:"source"`
+	PullRequest   int    `json:"pull_request,omitempty"`
+	ForceRebuild  bool   `json:"force_rebuild,omitempty"`
+	Server        string `json:"server,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	FinishedAt    string `json:"finished_at,omitempty"`
+}
+
+type DeploymentsResult struct {
+	Target      TargetInfo          `json:"target"`
+	Total       int                 `json:"total"`
+	Deployments []DeploymentSummary `json:"deployments"`
+	Warnings    []string            `json:"warnings,omitempty"`
+}
+
+// CancelOptions names the deployment to cancel; empty means the one in
+// progress for the linked application, which must be exactly one.
+type CancelOptions struct {
+	Options
+	DeploymentUUID string
+	Yes            bool
+}
+
+type CancelPlan struct {
+	Target     TargetInfo        `json:"target"`
+	Deployment DeploymentSummary `json:"deployment"`
+}
+
+type ConfirmCancel func(context.Context, CancelPlan) (bool, error)
+
+// CancelResult carries the server's answer: the status it set and its receipt.
+type CancelResult struct {
+	Target         TargetInfo `json:"target"`
+	DeploymentUUID string     `json:"deployment_uuid"`
 	Status         string     `json:"status"`
+	Message        string     `json:"message,omitempty"`
 	Warnings       []string   `json:"warnings,omitempty"`
 }
 
@@ -329,6 +434,11 @@ type Backend interface {
 	Team(context.Context) (models.Team, error)
 	Deploy(context.Context, models.DeployRequest) ([]models.DeploymentReceipt, error)
 	GetDeployment(context.Context, string) (models.Deployment, error)
+	ListDeployments(ctx context.Context, applicationUUID string, take int) (models.DeploymentPage, error)
+	StopApplication(context.Context, string) (string, error)
+	StartApplication(ctx context.Context, applicationUUID string, force bool) (models.ActionReceipt, error)
+	RestartApplication(context.Context, string) (models.ActionReceipt, error)
+	CancelDeployment(context.Context, string) (models.CancelReceipt, error)
 	Logs(context.Context, string, int) (models.LogSnapshot, error)
 	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)
 	UpsertEnvironmentVariables(context.Context, string, []models.EnvironmentVariableInput) error

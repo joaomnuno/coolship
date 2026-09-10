@@ -116,8 +116,14 @@ func (a *App) Status(ctx context.Context, options Options) (StatusResult, error)
 	if err != nil {
 		return StatusResult{}, err
 	}
-	return StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
-		URL: s.project.Application.FQDN, Warnings: s.warnings}, nil
+	result := StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
+		URL: s.project.Application.FQDN, Warnings: s.warnings}
+	last, warning := a.lastDeployment(ctx, s)
+	result.LastDeployment = last
+	if warning != "" {
+		result.Warnings = append(result.Warnings, warning)
+	}
+	return result, nil
 }
 
 func emitEvent(emit Emitter, event Event) error {
