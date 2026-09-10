@@ -1,0 +1,45 @@
+#!/bin/sh
+# Print one section of CHANGELOG.md, for use as GitHub release notes.
+# Usage: scripts/release-notes <vX.Y.Z | X.Y.Z | Unreleased> [changelog]
+# Exits 1 when the section is missing or empty, so a release without a
+# changelog entry fails instead of shipping blank notes.
+set -eu
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+	echo "usage: scripts/release-notes <vX.Y.Z | X.Y.Z | Unreleased> [changelog]" >&2
+	exit 2
+fi
+section=${1#v}
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+changelog=${2:-"$repo_root/CHANGELOG.md"}
+
+exec awk -v section="$section" '
+	# A "## [X.Y.Z] - date" or "## [Unreleased]" heading starts a section.
+	/^## \[/ {
+		if (inside) exit
+		name = $0
+		sub(/^## \[/, "", name)
+		sub(/\].*$/, "", name)
+		if (name == section) { inside = 1; found = 1 }
+		next
+	}
+	# Link reference definitions at the end of the file are not notes.
+	/^\[[^]]+\]: / {
+		if (inside) exit
+		next
+	}
+	inside { body = body $0 "\n" }
+	END {
+		if (!found) {
+			printf "release-notes: no \"## [%s]\" section in %s\n", section, FILENAME > "/dev/stderr"
+			exit 1
+		}
+		sub(/^\n+/, "", body)
+		sub(/\n+$/, "", body)
+		if (body == "") {
+			printf "release-notes: section [%s] in %s is empty\n", section, FILENAME > "/dev/stderr"
+			exit 1
+		}
+		print body
+	}
+' "$changelog"

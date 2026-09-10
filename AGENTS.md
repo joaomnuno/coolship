@@ -20,7 +20,7 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 - Keep HTTP requests cancellable. Never automatically replay a deployment POST after an uncertain response.
 - Return typed data and errors from lower layers. Print and classify errors once at the executable boundary.
 - Use temporary directories, injected writers/clocks, and `httptest.Server` for behavioral tests. Do not require actual user credentials for tests.
-- Run focused tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for the milestone.
+- Run focused tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for the milestone. CI (`.github/workflows/ci.yml`) runs the same plus `gofmt -l`, `go build ./...`, and `shellcheck` on `scripts/`; a pull request that changes Go code without a `CHANGELOG.md` entry fails unless it carries the `skip-changelog` label.
 - Keep credential files read-only. Never persist tokens or fetched secret values in project configuration, fixtures, debug output, or Git.
 - Update README examples, architecture decisions, and roadmap status when behavior changes. Do not document planned commands as implemented.
 
@@ -28,7 +28,8 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 
 - Versions are Git tags `vMAJOR.MINOR.PATCH` following Semantic Versioning; before 1.0.0 a minor version may change command behavior. `CHANGELOG.md` follows Keep a Changelog.
 - Every user-visible change lands with an entry under `## [Unreleased]` in the same commit, in the past tense from the user's point of view (Added, Changed, Fixed, Removed, Compatibility). Internal refactors need no entry.
-- To release: move `[Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD` section, update the link references at the bottom, commit as `release: vX.Y.Z`, tag with `git tag -a vX.Y.Z -m "Coolship vX.Y.Z"`, and push the tag. Build with `scripts/build`, which stamps the version from `git describe`; a plain `go build` reports the VCS revision instead.
+- To release: move `[Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD` section, update the link references at the bottom, commit as `release: vX.Y.Z`, tag with `git tag -a vX.Y.Z -m "Coolship vX.Y.Z"`, and push the tag. Pushing the tag runs the Release workflow (`.github/workflows/release.yml`), which builds every platform with GoReleaser (`.goreleaser.yaml`) and publishes the GitHub Release with notes from that changelog section (`scripts/release-notes`); a missing section fails the release. Tags with a pre-release suffix such as `vX.Y.Z-rc.1` are published as pre-releases with notes from `[Unreleased]` and never become `latest`. Run the Release workflow manually with a `tag` input to republish an existing tag, and the Nightly workflow to refresh the rolling `nightly` pre-release from `main`. Locally, `scripts/build` stamps the version from `git describe`; a plain `go build` reports the VCS revision instead.
+- The archive and checksum names in `.goreleaser.yaml` are a contract with `scripts/install.sh`; change them together.
 - Bump the `Compatibility` note when the verified Coolify version changes.
 
 ## Parallel work

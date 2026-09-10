@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Test with the race detector
+        run: go test -race ./...
+
+      - name: Build
+        run: go build ./...
+
+  shellcheck:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run shellcheck
+        # Checks scripts/*.sh and scripts/install.sh when present, plus any
+        # other file under scripts/ that declares a sh or bash shebang
+        # (scripts/go, scripts/build, scripts/release-notes).
+        run: |
+          set --
+          for file in scripts/*; do
+            [ -f "$file" ] || continue
+            case "$file" in
+              *.sh) set -- "$@" "$file" ;;
+              *)
+                if head -n 1 "$file" | grep -Eq '^#!.*\b(sh|bash)\b'; then
+                  set -- "$@" "$file"
+                fi
+                ;;
+            esac
+          done
+          if [ "$#" -eq 0 ]; then
+            echo "No shell scripts to check."
+            exit 0
+          fi
+          echo "Checking: $*"
+          # SC1007 misreads the POSIX idiom `CDPATH= cd ...` used by the
+          # scripts to neutralize CDPATH; it is not an assignment mistake.
+          shellcheck --exclude=SC1007 "$@"
