@@ -19,8 +19,10 @@ application, its configuration, and its deployment history stay, and deploy or
 start brings it back.
 
 The application and its environment are shown and confirmed first, or --yes
-skips the question. The command then waits until the status leaves running,
-or --timeout passes, and reports the last status it saw.`,
+skips the question. The command then waits until the status reports exited,
+or --timeout passes, and reports the last status it saw. An application that
+already reports exited is left alone with a warning; any other status is
+stopped, including a crash loop shown as restarting or degraded.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if stop.Timeout <= 0 {

@@ -135,7 +135,6 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"init", "link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout", "completion"} {
 	for _, command := range []string{"init", "link", "status", "deploy", "deployments", "cancel", "stop", "start", "restart", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)

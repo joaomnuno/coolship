@@ -11,8 +11,11 @@ import (
 )
 
 // Stop asks Coolify to stop the application's containers after confirmation,
-// then watches the status until it leaves running or the timeout passes. The
+// then watches the status until it reports exited or the timeout passes. The
 // server queues the job, so the first polls usually still see the old status.
+// Only an application that already reports exited is left alone: Coolify's own
+// Stop acts on every other status, and a crash-looping application reports
+// restarting or degraded, never running.
 func (a *App) Stop(ctx context.Context, options StopOptions, confirm ConfirmStop, emit Emitter) (StopResult, error) {
 	timeout := options.Timeout
 	if timeout < 0 {
@@ -32,8 +35,8 @@ func (a *App) Stop(ctx context.Context, options StopOptions, confirm ConfirmStop
 			return result, err
 		}
 	}
-	if !isRunning(result.Before) {
-		warning := fmt.Sprintf("Application %s is not running (%s); nothing was sent.", s.project.Application.Name, result.Before)
+	if isStopped(result.Before) {
+		warning := fmt.Sprintf("Application %s is already stopped (%s); nothing was sent.", s.project.Application.Name, result.Before)
 		result.Warnings = append(result.Warnings, warning)
 		return result, emitEvent(emit, Event{Type: "warning", Message: warning})
 	}
@@ -79,16 +82,19 @@ func (a *App) Stop(ctx context.Context, options StopOptions, confirm ConfirmStop
 				return result, err
 			}
 		}
-		if !isRunning(result.Status) {
+		if isStopped(result.Status) {
 			return result, nil
 		}
 	}
 }
 
-// isRunning reads Coolify's compound status, such as running:healthy or
-// exited:unhealthy, by its first word.
-func isRunning(status string) bool {
-	return strings.HasPrefix(status, "running")
+// isStopped reads Coolify's compound status, such as exited:unhealthy, by its
+// first word. The word is the container state — running, exited, restarting,
+// created, paused — or degraded after a recent crash loop and starting for a
+// swarm replica; every one but exited still has a container to stop, which is
+// the rule Coolify's own Stop button follows.
+func isStopped(status string) bool {
+	return strings.HasPrefix(status, "exited")
 }
 
 // Start queues a deployment through the start action and observes it like
@@ -156,5 +162,5 @@ func (a *App) action(ctx context.Context, options StartOptions, action string, c
 		return result, fmt.Errorf("server did not confirm a deployment for application %s: %s", s.project.Application.UUID, detail)
 	}
 	result.DeploymentUUID = receipt.DeploymentUUID
-	return a.observeDeployment(ctx, s, result, options.NoWait, emit)
+	return a.observeDeployment(ctx, s, result, timeout, options.NoWait, emit)
 }
