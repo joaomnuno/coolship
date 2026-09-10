@@ -72,6 +72,10 @@ type EnvPushPlan struct {
 	Update  []EnvChange `json:"update,omitempty"`
 	Delete  []EnvChange `json:"delete,omitempty"`
 	Skipped []string    `json:"skipped,omitempty"` // withheld keys not forced
+	// Untouched lists remote-only keys left in place without --prune, so a
+	// confirmation can show them; the result's warning already counts them,
+	// and the JSON result keeps its shape.
+	Untouched []string `json:"-"`
 }
 
 func (p EnvPushPlan) Empty() bool { return len(p.Create)+len(p.Update)+len(p.Delete) == 0 }
@@ -250,6 +254,10 @@ func (a *App) EnvPush(ctx context.Context, options EnvPushOptions, confirm Confi
 	}
 	if options.Prune {
 		plan.Delete = diff.Removed
+	} else {
+		for _, change := range diff.Removed {
+			plan.Untouched = append(plan.Untouched, change.Key)
+		}
 	}
 	result := EnvPushResult{Plan: plan, Warnings: state.session.warnings}
 	if len(plan.Skipped) > 0 {

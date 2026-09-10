@@ -55,7 +55,7 @@ func Resolve(options Options) (Credentials, error) {
 	if options.Context != "" {
 		return Credentials{}, fmt.Errorf("%w: %q", ErrContextNotFound, options.Context)
 	}
-	return Credentials{}, fmt.Errorf("%w: no default instance; select --context", ErrInvalid)
+	return Credentials{}, fmt.Errorf("%w: no default instance; pass --context NAME or run coolship login --default", ErrInvalid)
 }
 
 // List exposes context identities for selection, with no credential fields.

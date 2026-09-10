@@ -56,7 +56,7 @@ Wrangler is in `packages/wrangler`, with reusable infrastructure also extracted 
 - **The local references differ:** Coolify CLI sends `service_name` for container selection, but this Coolify checkout's application logs handler chooses the first container and does not read that parameter. Defer a container-selection flag until server support is verified.
 - Deployment logs may be omitted by server permissions. [ApiSensitiveData.php](../coolify/app/Http/Middleware/ApiSensitiveData.php) requires an appropriate token ability and team administrator/owner status for sensitive data. Missing logs or variable values must not be represented as empty data.
 
-No Coolify instance has been contacted. These are source observations; live response fixtures and a supported-version baseline remain outstanding, and section 10 records the limits that follow from that.
+These source observations were then checked against a live Coolify 4.3.18 instance; section 10 records the supported baseline, the sanitized fixtures, and the behavior that only the live server revealed.
 
 ## 2. Directory tree
 
@@ -457,13 +457,13 @@ The realistic path is therefore a pull request against Coolify CLI that adds `li
 
 ## 10. Implementation sequence and validation gates
 
-Gates 1 to 3 are complete; gates 4 and 5 remain. [ROADMAP.md](ROADMAP.md) tracks the same sequence as milestones.
+All five gates are complete. [ROADMAP.md](ROADMAP.md) tracks the same sequence as milestones.
 
 1. **Foundation — done.** The module, explicit command constructors, configuration codec, discovery, and the read-only credentials adapter. Nested-directory behavior, Git worktrees, explicit paths, malformed configuration, context precedence, and CI credentials are proven with temporary directories and synthetic credentials.
 2. **Binding — done.** The minimal HTTP adapter, resolver, and link service. `httptest.Server` and fakes prove hierarchy checks, duplicate names, explicit pins, cross-environment rejection, prompt cancellation, and conflict-aware writes. The same selection rules apply interactively and noninteractively.
 3. **Vertical workflows — done.** Status, deployment, and runtime logs go through the shared preparation path. Tests prove each command constructs one authenticated backend and uses the same resolver, and cover queued versus finished results, the exact deployment UUID, no POST replay, snapshot resets, cancellation, and human/JSON stream separation with injected writers.
-4. **Live compatibility check — outstanding.** Use a disposable local Coolify instance. Record its revision and capture sanitized fixtures for hierarchy lookup, deployment responses/statuses, runtime logs, and permission-limited responses. Check the identified container-selection mismatch before exposing related behavior. Select the supported server baseline from evidence, not the fork's apparent API surface alone.
-5. **Extension proof — outstanding.** Add `env pull` only if requested. Its implementation should add endpoint and workflow code without duplicating discovery, auth loading, context selection, client construction, or application lookup. Defer preview automation, complex dev behavior, and administration commands.
+4. **Live compatibility check — done.** Verified against Coolify 4.3.18 (below), with sanitized fixtures for hierarchy lookup, deployment responses and statuses, runtime logs, and permission-limited responses in `internal/coolify/testdata/`. The container-selection mismatch was confirmed on the server, so no such flag is exposed. The supported baseline comes from that evidence, not from the fork's apparent API surface.
+5. **Extension proof — done.** `env pull`, `env diff`, and `env push` added endpoint and workflow code without duplicating discovery, auth loading, context selection, client construction, or application lookup; `preview`, `dev`, `domain`, and `init` followed the same seam. Administration commands remain out of scope.
 
 ### Supported server baseline
 
@@ -483,6 +483,10 @@ Observed behavior that shapes the client, none of which was visible from source 
 - **`POST /deploy` accepts `pr`** (pull request id) alongside `uuid` and `force`, and answers HTTP 200 with a message-only receipt when the pull request has no preview record. No endpoint creates previews; section 9 defines `preview` against that.
 - **`POST /applications/public` answers 201 with `{uuid, domains}`** and, without `domains` in the request, assigns the generated `https://<uuid>.<wildcard>` domain at once. A GitHub URL is stored as `owner/repo` with the built-in public GitHub source (`source_id` 0); other hosts keep the full URL. A never-deployed application reports `exited:unhealthy`. A refusal is `422 {"message": "Validation failed.", "errors": {field: [...]}}`, which the client surfaces for 4xx mutations. `DELETE /applications/{uuid}` queues a `DeleteResourceJob` and answers 200; the application is gone from reads within seconds. Verified by creating `coolship-init-test` from the example repository and deleting it again.
 - **A Cloudflare bot rule in front of the validating instance rejects some default user agents.** Coolship sends `coolship/<version>`; Coolify CLI sends Go's default. Both are accepted; a generic scripting-language default was not.
+- **`GET /applications/{uuid}/logs` answers `400 {"message": "Application is not running."}`** when the application has no running container. The adapter reads that one refusal body, on that endpoint only, and returns a typed not-running error; the workflow reports it with the application's observed status. Any other 400 body, there or elsewhere, stays private as before.
+- **`POST /deploy` for a commit that is already queued or in progress.** Three `--no-wait` submissions within two seconds were each answered `queued` with their own `deployment_uuid`; the first ran and finished, and the other two later answered `404 {"message": "Deployment not found."}` — the server had dropped them. A submission five seconds after one that was in progress was answered 200 with `Deployment already queued for this commit.` and, as `DeployController::deploy_resource` shows, the `deployment_uuid` it had generated before asking `queue_application_deployment`, which never queued it. Coolship therefore treats that message as a refusal whatever the receipt's UUID and suggests `--force`, and reports a 404 while observing a deployment as dropped rather than as "may still be running". The queue-full refusal — 429 `Deployment queue is full. Please wait for existing deployments to complete.` with `Retry-After: 60`, once the server holds `deployment_queue_limit` (default 25) queued deployments — is mapped but was not triggered.
+- **An `http://` URL is answered with a 301** to https by the proxy in front of the instance. The client never follows redirects, so the status is reported with the hint to use the https URL.
+- **A host name the certificate does not cover answers a TLS alert** (`remote error: tls: handshake failure`) rather than a certificate error; it is reported as a refused handshake, distinct from an unverifiable certificate.
 
 Limits that remain, independent of the version:
 
@@ -494,4 +498,4 @@ Limits that remain, independent of the version:
 
 Run focused behavioral tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for a milestone.
 
-The exact live server baseline and advanced command flags remain deferred to their implementation milestones. The package boundaries, configuration precedence, binding semantics, and MVP command behavior are settled decisions.
+The live server baseline is recorded above. The package boundaries, configuration precedence, binding semantics, and MVP command behavior are settled decisions.

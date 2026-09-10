@@ -16,6 +16,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/process"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
+	"golang.org/x/term"
 )
 
 // version is set at build time with -ldflags "-X main.version=<tag>"; see
@@ -25,14 +26,18 @@ var version string
 
 func main() { os.Exit(run()) }
 
-// resolveVersion prefers the build-time version, then the VCS revision from
-// build info, then "dev", so --version always says which code is running.
+// resolveVersion prefers the build-time version, then the module version a
+// `go install …@vX.Y.Z` records, then the VCS revision from build info, then
+// "dev", so --version always says which code is running.
 func resolveVersion(built string, info *debug.BuildInfo, ok bool) string {
 	if built != "" {
 		return built
 	}
 	if !ok || info == nil {
 		return "dev"
+	}
+	if module := info.Main.Version; module != "" && module != "(devel)" {
+		return module
 	}
 	revision, modified := "", false
 	for _, setting := range info.Settings {
@@ -119,9 +124,10 @@ func colorEnabled(terminal bool, env func(string) string, args []string) bool {
 	return true
 }
 
+// isTerminal asks the terminal driver, not the file mode: /dev/null is a
+// character device too, and a redirect from it must count as noninteractive.
 func isTerminal(file *os.File) bool {
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return file != nil && term.IsTerminal(int(file.Fd()))
 }
 
 // userAgentVersion keeps the header short and free of spaces or parentheses.

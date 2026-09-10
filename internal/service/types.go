@@ -117,10 +117,22 @@ type ProcessSpec struct {
 	Env   []string
 }
 
-// ExitError carries a child process's nonzero status to the exit code.
-type ExitError struct{ Code int }
+// ExitError carries a nonzero status that is the whole answer, so the
+// boundary prints nothing for it: a child process has already said what it
+// had to say, and a comparison asked for a status reports through it alone.
+// Err is the optional cause, kept for errors.Is.
+type ExitError struct {
+	Code int
+	Err  error
+}
 
-func (e *ExitError) Error() string { return fmt.Sprintf("command exited with status %d", e.Code) }
+func (e *ExitError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("command exited with status %d", e.Code)
+}
+func (e *ExitError) Unwrap() error { return e.Err }
 
 type DomainResult struct {
 	Target  TargetInfo `json:"target"`
@@ -201,8 +213,18 @@ type UnlinkOptions struct {
 	Yes bool
 }
 
+// UnlinkPlan is what unlink deletes. Binding is the single [project] form;
+// Targets lists every [apps.<name>] table of the named form, all of which go
+// with the file.
 type UnlinkPlan struct {
 	Path    string         `json:"path"`
+	Binding config.Binding `json:"binding"`
+	Targets []UnlinkTarget `json:"targets,omitempty"`
+}
+
+// UnlinkTarget is one named binding an unlink removes.
+type UnlinkTarget struct {
+	Name    string         `json:"name"`
 	Binding config.Binding `json:"binding"`
 }
 
@@ -355,3 +377,31 @@ func (e *DeploymentError) Error() string {
 	return "deployment " + e.DeploymentUUID + ": " + e.Err.Error()
 }
 func (e *DeploymentError) Unwrap() error { return e.Err }
+
+// TimeoutError reports that --timeout elapsed while a deployment was being
+// observed. It unwraps to the deadline error so errors.Is still recognizes
+// the timeout, but names the flag instead of the context.
+type TimeoutError struct {
+	Timeout time.Duration
+	Err     error
+}
+
+func (e *TimeoutError) Error() string {
+	return fmt.Sprintf("--timeout %s elapsed before the deployment finished; it continues on the server", e.Timeout)
+}
+func (e *TimeoutError) Unwrap() error { return e.Err }
+
+// restated is a lower-layer failure reworded for the command that hit it. The
+// cause stays reachable through Unwrap for errors.Is and errors.As, but its
+// own text is not repeated.
+type restated struct {
+	text string
+	err  error
+}
+
+func (e *restated) Error() string { return e.text }
+func (e *restated) Unwrap() error { return e.err }
+
+func restate(cause error, format string, args ...any) error {
+	return &restated{text: fmt.Sprintf(format, args...), err: cause}
+}

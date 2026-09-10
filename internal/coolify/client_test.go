@@ -2,18 +2,23 @@ package coolify
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/joaomnuno/coolship/internal/models"
-	"time"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc, opts ...Option) *Client {
@@ -364,5 +369,106 @@ func TestRejectIncompleteOrInvalidResponses(t *testing.T) {
 	client = newTestClient(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"logs":""}`) })
 	if logs, err := client.Logs(context.Background(), "a1", 100); err != nil || logs.Logs != "" {
 		t.Errorf("explicit empty logs = %#v, %v", logs, err)
+	}
+}
+
+func TestLogsReportNotRunningAndKeepOtherRefusalsBare(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"message":"Application is not running."}`)
+	})
+	_, err := client.Logs(context.Background(), "a1", 100)
+	var refusal *NotRunningError
+	if !errors.As(err, &refusal) || refusal.Message != "Application is not running." || err.Error() != "application is not running" || !refusal.NotRunning() {
+		t.Fatalf("error = %v", err)
+	}
+	// Any other 400 body is not an explanation to repeat, on logs or elsewhere.
+	client = newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"message":"private-token secret-value"}`)
+	})
+	for name, call := range map[string]func() error{
+		"logs":     func() error { _, err := client.Logs(context.Background(), "a1", 100); return err },
+		"projects": func() error { _, err := client.ListProjects(context.Background()); return err },
+	} {
+		err := call()
+		var httpErr *HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusBadRequest || errors.As(err, &refusal) {
+			t.Fatalf("%s: error = %v", name, err)
+		}
+		if strings.Contains(err.Error(), "secret-value") || httpErr.Message != "" {
+			t.Fatalf("%s exposes body: %v", name, err)
+		}
+	}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string { return "dial tcp: i/o timeout (private detail)" }
+func (timeoutError) Timeout() bool { return true }
+
+func TestTransportFailuresAreNamedWithoutRepeatingTheCause(t *testing.T) {
+	for name, test := range map[string]struct {
+		err  error
+		want string
+	}{
+		"dns":      {&net.DNSError{Err: "no such host", Name: "coolify.internal.example", IsNotFound: true}, "host name could not be resolved"},
+		"refused":  {&net.OpError{Op: "dial", Net: "tcp", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}}, "connection was refused"},
+		"tls":      {&tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}, "TLS certificate could not be verified"},
+		"hostname": {x509.HostnameError{Host: "coolify.internal.example"}, "TLS certificate could not be verified"},
+		"alert":    {&net.OpError{Op: "remote error", Err: errors.New("tls: handshake failure private-detail")}, "server refused the TLS handshake"},
+		"no tls":   {tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake", RecordHeader: [5]byte{'H', 'T', 'T', 'P', '/'}}, "did not answer with TLS"},
+		"timeout":  {timeoutError{}, "request timed out"},
+		"deadline": {context.DeadlineExceeded, "request timed out"},
+		"other":    {errors.New("proxy says: token=private-detail"), "request failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text := (&RequestError{Method: "GET", Endpoint: "/projects", Err: test.err}).Error()
+			if !strings.HasPrefix(text, "Coolify GET /projects: ") || !strings.Contains(text, test.want) {
+				t.Fatalf("text = %q", text)
+			}
+			for _, private := range []string{"private", "coolify.internal.example", "i/o timeout", "no such host", "x509", "connect:", "first record"} {
+				if strings.Contains(text, private) {
+					t.Fatalf("text repeats the transport: %q", text)
+				}
+			}
+		})
+	}
+	// A self-signed certificate and a closed port produce those errors for real.
+	untrusted := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) }))
+	defer untrusted.Close()
+	client, err := NewClient(untrusted.URL, "fixture-token", WithRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListProjects(context.Background())
+	var request *RequestError
+	if !errors.As(err, &request) || !strings.Contains(err.Error(), "TLS certificate could not be verified") || strings.Contains(err.Error(), "x509") {
+		t.Fatalf("self-signed: %v", err)
+	}
+	// A plain-HTTP server reached over https answers with no TLS at all.
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) }))
+	defer plain.Close()
+	client, err = NewClient("https://"+strings.TrimPrefix(plain.URL, "http://"), "fixture-token", WithRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListProjects(context.Background())
+	if !errors.As(err, &request) || !strings.Contains(err.Error(), "did not answer with TLS") || strings.Contains(err.Error(), "first record") {
+		t.Fatalf("plain over https: %v", err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "http://" + listener.Addr().String()
+	listener.Close()
+	client, err = NewClient(closed, "fixture-token", WithRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListProjects(context.Background())
+	if !errors.As(err, &request) || !strings.Contains(err.Error(), "connection was refused") || strings.Contains(err.Error(), listener.Addr().String()) || !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("closed port: %v", err)
 	}
 }

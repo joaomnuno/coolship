@@ -52,6 +52,12 @@ func PrintError(streams Streams, err error) error {
 			return writeErr
 		}
 	}
+	// A rejected token, a missing ability, or a redirecting URL fails every
+	// command the same way; the guidance is added here, once, so no workflow
+	// has to know about HTTP.
+	if hint := service.ServerHint(err); hint != "" {
+		text += "; " + hint
+	}
 	_, writeErr := fmt.Fprintf(w, "%s %s\n", style.apply(redBold, "Error:"), singleLine(text))
 	return writeErr
 }

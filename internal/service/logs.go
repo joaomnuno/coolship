@@ -24,7 +24,7 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 	}
 	snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines)
 	if err != nil {
-		return err
+		return logsError(err, s.project.Application.Status)
 	}
 	if err := emitEvent(emit, Event{Type: "logs", Logs: joinLines(splitLines(snapshot.Logs))}); err != nil {
 		return err
@@ -39,6 +39,9 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 		}
 		snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines)
 		if err != nil {
+			if notRunning(err) {
+				return logsError(err, s.project.Application.Status)
+			}
 			return fmt.Errorf("log follow stopped: %w", err)
 		}
 		added, reset := snapshotDelta(previous, snapshot.Logs)
@@ -54,6 +57,25 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 			}
 		}
 	}
+}
+
+// notRunning recognizes the adapter's refusal for an application without a
+// running container, through an interface so this package stays free of HTTP.
+func notRunning(err error) bool {
+	var refusal interface{ NotRunning() bool }
+	return errors.As(err, &refusal) && refusal.NotRunning()
+}
+
+// logsError names the application's observed status when the server has no
+// container to read logs from; other failures pass through unchanged.
+func logsError(err error, status string) error {
+	if !notRunning(err) {
+		return err
+	}
+	if status == "" {
+		status = "unknown"
+	}
+	return restate(err, "application is not running (status %s); deploy it, or start it in Coolify, before reading its logs", status)
 }
 
 // snapshotDelta preserves ordered duplicate lines and matches whole timestamped

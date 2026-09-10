@@ -17,6 +17,9 @@ func (a *App) Unlink(ctx context.Context, options UnlinkOptions, confirm Confirm
 		return UnlinkResult{}, input(err)
 	}
 	plan := UnlinkPlan{Path: p.ConfigPath, Binding: p.Config.Project}
+	for _, name := range p.Config.TargetNames() {
+		plan.Targets = append(plan.Targets, UnlinkTarget{Name: name, Binding: p.Config.Apps[name]})
+	}
 	if !options.Yes {
 		if confirm == nil {
 			return UnlinkResult{}, input(project.ErrReplacementRequired)

@@ -9,6 +9,12 @@ import (
 	"github.com/joaomnuno/coolship/internal/auth"
 )
 
+// NormalizeInstanceURL applies the instance URL rule a login must satisfy, so
+// a prompt can check an answer before the token is asked for.
+func NormalizeInstanceURL(raw string) (string, error) {
+	return auth.NormalizeURL(strings.TrimSpace(raw))
+}
+
 // Login verifies a URL and token against the server, then stores them in the
 // Coolify CLI configuration so both tools share one login. The token is only
 // written after the server has accepted it.

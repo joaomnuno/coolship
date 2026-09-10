@@ -20,7 +20,7 @@ The first milestone validates the architecture through `link`, `status`, `deploy
 - [x] Run tests, race detection, vet, build, and command smoke checks.
 - [x] Update README and architecture to reflect implemented behavior; commit and push the milestone.
 
-`link`, `status`, `deploy`, and `logs` work end to end against a controlled server. No live Coolify instance has been contacted, so there is no verified supported server version; README and `ARCHITECTURE.md` section 10 record the limits that follow.
+At this milestone `link`, `status`, `deploy`, and `logs` worked end to end against a controlled server only. Milestone 2 then verified them, and every later command, against a live Coolify 4.3.18 instance; README and `ARCHITECTURE.md` section 10 record the supported baseline and its limits.
 
 ## Milestone 2: the rest of the brief, verified live
 

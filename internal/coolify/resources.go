@@ -85,10 +85,20 @@ func (c *Client) Logs(ctx context.Context, uuid string, lines int) (models.LogSn
 	var response struct {
 		Logs *string `json:"logs"`
 	}
-	err := c.request(ctx, http.MethodGet, []string{"applications", uuid, "logs"}, url.Values{
+	// Coolify 4.3.18 answers 400 {"message": "Application is not running."}
+	// when there is no container to read from; that one refusal is read so
+	// it can be reported as such rather than as a bare status.
+	err := c.requestExplaining(ctx, http.MethodGet, []string{"applications", uuid, "logs"}, url.Values{
 		"lines": {strconv.Itoa(lines)}, "show_timestamps": {"true"},
-	}, nil, &response)
+	}, nil, &response, func(status int) bool { return status == http.StatusBadRequest })
 	if err != nil {
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusBadRequest {
+			if strings.Contains(strings.ToLower(httpErr.Message), "not running") {
+				return models.LogSnapshot{}, &NotRunningError{Message: httpErr.Message}
+			}
+			httpErr.Message = "" // any other 400 body is not an explanation to repeat
+		}
 		return models.LogSnapshot{}, err
 	}
 	if response.Logs == nil {

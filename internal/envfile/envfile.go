@@ -119,9 +119,18 @@ func (f *File) Set(key, value string) error {
 }
 
 // Comment appends a comment line, used to record keys whose values are
-// unavailable rather than inventing a value for them.
-func (f *File) Comment(text string) {
-	f.lines = append(f.lines, "# "+strings.ReplaceAll(strings.TrimSpace(text), "\n", " "))
+// unavailable rather than inventing a value for them. A line with exactly the
+// same text is not appended again, so a repeated pull leaves one note; it
+// reports whether the line was added.
+func (f *File) Comment(text string) bool {
+	line := "# " + strings.ReplaceAll(strings.TrimSpace(text), "\n", " ")
+	for _, existing := range f.lines {
+		if existing == line {
+			return false
+		}
+	}
+	f.lines = append(f.lines, line)
+	return true
 }
 
 // Delete removes a key's line.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
@@ -46,7 +47,7 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	}
 	remoteProject, err := resolver.SelectProject(projects, options.Project, projectID)
 	if err != nil {
-		return LinkResult{}, resolutionError(err)
+		return LinkResult{}, linkSelection(err, "--project", "--project-uuid")
 	}
 	environments, err := backend.ListEnvironments(ctx, remoteProject.UUID)
 	if err != nil {
@@ -65,7 +66,7 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	}
 	environment, err := resolver.SelectEnvironment(environments, options.Environment, environmentID)
 	if err != nil {
-		return LinkResult{}, resolutionError(err)
+		return LinkResult{}, linkSelection(err, "--environment", "--environment-uuid")
 	}
 	details, err := backend.GetEnvironment(ctx, remoteProject.UUID, environment.UUID)
 	if err != nil {
@@ -87,7 +88,7 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	}
 	application, err := resolver.SelectApplication(details.Applications, options.Application, applicationID)
 	if err != nil {
-		return LinkResult{}, resolutionError(err)
+		return LinkResult{}, linkSelection(err, "--application", "--application-uuid")
 	}
 	outcome, err := a.writeBinding(ctx, p, backend, bindingRequest{
 		credentials: credentials, authOptions: authOptions, target: options.Target, root: options.Root, replace: options.Replace,
@@ -101,9 +102,33 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	return outcome.result, nil
 }
 
+// linkSelection rewords a resolver failure for link itself, where the usual
+// advice — check the binding, run link, link a UUID — does not apply because
+// the selector came from a flag. The resolver's error stays the cause.
+func linkSelection(err error, nameFlag, uuidFlag string) error {
+	var missing *resolver.MissingError
+	var ambiguous *resolver.AmbiguousError
+	switch {
+	case errors.As(err, &missing):
+		selector := fmt.Sprintf("named %q", missing.Name)
+		if missing.UUID != "" {
+			selector = fmt.Sprintf("with UUID %q", missing.UUID)
+		}
+		return input(restate(err, "link: no %s %s in %s; pass an exact name with %s, or a UUID with %s", missing.Resource, selector, missing.Scope, nameFlag, uuidFlag))
+	case errors.As(err, &ambiguous):
+		choices := make([]string, len(ambiguous.Choices))
+		for i, choice := range ambiguous.Choices {
+			choices[i] = fmt.Sprintf("%q (%s)", choice.Name, choice.UUID)
+		}
+		return input(restate(err, "link: %d %ss match %q in %s: %s; pick one with %s", len(ambiguous.Choices), ambiguous.Resource, ambiguous.Name, ambiguous.Scope, strings.Join(choices, ", "), uuidFlag))
+	}
+	return resolutionError(err)
+}
+
 // selectCredentials resolves the instance for a workflow that has no complete
-// binding yet: an explicit context, the committed one, the CI pair, or a
-// choice among the configured instances.
+// binding yet: an explicit context, the committed one, the CI pair, the saved
+// default, or — only when no instance is the default — a choice among the
+// configured instances.
 func (a *App) selectCredentials(ctx context.Context, options Options, configuredContext string, selectChoice Selector) (auth.Options, auth.Credentials, error) {
 	authOptions := a.authOptions(options, configuredContext)
 	if authOptions.Context == "" && authOptions.URL == "" && authOptions.Token == "" {
@@ -111,13 +136,18 @@ func (a *App) selectCredentials(ctx context.Context, options Options, configured
 		if err != nil {
 			return auth.Options{}, auth.Credentials{}, input(err)
 		}
-		choices := make([]Choice, len(instances))
-		for i, instance := range instances {
-			choices[i] = Choice{ID: instance.Name, Name: instance.Name, Detail: instance.URL}
-		}
-		name, err := choose(ctx, "context", choices, selectChoice)
-		if err != nil {
-			return auth.Options{}, auth.Credentials{}, err
+		// The default is what every later command uses without --context, so
+		// it is taken here without asking; --context overrides it.
+		name := defaultInstance(instances)
+		if name == "" {
+			choices := make([]Choice, len(instances))
+			for i, instance := range instances {
+				choices[i] = Choice{ID: instance.Name, Name: instance.Name, Detail: instance.URL}
+			}
+			name, err = choose(ctx, "context", choices, selectChoice)
+			if err != nil {
+				return auth.Options{}, auth.Credentials{}, err
+			}
 		}
 		authOptions.Context = name
 	}
@@ -126,6 +156,22 @@ func (a *App) selectCredentials(ctx context.Context, options Options, configured
 		return auth.Options{}, auth.Credentials{}, input(err)
 	}
 	return authOptions, credentials, nil
+}
+
+// defaultInstance names the one instance marked default, or nothing when
+// none or several are.
+func defaultInstance(instances []auth.Instance) string {
+	name := ""
+	for _, instance := range instances {
+		if !instance.Default {
+			continue
+		}
+		if name != "" {
+			return ""
+		}
+		name = instance.Name
+	}
+	return name
 }
 
 // bindingRequest is a chosen application together with the candidate lists it

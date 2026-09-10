@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 )
@@ -58,7 +60,7 @@ func (a *App) Doctor(ctx context.Context, options Options) (DoctorResult, error)
 	case report.Source == "environment":
 		add("Credentials", "ok", "COOLSHIP_URL and COOLSHIP_TOKEN")
 	case !report.Exists:
-		add("Credentials", "failed", fmt.Sprintf("Coolify CLI configuration not found at %s; run coolify login, use --coolify-config, or set COOLSHIP_URL and COOLSHIP_TOKEN", report.Path))
+		add("Credentials", "failed", auth.MissingCredentials(report.Path).Error())
 	case report.Err != nil:
 		add("Credentials", "failed", report.Err.Error())
 	default:
@@ -123,18 +125,34 @@ func describeBinding(target project.Target) string {
 	return strings.Join(parts, " / ") + " in " + target.AppRoot
 }
 
-// describeServerError classifies the failures a wrong token produces. The
-// backend is reached through its interface, so the status code is read through
-// an interface as well.
+// ServerHint explains the HTTP statuses a wrong URL or token produces, so the
+// executable boundary can append guidance to a failure once, whatever command
+// hit it. The backend is reached through its interface, so the status code is
+// read through an interface as well. Other statuses, and other errors, yield
+// an empty string.
+func ServerHint(err error) string {
+	var status interface{ HTTPStatusCode() int }
+	if !errors.As(err, &status) {
+		return ""
+	}
+	switch code := status.HTTPStatusCode(); {
+	case code == http.StatusUnauthorized:
+		return "the server rejected the token; run coolship login to save a valid API token, or check COOLSHIP_TOKEN"
+	case code == http.StatusForbidden:
+		return "the token lacks a required ability; it needs read, write, and deploy (build logs and secret values also need sensitive read)"
+	case code >= 300 && code < 400:
+		return "use the https URL; redirects are not followed"
+	}
+	return ""
+}
+
+// describeServerError names the status and its explanation where the request
+// itself is not shown: a doctor check detail or a login failure.
 func describeServerError(err error) string {
 	var status interface{ HTTPStatusCode() int }
-	if errors.As(err, &status) {
-		switch status.HTTPStatusCode() {
-		case 401:
-			return "server rejected the token (401); create a new API token in Coolify"
-		case 403:
-			return "token lacks the required ability (403); it needs read, write, and deploy"
-		}
+	if hint := ServerHint(err); hint != "" && errors.As(err, &status) {
+		code := status.HTTPStatusCode()
+		return fmt.Sprintf("HTTP %d %s; %s", code, http.StatusText(code), hint)
 	}
 	return err.Error()
 }

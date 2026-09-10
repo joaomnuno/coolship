@@ -88,7 +88,8 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.SetErr(streams.Err)
 	root.SetVersionTemplate("coolship {{.Version}}\n")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return inputError(err) })
-	root.CompletionOptions.DisableDefaultCmd = true
+	// Cobra's own completion command stays available and listed:
+	// `coolship completion bash|zsh|fish|powershell`.
 	root.PersistentFlags().StringVar(&options.CWD, "cwd", "", "Use this working directory without changing the process directory")
 	root.PersistentFlags().StringVar(&options.ConfigPath, "config", "", "Project configuration path, relative to the effective working directory")
 	root.PersistentFlags().StringVar(&options.Context, "context", "", "Coolify CLI instance name for this invocation")
@@ -108,14 +109,9 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		newDevCommand(app, options, streams), newDomainCommand(app, options, streams),
 		newLoginCommand(app, options, streams), newLogoutCommand(app, options, streams))
 	root.SetHelpCommand(&cobra.Command{
-		Use:   "help [command]",
+		Use:   "help [command [subcommand]]",
 		Short: "Help about a command",
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) > 1 {
-				return inputError(fmt.Errorf("help accepts at most one command"))
-			}
-			return nil
-		},
+		// Nested commands such as `help env pull` are found by the whole path.
 		RunE: func(_ *cobra.Command, args []string) error {
 			command, remaining, err := root.Find(args)
 			if err != nil {

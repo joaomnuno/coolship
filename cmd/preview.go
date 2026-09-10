@@ -14,7 +14,7 @@ import (
 func newPreviewCommand(app Application, options *commandOptions, streams ui.Streams, environment func(string) string) *cobra.Command {
 	var deploy service.DeployOptions
 	command := &cobra.Command{
-		Use:   "preview",
+		Use:   "preview [target]",
 		Short: "Deploy the preview Coolify holds for a pull request",
 		Long: `Deploy the preview deployment Coolify already holds for a pull request, and
 observe it like deploy does.
@@ -26,7 +26,7 @@ server's answer when it does not know the pull request.
 
 The pull request number comes from --pr, or from GITHUB_REF when running in a
 GitHub Actions pull_request workflow.`,
-		Args: noArgs,
+		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))
@@ -41,7 +41,7 @@ GitHub Actions pull_request workflow.`,
 			renderer := ui.NewRenderer(streams, options.format)
 			result, err := app.Deploy(command.Context(), deploy, renderer.DeploymentEvent)
 			if err != nil {
-				return err
+				return deploymentFailure(renderer, options.format, result, err)
 			}
 			return renderer.Deploy(result)
 		},
