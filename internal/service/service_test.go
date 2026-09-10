@@ -51,6 +51,18 @@ type fakeBackend struct {
 	repository      gitinfo.Repository
 	repositoryError error
 	inspected       []string
+	// Lifecycle: history rows the list endpoint returns, the statuses the
+	// application reports after a stop was requested, and canned answers.
+	history      []models.DeploymentRecord
+	historyError error
+	stopStatuses []string
+	stopped      bool
+	stopError    error
+	receipt      models.ActionReceipt
+	actionError  error
+	lastForce    bool
+	cancelled    []string
+	cancelError  error
 }
 
 func newBackend() *fakeBackend {
@@ -62,9 +74,66 @@ func newBackend() *fakeBackend {
 		receipts:     []models.DeploymentReceipt{{ResourceUUID: "app-1", DeploymentUUID: "deploy-1"}},
 		deployments:  []models.Deployment{{UUID: "deploy-1", Status: "finished"}},
 		snapshots:    []string{"2026-09-09T10:00:00Z hello\n"}, calls: map[string]int{},
-		servers:    []models.Server{{UUID: "server-1", Name: "Master", IP: "10.0.0.1", IsReachable: true, IsUsable: true}},
-		repository: gitinfo.Repository{Remote: "https://github.com/owner/new-app", Branch: "main"},
+		servers:      []models.Server{{UUID: "server-1", Name: "Master", IP: "10.0.0.1", IsReachable: true, IsUsable: true}},
+		repository:   gitinfo.Repository{Remote: "https://github.com/owner/new-app", Branch: "main"},
+		stopStatuses: []string{"running:healthy", "exited:unhealthy"},
+		receipt:      models.ActionReceipt{Message: "Deployment request queued.", DeploymentUUID: "deploy-1"},
 	}
+}
+
+func (f *fakeBackend) ListDeployments(_ context.Context, id string, take int) (models.DeploymentPage, error) {
+	f.calls["history"]++
+	if id != "app-1" {
+		return models.DeploymentPage{}, errors.New("wrong application")
+	}
+	if f.historyError != nil {
+		return models.DeploymentPage{}, f.historyError
+	}
+	return models.DeploymentPage{Total: len(f.history), Deployments: f.history[:min(take, len(f.history))]}, nil
+}
+
+func (f *fakeBackend) StopApplication(_ context.Context, id string) (string, error) {
+	f.calls["stop"]++
+	if id != "app-1" {
+		return "", errors.New("wrong application")
+	}
+	if f.stopError != nil {
+		return "", f.stopError
+	}
+	f.stopped = true
+	return "Application stopping request queued.", nil
+}
+
+func (f *fakeBackend) StartApplication(_ context.Context, id string, force bool) (models.ActionReceipt, error) {
+	f.calls["start"]++
+	f.lastForce = force
+	if id != "app-1" {
+		return models.ActionReceipt{}, errors.New("wrong application")
+	}
+	if f.actionError != nil {
+		return models.ActionReceipt{}, f.actionError
+	}
+	return f.receipt, nil
+}
+
+func (f *fakeBackend) RestartApplication(_ context.Context, id string) (models.ActionReceipt, error) {
+	f.calls["restart"]++
+	if id != "app-1" {
+		return models.ActionReceipt{}, errors.New("wrong application")
+	}
+	if f.actionError != nil {
+		return models.ActionReceipt{}, f.actionError
+	}
+	return f.receipt, nil
+}
+
+func (f *fakeBackend) CancelDeployment(_ context.Context, id string) (models.CancelReceipt, error) {
+	f.calls["cancel"]++
+	if f.cancelError != nil {
+		return models.CancelReceipt{}, f.cancelError
+	}
+	f.cancelled = append(f.cancelled, id)
+	return models.CancelReceipt{Message: "Deployment cancelled successfully.", DeploymentUUID: id, Status: "cancelled-by-user"}, nil
 }
 
 func (f *fakeBackend) ListServers(context.Context) ([]models.Server, error) {
@@ -183,6 +252,15 @@ func (f *fakeBackend) GetEnvironment(_ context.Context, projectID, id string) (m
 func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Application, error) {
 	f.calls["application"]++
 	if id == "app-1" {
+		if f.stopped {
+			// After a stop was requested the status moves through the sequence
+			// one poll at a time, as the queued job would change it.
+			index := f.calls["poll"]
+			f.calls["poll"]++
+			application := f.application
+			application.Status = f.stopStatuses[min(index, len(f.stopStatuses)-1)]
+			return application, nil
+		}
 		return f.application, nil
 	}
 	if application, ok := f.more[id]; ok {
@@ -204,13 +282,26 @@ func (f *fakeBackend) Deploy(_ context.Context, request models.DeployRequest) ([
 func (f *fakeBackend) GetDeployment(_ context.Context, id string) (models.Deployment, error) {
 	index := f.calls["deployment"]
 	f.calls["deployment"]++
+	switch id {
+	case "missing":
+		return models.Deployment{}, statusError{code: 404}
+	case "theirs":
+		// A deployment of another application, as the server embeds its owner.
+		return models.Deployment{UUID: "theirs", Status: "in_progress", Application: models.DeploymentOwner{UUID: "app-9"}}, nil
+	case "old":
+		return models.Deployment{UUID: "old", Status: "finished", Commit: "0cd7c4a692347804dbd076a4d7e11c847e085473", Application: models.DeploymentOwner{UUID: "app-1"}}, nil
+	}
 	if id != "deploy-1" {
 		return models.Deployment{}, errors.New("wrong deployment identity")
 	}
 	if f.readError != nil {
 		return models.Deployment{}, f.readError
 	}
-	return f.deployments[min(index, len(f.deployments)-1)], nil
+	deployment := f.deployments[min(index, len(f.deployments)-1)]
+	if deployment.Application.UUID == "" {
+		deployment.Application.UUID = "app-1"
+	}
+	return deployment, nil
 }
 func (f *fakeBackend) Logs(_ context.Context, id string, _ int) (models.LogSnapshot, error) {
 	index := f.calls["logs"]

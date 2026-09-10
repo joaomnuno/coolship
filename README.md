@@ -46,7 +46,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `init`, `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -192,10 +192,17 @@ Replacing a different existing binding requires confirmation, or `--replace` whe
 
 ### `coolship status`
 
-Report the linked application's current status and URL.
+Report the linked application's current status and URL, and its last deployment when the history can be read.
 
-```bash
-coolship status
+```text
+$ coolship status
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Environment: production
+Project: coolship-example
+Context: home
+Status: running:healthy
+URL: https://coolship.example.com
+Last deployment: nmfvbbn3 finished (0cd7c4a) 2026-09-10 11:37:12
 ```
 
 ### `coolship deploy`
@@ -228,6 +235,55 @@ Status: finished
 ```
 
 When `--timeout` elapses the error names the flag (`--timeout 10m0s elapsed before the deployment finished; it continues on the server`), and when the deployment fails or times out, `--format json` still prints the result with the deployment UUID and its last observed status before exiting 1, so a script can pick the deployment up. If Coolify already holds a queued or running deployment for the same commit it declines a new one with `Deployment already queued for this commit.`, which Coolship reports with the suggestion to pass `--force`; a second submission within a couple of seconds can instead be accepted and then dropped by the server, which observation reports as `the server no longer holds this deployment (HTTP 404)`. When the server's deployment queue is full it answers 429, reported as `server deployment queue is full`.
+### `coolship deployments`
+
+List the linked application's most recent deployments, newest first — the same history Coolify shows on the application's Deployments page.
+
+```text
+$ coolship deployments -n 3
+Deployments of coolship-example (3 of 17)
+UUID      STATUS             COMMIT   TYPE     CREATED              DURATION
+jky1r9cr  finished           0cd7c4a  restart  2026-09-10 11:56:59  23s
+zvvmfq5q  cancelled-by-user  HEAD     deploy   2026-09-10 11:56:21  2s
+ivgyhyfx  finished           0cd7c4a  deploy   2026-09-10 11:55:31  23s
+```
+
+`TYPE` is `deploy`, `restart`, `rollback`, or `preview #N` for a pull request preview. A commit of `HEAD` is a deployment Coolify cancelled or is still starting, before it resolved the sha; a cancelled deployment that never reached the deployment job has no duration, because Coolify records the end time only there. `--format json` carries the full UUIDs, the source (`api`, `webhook`, or `manual`), and the server's timestamps. Build logs are never included; `deploy` streams them while a deployment runs.
+
+### `coolship cancel`
+
+Cancel a queued or running deployment.
+
+```bash
+coolship cancel                               # the one in progress; asks first
+coolship cancel zvvmfq5q7kdzaswmsf7yrugt --yes  # a specific deployment
+coolship cancel api zvvmfq5q7kdzaswmsf7yrugt   # a monorepo target, then the UUID
+```
+
+Without a UUID, exactly one deployment must be queued or in progress; none, or more than one, is reported and nothing is cancelled. A named deployment must belong to the linked application. Only queued and in-progress deployments can be cancelled — one that already finished, failed, or was cancelled is refused before any request. Cancelling leaves the running containers as they are: the application keeps serving the previous deployment.
+
+### `coolship stop`, `coolship start`, `coolship restart`
+
+Manage the lifecycle of the linked application's containers.
+
+```bash
+coolship stop                 # asks; --yes to skip
+coolship stop --timeout 30s   # wait this long for the status to leave running
+coolship start                # deploy again, observed like deploy
+coolship restart --yes        # queue a restart, observed like deploy
+```
+
+`stop` shows the application and its environment and asks before stopping — production deserves a clear question — then waits until the status leaves `running` (2 minutes by default) and reports the last status it saw. Coolify stops and removes the containers; the application, its configuration, and its history stay, and `deploy` or `start` brings it back. An application that is not running is left alone with a warning.
+
+```text
+$ coolship stop --yes
+Application stopping request queued.
+Application status: exited:unhealthy
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: exited:unhealthy
+```
+
+`start` and `restart` are Coolify's own start and restart actions, and both queue a deployment: Coolify has no container start, so `start` deploys the configured source and branch again, and `restart` queues a restart-only deployment that reuses the image already built for the commit — except for Dockerfile and Docker image applications, which Coolify deploys in full. Both are observed exactly like `deploy`, with the build log on stderr, `--no-wait`, and `--timeout`; `restart` asks first, or takes `--yes`.
 
 ### `coolship logs`
 
@@ -446,7 +502,7 @@ Two commands answer with a status and no message, like `git diff --exit-code`: `
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, listing its deployments, stopping it, starting it again, cancelling a deployment while it was in progress, restarting it, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
 
 Limits worth knowing:
 
@@ -460,7 +516,7 @@ Limits worth knowing:
 
 ## End-to-end tests
 
-`scripts/e2e` runs every command against a live Coolify instance and prints a PASS/FAIL line per step. It touches exactly one application — project `coolship-example`, environment `production`, application `coolship-example`, a Dockerfile app built from [joaomnuno/example-coolify-project](https://github.com/joaomnuno/example-coolify-project) — and nothing else on the instance is written to. In order it links from a fresh temporary directory, runs `doctor`, `status`, `config`, `open --print`, `logs` and `logs --follow`, pulls and diffs the variables, creates two `E2E_`-prefixed variables and verifies `dev` injects them, deletes them again with `env push --prune` (in both scopes; a trap does the same if the run dies mid-way), checks that `preview --pr 999999` is refused, deploys once (about 30 s), and unlinks. Pulled variables only ever land in the temporary directory, which is removed on exit, and the token is never printed.
+`scripts/e2e` runs every command against a live Coolify instance and prints a PASS/FAIL line per step. It touches exactly one application — project `coolship-example`, environment `production`, application `coolship-example`, a Dockerfile app built from [joaomnuno/example-coolify-project](https://github.com/joaomnuno/example-coolify-project) — and nothing else on the instance is written to. In order it links from a fresh temporary directory, runs `doctor`, `status`, `config`, `open --print`, `logs` and `logs --follow`, pulls and diffs the variables, creates two `E2E_`-prefixed variables and verifies `dev` injects them, deletes them again with `env push --prune` (in both scopes; a trap does the same if the run dies mid-way), checks that `preview --pr 999999` is refused, deploys once (about 30 s), lists the deployments, checks that `cancel` refuses when nothing is running, stops and starts the application, restarts it, and unlinks. The lifecycle steps leave the application running when they pass; if `start` fails after `stop`, the application stays stopped until the next deployment. Pulled variables only ever land in the temporary directory, which is removed on exit, and the token is never printed.
 
 `.github/workflows/e2e.yml` runs it on `workflow_dispatch`, weekly, and on every published release. Add two repository secrets under *Settings → Secrets and variables → Actions*: `COOLSHIP_URL` and `COOLSHIP_TOKEN`, where the token needs read, write, and deploy abilities. Without them the job is skipped, so forks and pull requests never fail on it. Runs are serialized so two never overlap on the shared application.
 

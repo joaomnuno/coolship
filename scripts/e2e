@@ -10,10 +10,10 @@
 # The run touches exactly one remote application: project "coolship-example",
 # environment "production", application "coolship-example" (E2E_PROJECT,
 # E2E_ENVIRONMENT, and E2E_APPLICATION override the names). It links from a
-# fresh temporary directory, deploys that application once, and creates
-# variables whose keys start with E2E_, which it deletes again before exiting,
-# even when a step fails or the run is interrupted. Nothing else on the
-# instance is written to.
+# fresh temporary directory, deploys that application once, stops, starts,
+# and restarts it, and creates variables whose keys start with E2E_, which it
+# deletes again before exiting, even when a step fails or the run is
+# interrupted. Nothing else on the instance is written to.
 set -euo pipefail
 
 # shellcheck disable=SC1007 # same idiom as scripts/build
@@ -362,6 +362,45 @@ check_deploy() {
   expect_err "finished"
 }
 
+check_deployments() {
+  run 0 deployments -n 3
+  expect_out "Deployments of $application"
+  expect_out "UUID"
+  expect_out "finished"
+  run 0 deployments -n 1 --format json
+  expect_out '"deployment_uuid"'
+  refuse_out '"logs"'
+}
+
+check_cancel_refusal() {
+  # The deploy step waited for its deployment, so nothing is queued: cancel
+  # must refuse before any request, as it must for a UUID that does not exist.
+  run 2 cancel --yes
+  expect_err "queued or in progress"
+  run 2 cancel e2e-does-not-exist --yes
+  expect_err "not found"
+}
+
+check_stop_start() {
+  run 0 stop --yes
+  expect_err "Application stopping request queued."
+  expect_out "Status: exited"
+  run 0 status
+  expect_out "Status: exited"
+  run 0 start --timeout "$deploy_timeout"
+  expect_out "Status: finished"
+  expect_err "finished"
+  run 0 status
+  expect_out "Status: running"
+}
+
+check_restart() {
+  run 0 restart --yes --timeout "$deploy_timeout"
+  expect_out "Status: finished"
+  run 0 status
+  expect_out "Status: running"
+}
+
 check_unlink() {
   run 0 unlink --yes
   expect_out "Unlinked"
@@ -388,9 +427,13 @@ run_all() {
   step required "env push --prune" check_env_prune || return 1
   step optional "preview refusal" check_preview_refusal
   step optional "deploy" check_deploy
+  step optional "deployments" check_deployments
+  step optional "cancel refusal" check_cancel_refusal
+  step optional "stop + start" check_stop_start
+  step optional "restart" check_restart
   step required "unlink" check_unlink || return 1
 }
-all_steps=("version" "link" "doctor" "status" "config" "open" "logs" "logs --follow" "env pull + diff" "env push" "dev" "env push --prune" "preview refusal" "deploy" "unlink")
+all_steps=("version" "link" "doctor" "status" "config" "open" "logs" "logs --follow" "env pull + diff" "env push" "dev" "env push --prune" "preview refusal" "deploy" "deployments" "cancel refusal" "stop + start" "restart" "unlink")
 
 run_all || aborted=1
 

@@ -15,6 +15,11 @@ import (
 type Application interface {
 	Status(context.Context, service.Options) (service.StatusResult, error)
 	Deploy(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
+	Stop(context.Context, service.StopOptions, service.ConfirmStop, service.Emitter) (service.StopResult, error)
+	Start(context.Context, service.StartOptions, service.Emitter) (service.DeployResult, error)
+	Restart(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error)
+	Deployments(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error)
+	Cancel(context.Context, service.CancelOptions, service.ConfirmCancel) (service.CancelResult, error)
 	Logs(context.Context, service.LogsOptions, service.Emitter) error
 	Link(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
 	Init(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
@@ -66,7 +71,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root := &cobra.Command{
 		Use:           "coolship",
 		Short:         "Project-local deployment workflows for Coolify",
-		Long:          "Link this repository to a Coolify application — an existing one with link, or a new one with init — then inspect, deploy, open, and read the logs of that application.",
+		Long:          "Link this repository to a Coolify application — an existing one with link, or a new one with init — then inspect, deploy, stop, start, open, and read the logs of that application.",
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -101,7 +106,9 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	// streams; the flag is declared here so parsing accepts and documents it.
 	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
 	root.AddCommand(newInitCommand(app, options, streams), newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
-		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
+		newDeployCommand(app, options, streams), newDeploymentsCommand(app, options, streams), newCancelCommand(app, options, streams),
+		newStopCommand(app, options, streams), newStartCommand(app, options, streams), newRestartCommand(app, options, streams),
+		newLogsCommand(app, options, streams),
 		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
 		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams),
 		newEnvCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment),

@@ -102,6 +102,14 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 		}
 		return result, fmt.Errorf("server did not confirm a deployment for application %s: %s", s.project.Application.UUID, detail)
 	}
+	return a.observeDeployment(ctx, s, result, options.NoWait, emit)
+}
+
+// observeDeployment reports the queued deployment and, unless noWait, polls
+// exactly that UUID until it ends, streaming visible build output ahead of
+// each status change. Every workflow that queues a deployment — deploy,
+// preview, init --deploy, start, restart — ends here, so they cannot drift.
+func (a *App) observeDeployment(ctx context.Context, s session, result DeployResult, noWait bool, emit Emitter) (DeployResult, error) {
 	result.Status = "queued"
 	timeout, _ := deployTimeout(options.Timeout)
 	// The deadline is this command's --timeout; naming the flag says what to
@@ -128,7 +136,7 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 	if err := emitEvent(emit, Event{Type: "deployment", DeploymentUUID: result.DeploymentUUID, Status: result.Status}); err != nil {
 		return fail(err)
 	}
-	if options.NoWait {
+	if noWait {
 		return result, nil
 	}
 	lastStatus := result.Status
