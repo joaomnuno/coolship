@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
@@ -88,8 +89,6 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.SetErr(streams.Err)
 	root.SetVersionTemplate("coolship {{.Version}}\n")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return inputError(err) })
-	// Cobra's own completion command stays available and listed:
-	// `coolship completion bash|zsh|fish|powershell`.
 	root.PersistentFlags().StringVar(&options.CWD, "cwd", "", "Use this working directory without changing the process directory")
 	root.PersistentFlags().StringVar(&options.ConfigPath, "config", "", "Project configuration path, relative to the effective working directory")
 	root.PersistentFlags().StringVar(&options.Context, "context", "", "Coolify CLI instance name for this invocation")
@@ -108,6 +107,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		newEnvCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment),
 		newDevCommand(app, options, streams), newDomainCommand(app, options, streams),
 		newLoginCommand(app, options, streams), newLogoutCommand(app, options, streams))
+	ownCompletionCommand(root)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command [subcommand]]",
 		Short: "Help about a command",
@@ -126,4 +126,30 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		},
 	})
 	return root
+}
+
+// ownCompletionCommand keeps Cobra's completion command available and listed
+// (`coolship completion bash|zsh|fish|powershell`), but creates it now so its
+// argument failures are this tree's: an unknown shell would otherwise print
+// the help page and exit 0, and an extra argument exit 1 with Cobra's words,
+// where every other command reports invalid input.
+func ownCompletionCommand(root *cobra.Command) {
+	root.InitDefaultCompletionCmd()
+	for _, completion := range root.Commands() {
+		if completion.Name() != "completion" {
+			continue
+		}
+		var shells []string
+		for _, shell := range completion.Commands() {
+			shell.Args = noArgs
+			shells = append(shells, shell.Name())
+		}
+		completion.Args = func(_ *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return inputError(fmt.Errorf("unknown shell %q; use one of %s", args[0], strings.Join(shells, ", ")))
+			}
+			return nil
+		}
+		completion.RunE = func(command *cobra.Command, _ []string) error { return command.Help() }
+	}
 }

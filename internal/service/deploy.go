@@ -90,11 +90,14 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 		detail := "inspect Coolify before retrying"
 		if len(messages) > 0 {
 			detail = strings.Join(messages, "; ")
+			// The server applies the queued check per pull request as well,
+			// so it is decided first: preview has --force too, and only
+			// another refusal is about the pull request itself.
 			switch {
-			case options.PullRequest > 0:
-				detail += " (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)"
 			case alreadyQueued(detail):
 				detail += " (a deployment of this commit is already queued or running; wait for it, or pass --force to queue another)"
+			case options.PullRequest > 0:
+				detail += " (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)"
 			}
 		}
 		return result, fmt.Errorf("server did not confirm a deployment for application %s: %s", s.project.Application.UUID, detail)
@@ -102,13 +105,17 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 	result.Status = "queued"
 	timeout, _ := deployTimeout(options.Timeout)
 	// The deadline is this command's --timeout; naming the flag says what to
-	// change. A deployment the server no longer holds was dropped, not lost:
+	// change. The context decides, not the poll's error: a single request
+	// that times out also satisfies errors.Is(context.DeadlineExceeded)
+	// (net/http's client timeout does), and that deadline is the transport's
+	// while the flag has not elapsed, so it keeps its "request timed out"
+	// wording. A deployment the server no longer holds was dropped, not lost:
 	// Coolify 4.3.18 answers a duplicate submission with a UUID and then
 	// discards it. Any other stop keeps its own cause.
 	stopped := func(err error) error {
 		var status interface{ HTTPStatusCode() int }
 		switch {
-		case errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return &TimeoutError{Timeout: timeout, Err: err}
 		case errors.As(err, &status) && status.HTTPStatusCode() == http.StatusNotFound:
 			return restate(err, "the server no longer holds this deployment (HTTP 404); Coolify drops a queued deployment that duplicates one already queued or running for the same commit; check Coolify, or pass --force to queue a rebuild")

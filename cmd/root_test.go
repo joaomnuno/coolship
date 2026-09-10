@@ -136,6 +136,7 @@ func TestInvalidInputReturnsOneUnprintedError(t *testing.T) {
 		{"logs", "-n", "0"}, {"logs", "-n", "-1"}, {"logs", "-n", "many"}, {"logs", "-n", "10001"},
 		{"deploy", "--timeout", "0s"}, {"deploy", "--timeout=-1s"}, {"deploy", "--timeout", "eventually"},
 		{"dev", "npm", "run", "dev"}, {"preview", "a", "b", "--pr", "1"},
+		{"completion", "nope"}, {"completion", "bash", "extra"},
 		{"login", "--url", "coolify.example.com", "--name", "home", "--token-stdin"},
 		{"login", "--token-stdin"},
 	} {
@@ -679,7 +680,7 @@ func TestColorCapabilityStylesHumanOutputOnly(t *testing.T) {
 }
 
 func TestHelpReachesNestedCommandsAndCompletionIsOffline(t *testing.T) {
-	for _, args := range [][]string{{"help", "env", "pull"}, {"help", "domain", "set"}, {"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"}} {
+	for _, args := range [][]string{{"help", "env", "pull"}, {"help", "domain", "set"}, {"completion"}, {"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"}, {"completion", "powershell"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, diagnostic, err := execute(t, nil, args...)
 			if err != nil || out == "" || diagnostic != "" {
@@ -690,6 +691,10 @@ func TestHelpReachesNestedCommandsAndCompletionIsOffline(t *testing.T) {
 	out, _, _ := execute(t, nil, "help", "env", "pull")
 	if !strings.Contains(out, "coolship env pull") {
 		t.Fatalf("help env pull = %q", out)
+	}
+	// An unknown shell is invalid input that names the shells, not a help page.
+	if _, _, err := execute(t, nil, "completion", "nope"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), `unknown shell "nope"; use one of bash, fish, powershell, zsh`) {
+		t.Fatalf("completion nope: %v", err)
 	}
 }
 
