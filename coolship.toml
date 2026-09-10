@@ -1,0 +1,8 @@
+version = 1
+
+[apps.site]
+context = 'coolify-lx'
+project = 'coolship'
+environment = 'production'
+application = 'coolship-site'
+root = 'docs'
