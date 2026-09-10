@@ -266,10 +266,12 @@ func (c *Client) CreateProject(ctx context.Context, name, description string) (m
 	return models.Project{UUID: response.UUID, Name: name}, nil
 }
 
-// CreateApplication creates an application from a public repository. The
-// server answers 201 with the new uuid and its domains; a refusal carries the
-// server's explanation. A POST is never retried here: if the request fails
-// without an answer, the application may or may not exist.
+// CreateApplication creates an application from a repository through the
+// endpoint the spec's Source selects: /applications/public, or the
+// private-github-app and private-deploy-key variants. The server answers 201
+// with the new uuid and its domains; a refusal carries the server's
+// explanation. A POST is never retried here: if the request fails without an
+// answer, the application may or may not exist.
 func (c *Client) CreateApplication(ctx context.Context, spec models.ApplicationSpec) (models.CreatedApplication, error) {
 	for _, required := range []struct{ name, value string }{
 		{"project uuid", spec.ProjectUUID}, {"environment name", spec.EnvironmentName}, {"server uuid", spec.ServerUUID},
@@ -279,14 +281,98 @@ func (c *Client) CreateApplication(ctx context.Context, spec models.ApplicationS
 			return models.CreatedApplication{}, fmt.Errorf("application %s is required", required.name)
 		}
 	}
+	endpoint := "public"
+	switch spec.Source {
+	case "", "public":
+		if spec.GitHubAppUUID != "" || spec.PrivateKeyUUID != "" {
+			return models.CreatedApplication{}, errors.New("a public application takes neither a GitHub App nor a private key")
+		}
+	case "github-app":
+		endpoint = "private-github-app"
+		if strings.TrimSpace(spec.GitHubAppUUID) == "" || spec.PrivateKeyUUID != "" {
+			return models.CreatedApplication{}, errors.New("a GitHub App application requires the app uuid and no private key")
+		}
+	case "deploy-key":
+		endpoint = "private-deploy-key"
+		if strings.TrimSpace(spec.PrivateKeyUUID) == "" || spec.GitHubAppUUID != "" {
+			return models.CreatedApplication{}, errors.New("a deploy key application requires the key uuid and no GitHub App")
+		}
+	default:
+		return models.CreatedApplication{}, fmt.Errorf("unknown application source %q", spec.Source)
+	}
 	var response models.CreatedApplication
-	if err := c.request(ctx, http.MethodPost, []string{"applications", "public"}, nil, spec, &response); err != nil {
+	if err := c.request(ctx, http.MethodPost, []string{"applications", endpoint}, nil, spec, &response); err != nil {
 		return models.CreatedApplication{}, err
 	}
 	if response.UUID == "" {
-		return models.CreatedApplication{}, &ProtocolError{Endpoint: "/applications/public", Reason: "response omits the application uuid"}
+		return models.CreatedApplication{}, &ProtocolError{Endpoint: "/applications/" + endpoint, Reason: "response omits the application uuid"}
 	}
 	return response, nil
+}
+
+// ListGitHubApps lists the GitHub Apps the token's team can use, including
+// the built-in public source and apps other teams made system-wide.
+func (c *Client) ListGitHubApps(ctx context.Context) ([]models.GitHubApp, error) {
+	var apps []models.GitHubApp
+	err := c.request(ctx, http.MethodGet, []string{"github-apps"}, nil, nil, &apps)
+	return apps, err
+}
+
+// ListGitHubBranches lists the branches of one repository as the GitHub App
+// sees them, which is also how the app's access to the repository is known:
+// one it cannot reach is the server's 404. The app is addressed by its row
+// id, which is how the server keys this route. The server relays GitHub's
+// first page only, 30 branches by default. The app's whole repository
+// listing (GET /github-apps/{id}/repositories) is deliberately not wrapped:
+// the server pages through every installation repository to build it and
+// times out on large installations, which is why Coolify's own creation
+// path checks access per repository instead.
+func (c *Client) ListGitHubBranches(ctx context.Context, appID int, owner, repo string) ([]models.GitHubBranch, error) {
+	if appID < 0 {
+		return nil, errors.New("GitHub App id must not be negative")
+	}
+	var response struct {
+		Branches *[]models.GitHubBranch `json:"branches"`
+	}
+	if err := c.request(ctx, http.MethodGet, []string{"github-apps", strconv.Itoa(appID), "repositories", owner, repo, "branches"}, nil, nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Branches == nil {
+		return nil, &ProtocolError{Endpoint: "/github-apps/{id}/repositories/{owner}/{repo}/branches", Reason: "response omits the branches array"}
+	}
+	return *response.Branches, nil
+}
+
+// ListPrivateKeys lists the team's SSH keys. The server includes the private
+// halves when the token may read sensitive data; they are not decoded.
+func (c *Client) ListPrivateKeys(ctx context.Context) ([]models.PrivateKey, error) {
+	var keys []models.PrivateKey
+	err := c.request(ctx, http.MethodGet, []string{"security", "keys"}, nil, nil, &keys)
+	return keys, err
+}
+
+// CreatePrivateKey registers a private key the caller generated; the server
+// derives the public half and refuses a key it already holds. It answers 201
+// with the new uuid only. A POST is never retried here.
+func (c *Client) CreatePrivateKey(ctx context.Context, name, description, privateKey string) (models.PrivateKey, error) {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(privateKey) == "" {
+		return models.PrivateKey{}, errors.New("a private key needs a name and the key itself")
+	}
+	body := struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+		PrivateKey  string `json:"private_key"`
+	}{Name: name, Description: description, PrivateKey: privateKey}
+	var response struct {
+		UUID string `json:"uuid"`
+	}
+	if err := c.request(ctx, http.MethodPost, []string{"security", "keys"}, nil, body, &response); err != nil {
+		return models.PrivateKey{}, err
+	}
+	if response.UUID == "" {
+		return models.PrivateKey{}, &ProtocolError{Endpoint: "/security/keys", Reason: "response omits the key uuid"}
+	}
+	return models.PrivateKey{UUID: response.UUID, Name: name, Description: description}, nil
 }
 
 // Team reads the team the token belongs to; it doubles as a credential check.

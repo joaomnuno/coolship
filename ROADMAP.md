@@ -38,7 +38,7 @@ Every command from the brief is implemented and verified against a live Coolify 
 
 ## Later
 
-- [x] `init`: create a Coolify application from a repository's public remote and link it (verified live on 4.3.18). Private repositories need a GitHub App or deploy key the API takes by UUID, and Compose projects need per-service domains; both remain open.
+- [x] `init`: create a Coolify application from a repository's remote and link it — public repositories, and private ones through a GitHub App or a deploy key, including generating the key (all three verified live on 4.3.18). Compose projects need per-service domains and remain open.
 - [x] Lifecycle and history: `stop`, `start`, `restart`, `deployments`, and `cancel`, with `status` showing the last deployment (verified live on 4.3.18).
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
 - [x] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18 (reported privately to Coolify on 2026-09-10, per their security policy).

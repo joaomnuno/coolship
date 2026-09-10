@@ -306,6 +306,20 @@ func choose(ctx context.Context, kind string, choices []Choice, selectChoice Sel
 		}
 		return choices[0].ID, nil
 	}
+	return ask(ctx, kind, choices, selectChoice)
+}
+
+// ask puts the choices to the user, a single one included; it is for choices
+// that taking implicitly would decide something the user should see, such as
+// the source of a private repository or the key that unlocks it. Without
+// anybody to ask, the choice must come from a flag.
+func ask(ctx context.Context, kind string, choices []Choice, selectChoice Selector) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if len(choices) == 0 {
+		return "", input(fmt.Errorf("no %s choices are available", kind))
+	}
 	if selectChoice == nil {
 		return "", input(fmt.Errorf("select a %s with an explicit flag", kind))
 	}

@@ -225,7 +225,9 @@ func (r *Renderer) Link(result service.LinkResult) error {
 
 // Init reports the creation, then the binding like Link does. A deployment
 // that followed is rendered like Deploy's result; its progress already went
-// to stderr as events.
+// to stderr as events. When only a deploy key was created, its public half
+// is printed once with what to do next; the private half never reaches
+// this layer.
 func (r *Renderer) Init(result service.InitResult) error {
 	if err := r.warnings(result.Warnings); err != nil {
 		return err
@@ -234,10 +236,26 @@ func (r *Renderer) Init(result service.InitResult) error {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
 	plan := result.Plan
+	if key := result.DeployKey; key != nil && result.Target.ApplicationUUID == "" {
+		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s (%s) on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s\n",
+			singleLine(key.Name), singleLine(key.UUID), singleLine(plan.Instance), r.out.key("Public key"), singleLine(key.PublicKey),
+			singleLine(key.Repository), singleLine(key.Name))
+		return err
+	}
 	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s (%s) from %s at %s\n%s %s, port %d\n",
 		singleLine(plan.Name), singleLine(result.Target.ApplicationUUID), singleLine(plan.Repository), singleLine(plan.Branch),
 		r.out.key("Build pack"), singleLine(plan.BuildPack), plan.Port); err != nil {
 		return err
+	}
+	switch plan.Source {
+	case service.SourceGitHubApp:
+		if _, err := fmt.Fprintf(r.streams.Out, "%s GitHub App %s\n", r.out.key("Source"), singleLine(plan.GitHubApp)); err != nil {
+			return err
+		}
+	case service.SourceDeployKey:
+		if _, err := fmt.Fprintf(r.streams.Out, "%s deploy key %s\n", r.out.key("Source"), singleLine(plan.DeployKey)); err != nil {
+			return err
+		}
 	}
 	if result.URL != "" {
 		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("URL"), singleLine(result.URL)); err != nil {

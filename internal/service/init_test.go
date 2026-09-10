@@ -56,8 +56,12 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 		t.Fatalf("result %+v", result)
 	}
 	if len(f.created) != 1 || f.created[0] != (models.ApplicationSpec{ProjectUUID: "project-1", EnvironmentName: "production", ServerUUID: "server-1",
-		Name: "new-app", GitRepository: "https://github.com/owner/new-app", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80"}) {
+		Name: "new-app", GitRepository: "https://github.com/owner/new-app", GitBranch: "main", BuildPack: "dockerfile", PortsExposes: "80", Source: SourcePublic}) {
 		t.Fatalf("created %+v", f.created)
+	}
+	// A public repository was probed once per attempt and needed no source prompt.
+	if !reflect.DeepEqual(f.probed, []string{"https://github.com/owner/new-app", "https://github.com/owner/new-app", "https://github.com/owner/new-app"}) || f.calls["github-apps"] != 0 || f.calls["keys"] != 0 {
+		t.Fatalf("probed=%v calls=%v", f.probed, f.calls)
 	}
 	if f.calls["deploy"] != 0 || *credentials != 3 || *factories != 3 {
 		t.Fatalf("calls=%v credentials=%d factories=%d", f.calls, *credentials, *factories)
