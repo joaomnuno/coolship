@@ -414,3 +414,7 @@ The goal is to bring that style of workflow to Coolify.
 ---
 
 **Coolship — link once, then ship.**
+
+## License
+
+[MIT](LICENSE).
