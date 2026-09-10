@@ -402,3 +402,31 @@ func (r *Renderer) DomainSet(result service.DomainSetResult) error {
 	_, err := fmt.Fprintf(r.streams.Out, "Domains of %s: %s\n", singleLine(result.Plan.Target.Application), singleLine(strings.Join(result.Plan.Domains, ", ")))
 	return err
 }
+
+func (r *Renderer) Login(result service.LoginResult) error {
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	verb := "Logged in to"
+	if result.Replaced {
+		verb = "Updated"
+	}
+	suffix := ""
+	if result.Default {
+		suffix = ", now the default"
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s) as team %s on Coolify %s%s\nSaved to %s\n",
+		verb, singleLine(result.Name), singleLine(result.URL), singleLine(result.Team), singleLine(result.Server), suffix, singleLine(result.Path))
+	return err
+}
+
+func (r *Renderer) Logout(result service.LogoutResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "Removed %s from %s\n", singleLine(result.Name), singleLine(result.Path))
+	return err
+}

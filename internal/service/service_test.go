@@ -35,6 +35,7 @@ type fakeBackend struct {
 	processes    []ProcessSpec
 	exitCode     int
 	domainUpdate models.DomainUpdate
+	teamError    error
 }
 
 func newBackend() *fakeBackend {
@@ -83,6 +84,14 @@ func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, upd
 	f.domainUpdate = update
 	f.application.FQDN = strings.Join(update.Domains, ",")
 	return nil
+}
+
+func (f *fakeBackend) Team(context.Context) (models.Team, error) {
+	f.calls["team"]++
+	if f.teamError != nil {
+		return models.Team{}, f.teamError
+	}
+	return models.Team{ID: 7, Name: "Platform"}, nil
 }
 
 func (f *fakeBackend) Version(context.Context) (string, error) {
@@ -1005,5 +1014,85 @@ func TestDomainShowsGeneratedAndSetsWithConfirmation(t *testing.T) {
 	// Force and redirect are passed through.
 	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"other.example.com"}, Redirect: "non-www", Force: true, Yes: true}, nil); err != nil || !f.domainUpdate.Force || f.domainUpdate.Redirect != "non-www" {
 		t.Fatalf("update=%+v err=%v", f.domainUpdate, err)
+	}
+}
+
+func TestLoginVerifiesBeforeSavingAndLogoutWarnsAboutDefault(t *testing.T) {
+	f := newBackend()
+	var saved []auth.Stored
+	var savedDefault bool
+	path := "/tmp/test-config.json"
+	instances := []auth.Instance{}
+	app := New(Dependencies{
+		NewBackend: func(credentials auth.Credentials) (Backend, error) {
+			if credentials.Token != "secret-token" || credentials.URL != "https://coolify.example.com" {
+				return nil, errors.New("backend built with unexpected credentials")
+			}
+			return f, nil
+		},
+		InspectCredentials: func(auth.Options) auth.Report {
+			report := auth.Report{Source: "file", Path: path, Exists: true, Instances: instances}
+			for _, instance := range instances {
+				if instance.Default {
+					report.Default = instance.Name
+				}
+			}
+			return report
+		},
+		SaveCredentials: func(p string, instance auth.Stored, makeDefault bool) (string, error) {
+			saved = append(saved, instance)
+			savedDefault = makeDefault
+			entry := auth.Instance{Name: instance.Name, URL: instance.URL, Default: len(instances) == 0 || makeDefault}
+			replaced := false
+			for i := range instances {
+				if instances[i].Name == instance.Name {
+					instances[i] = entry
+					replaced = true
+				}
+			}
+			if !replaced {
+				instances = append(instances, entry)
+			}
+			return path, nil
+		},
+		RemoveCredentials: func(p, name string) (string, bool, error) {
+			for i, instance := range instances {
+				if instance.Name == name {
+					instances = append(instances[:i], instances[i+1:]...)
+					return path, instance.Default, nil
+				}
+			}
+			return path, false, auth.ErrContextNotFound
+		},
+	})
+	for _, bad := range []LoginOptions{{URL: "ftp://x", Name: "a", Token: "t"}, {URL: "https://coolify.example.com", Name: "", Token: "t"}, {URL: "https://coolify.example.com", Name: "a", Token: " "}} {
+		if _, err := app.Login(context.Background(), bad); !errors.Is(err, ErrInput) || len(saved) != 0 {
+			t.Fatalf("%+v: err=%v saved=%d", bad, err, len(saved))
+		}
+	}
+	// A rejected token is never written.
+	f.teamError = statusError{code: 401}
+	if _, err := app.Login(context.Background(), LoginOptions{URL: "https://Coolify.Example.com/", Name: "home", Token: "secret-token"}); err == nil || len(saved) != 0 || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("rejected token: err=%v saved=%d", err, len(saved))
+	}
+	f.teamError = nil
+	result, err := app.Login(context.Background(), LoginOptions{URL: "https://Coolify.Example.com/", Name: "home", Token: "secret-token"})
+	if err != nil || result.URL != "https://coolify.example.com" || result.Team != "Platform" || result.Server != "4.3.18" || !result.Default || result.Replaced || result.Path != path {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(saved) != 1 || saved[0].Token != "secret-token" || savedDefault {
+		t.Fatalf("saved=%+v default=%t", saved, savedDefault)
+	}
+	// Logging in again with the same name reports a replacement.
+	result, err = app.Login(context.Background(), LoginOptions{URL: "https://coolify.example.com", Name: "home", Token: "secret-token", Default: true})
+	if err != nil || !result.Replaced || !savedDefault {
+		t.Fatalf("replace: result=%+v err=%v", result, err)
+	}
+	out, err := app.Logout(context.Background(), LogoutOptions{Name: "home"})
+	if err != nil || out.Path != path {
+		t.Fatalf("logout: %+v %v", out, err)
+	}
+	if _, err := app.Logout(context.Background(), LogoutOptions{Name: "home"}); !errors.Is(err, ErrInput) {
+		t.Fatalf("logout unknown: %v", err)
 	}
 }

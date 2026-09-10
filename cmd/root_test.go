@@ -32,6 +32,15 @@ type fakeApplication struct {
 	dev    func(context.Context, service.DevOptions, service.Emitter) error
 	domain func(context.Context, service.Options) (service.DomainResult, error)
 	setDom func(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
+	login  func(context.Context, service.LoginOptions) (service.LoginResult, error)
+	logout func(context.Context, service.LogoutOptions) (service.LogoutResult, error)
+}
+
+func (f fakeApplication) Login(ctx context.Context, options service.LoginOptions) (service.LoginResult, error) {
+	return f.login(ctx, options)
+}
+func (f fakeApplication) Logout(ctx context.Context, options service.LogoutOptions) (service.LogoutResult, error) {
+	return f.logout(ctx, options)
 }
 
 func (f fakeApplication) Domain(ctx context.Context, options service.Options) (service.DomainResult, error) {
@@ -100,7 +109,7 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain"} {
+	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}
@@ -594,5 +603,39 @@ func TestDomainCommandsRenderAndPassArguments(t *testing.T) {
 	}
 	if _, _, err := execute(t, app, "domain", "set", "--yes"); !errors.Is(err, service.ErrInput) {
 		t.Fatalf("set without domains: %v", err)
+	}
+}
+
+func TestLoginNeverTakesTheTokenAsAFlagAndReadsStdin(t *testing.T) {
+	var seen service.LoginOptions
+	app := fakeApplication{login: func(_ context.Context, options service.LoginOptions) (service.LoginResult, error) {
+		seen = options
+		return service.LoginResult{Name: options.Name, URL: options.URL, Team: "Platform", Server: "4.3.18", Path: "/c.json", Default: true}, nil
+	}}
+	if _, _, err := execute(t, app, "login", "--url", "https://coolify.example.com", "--name", "home", "--token", "leak"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("--token must not exist: %v", err)
+	}
+	if _, _, err := execute(t, app, "login", "--url", "https://coolify.example.com", "--name", "home"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("noninteractive without --token-stdin: %v", err)
+	}
+	var out, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader("piped-token\n"), Out: &out, Err: &diagnostic}, "test")
+	root.SetArgs([]string{"login", "--url", "https://coolify.example.com", "--name", "home", "--token-stdin", "--default", "--coolify-config", "/c.json"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Token != "piped-token" || !seen.Default || seen.ConfigPath != "/c.json" || strings.Contains(out.String()+diagnostic.String(), "piped-token") || !strings.Contains(out.String(), "as team Platform on Coolify 4.3.18, now the default") {
+		t.Fatalf("seen=%+v out=%q diag=%q", seen, out.String(), diagnostic.String())
+	}
+	// Interactive: URL and name are asked, the name defaults from the host, the token is read from input.
+	out.Reset()
+	diagnostic.Reset()
+	root = cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader("https://coolify.example.com\n\ntyped-token\n"), Out: &out, Err: &diagnostic, Interactive: true}, "test")
+	root.SetArgs([]string{"login"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seen.URL != "https://coolify.example.com" || seen.Name != "coolify" || seen.Token != "typed-token" || !strings.Contains(diagnostic.String(), "Context name [coolify]:") {
+		t.Fatalf("interactive: seen=%+v diag=%q", seen, diagnostic.String())
 	}
 }

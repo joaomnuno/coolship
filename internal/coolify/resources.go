@@ -148,3 +148,10 @@ func (c *Client) UpdateApplicationDomains(ctx context.Context, uuid string, upda
 	var response json.RawMessage
 	return c.request(ctx, http.MethodPatch, []string{"applications", uuid}, nil, body, &response)
 }
+
+// Team reads the team the token belongs to; it doubles as a credential check.
+func (c *Client) Team(ctx context.Context) (models.Team, error) {
+	var team models.Team
+	err := c.request(ctx, http.MethodGet, []string{"teams", "current"}, nil, nil, &team)
+	return team, err
+}

@@ -290,7 +290,7 @@ Named context selection is `--context`, then committed `project.context`, then e
 
 For independent CI use, propose `COOLSHIP_URL` plus `COOLSHIP_TOKEN` as an explicit credential pair. The pair supplies the entire invocation's instance without needing Coolify CLI installed. If either is set, require both, and reject combining the pair with an explicit `--context` or `--coolify-config`. Report that the invocation pair overrides any committed context, and validate the binding on that instance. Do not mix a token from one source with a URL from another. This is a proposed Coolship extension, not an existing Coolify CLI environment-variable contract.
 
-Resolve credentials once per invocation, retain them only inside authentication/client objects, and exclude them from context serialization and diagnostics. `link` does not change the Coolify CLI default or create a second credential database.
+Resolve credentials once per invocation, retain them only inside authentication/client objects, and exclude them from context serialization and diagnostics. `link` does not change the Coolify CLI default or create a second credential database. `login` is the one writer: it verifies the URL and token against `GET /version` and `GET /teams/current` before saving, round-trips fields it does not know (Coolify CLI's `lastUpdateCheckTime`, anything on other instances), makes the first instance the default, and writes atomically with the same permissions Coolify CLI uses (directory 0750, file 0600). The token is read without echo or from stdin, never from a flag.
 
 ### Local state
 
@@ -356,6 +356,7 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `unlink` | Delete the discovered configuration after confirmation, refusing if it changed since discovery. | None. |
 | `preview` | Deploy the preview Coolify already holds for a pull request through the deployment service; the number comes from `--pr` or `GITHUB_REF`. A refusal (unknown pull request) is the server's receipt message, repeated with guidance. | `POST /deploy` with `uuid` and `pr`; `GET /deployments/{deployment_uuid}` while waiting. |
 | `domain`, `domain set` | Show the application's domains; replace them after confirmation, then read the application back to report what the server kept. Compose applications are refused by the server, which the error explains. | Shared resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`. |
+| `login`, `logout` | Verify and store an instance in the Coolify CLI configuration; remove one. | `GET /version`, `GET /teams/current`; no resolution. |
 | `dev` | Run a local command in the application root with the target's runtime variables injected, through an injected process runner; the child's exit status becomes the exit code. | `GET /applications/{uuid}/envs`. |
 | `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 
