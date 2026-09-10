@@ -1,0 +1,86 @@
+name: Nightly
+
+# Publishes a rolling "nightly" pre-release built from main on demand. Every
+# run moves the nightly tag to the current main commit and replaces the
+# release's assets. It is always a pre-release and never becomes "latest".
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    name: Nightly pre-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Find the nearest release tag
+        # GoReleaser derives the snapshot version from the nearest tag; make
+        # sure that is a vX.Y.Z tag and not a previous nightly on this commit.
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
+          echo "BASE_TAG=$base" >> "$GITHUB_ENV"
+          echo "Nearest release tag: $base"
+
+      - name: Build snapshot with GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          GORELEASER_CURRENT_TAG: ${{ env.BASE_TAG }}
+
+      - name: Publish the rolling nightly pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          version=$(jq -r '.version' .cache/dist/metadata.json)
+          notes="$RUNNER_TEMP/nightly-notes.md"
+          {
+            echo "Rolling pre-release built from \`main\` at ${sha} on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo
+            echo "Binaries report version \`v${version}\`. Assets are replaced on every run, and this release never becomes \`latest\`; use a tagged release for anything that matters."
+            echo
+            echo "Changes since the last release, from the [Unreleased] section of CHANGELOG.md:"
+            echo
+            scripts/release-notes Unreleased || echo "_No changelog entries since the last release._"
+            echo
+            echo "---"
+            echo
+            echo "Verify a download with \`sha256sum -c --ignore-missing checksums.txt\`."
+          } > "$notes"
+
+          git push --force origin "HEAD:refs/tags/nightly"
+
+          if gh release view nightly --json id > /dev/null 2>&1; then
+            gh release view nightly --json assets --jq '.assets[].name' | while read -r asset; do
+              gh release delete-asset nightly "$asset" --yes
+            done
+            gh release edit nightly --prerelease --latest=false --title nightly --notes-file "$notes"
+          else
+            gh release create nightly --prerelease --latest=false --title nightly --notes-file "$notes" --verify-tag
+          fi
+          gh release upload nightly .cache/dist/*.tar.gz .cache/dist/*.zip .cache/dist/checksums.txt --clobber
+          echo "Published https://github.com/${GITHUB_REPOSITORY}/releases/tag/nightly from $sha"

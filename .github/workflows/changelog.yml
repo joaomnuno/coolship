@@ -1,0 +1,40 @@
+name: Changelog
+
+# Fails a pull request that changes Go code under cmd/, internal/, or main.go
+# without touching CHANGELOG.md. Apply the "skip-changelog" label to opt out
+# (internal refactors, for example); labeling re-runs this check on its own.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  entry:
+    name: Changelog entry
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a CHANGELOG.md change alongside Go changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+          go_changes=$(echo "$files" | grep -E '^(main\.go|(cmd|internal)/.*\.go)$' | grep -Ev '_test\.go$' || true)
+          if [ -z "$go_changes" ]; then
+            echo "No Go code changed; no changelog entry required."
+            exit 0
+          fi
+          if echo "$files" | grep -Fxq 'CHANGELOG.md'; then
+            echo "CHANGELOG.md changed."
+            exit 0
+          fi
+          echo "::error::This pull request changes Go code but not CHANGELOG.md. Add an entry under [Unreleased], or apply the skip-changelog label if the change is not user-visible."
+          echo "Go files changed:"
+          echo "$go_changes"
+          exit 1
