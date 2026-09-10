@@ -104,6 +104,9 @@ func TestInitSourceAutoProbesTheRemote(t *testing.T) {
 	t.Run("without git the source must be named", func(t *testing.T) {
 		f := newBackend()
 		bare := New(Dependencies{NewBackend: func(auth.Credentials) (Backend, error) { return f, nil },
+			ListInstances: func(auth.Options) ([]auth.Instance, error) {
+				return []auth.Instance{{Name: "home", URL: "https://coolify.example.com", Default: true}}, nil
+			},
 			ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
 				return auth.Credentials{Name: "home", URL: "https://coolify.example.com", Token: "t"}, nil
 			}})
@@ -365,6 +368,9 @@ func TestInitDeployKeys(t *testing.T) {
 		g.keys = nil
 		called := 0
 		app = New(Dependencies{NewBackend: func(auth.Credentials) (Backend, error) { return g, nil },
+			ListInstances: func(auth.Options) ([]auth.Instance, error) {
+				return []auth.Instance{{Name: "home", URL: "https://coolify.example.com", Default: true}}, nil
+			},
 			ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
 				return auth.Credentials{Name: "home", URL: "https://coolify.example.com", Token: "t"}, nil
 			},
