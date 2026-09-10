@@ -1,19 +1,20 @@
 ---
 title: init
-description: Create a Coolify application for this repository from its public Git remote, then link it exactly as link would.
+description: Create a Coolify application for this repository from its Git remote, then link it exactly as link would.
 ---
 
 ```text
 coolship init [flags]
 ```
 
-`init` is the first step for a repository that is not on Coolify yet. It reads the `origin` remote and the checked-out branch from Git (SSH forms are normalized to `https://github.com/owner/repo`), detects the build pack from the application root — a `Dockerfile` builds itself, anything else is handed to Nixpacks — shows the plan, and creates the application only after you confirm. Nothing is deployed unless you pass `--deploy`.
+`init` is the first step for a repository that is not on Coolify yet. It reads the `origin` remote and the checked-out branch from Git (SSH forms are normalized to `https://github.com/owner/repo`), detects the build pack from the application root, shows the plan, and creates the application only after you confirm. Nothing is deployed unless you pass `--deploy`.
 
 ```text
 $ coolship init
 Create application my-app on home?
   Repository:  https://github.com/you/my-app (branch main)
   Build pack:  dockerfile, port 80
+    Dockerfile: /Dockerfile
   Project:     Personal
   Environment: production
   Server:      Master Ubuntu
@@ -21,9 +22,24 @@ Create application my-app on home?
 Confirm [y/N]: y
 Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
 Build pack: dockerfile, port 80
+Dockerfile: /Dockerfile
 URL: https://9f8e7d6c.coolify.example.com
 Linked project in /home/you/my-app/coolship.toml
 ```
+
+## Build packs
+
+The application root decides the build pack, in the order Coolify's own form checks: a compose file (`docker-compose.yaml`, `docker-compose.yml`, `compose.yaml`, or `compose.yml`) makes a Compose application, a `Dockerfile` builds itself, an `index.html` with no `package.json` is served as it is, and anything else goes to Railpack, Coolify's default. `--build-pack` overrides the detection.
+
+| Build pack      | What Coolify does                                                                                          | Flags that refine it                                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `railpack`      | Detects the language, builds an image, runs it on `--port` (default 3000).                                 | `--install-command`, `--build-command`, `--start-command` override what it detects. `--static` serves the build output with nginx on port 80 from `--publish-dir` (default `/dist`). |
+| `nixpacks`      | The same through Nixpacks, Railpack's predecessor.                                                         | The same flags.                                                                                                        |
+| `static`        | Serves the files as they are with nginx, no build, on `--port` (default 80).                               | `--publish-dir` serves a subdirectory instead of the root.                                                             |
+| `dockerfile`    | Builds the Dockerfile and runs the image on `--port` (default 80).                                         | `--dockerfile PATH` names another file, relative to the application root.                                              |
+| `dockercompose` | Runs the compose file; each service publishes the ports the file gives it, so `--port` is refused.         | `--compose-file PATH` names another file. `--compose-domain SERVICE=URL`, repeatable, gives a service its domain; without one, the plan warns and you set the domains in Coolify afterwards. |
+
+Paths are relative to the application root (the monorepo target's directory with `--target`) and are stored with a leading slash, as Coolify does. A named Dockerfile or compose file must exist. For a Dockerfile application, Coolify's own health check is switched off at creation, as Coolify's form does, because the check it would generate needs `curl` or `wget` inside the image; a `HEALTHCHECK` in the Dockerfile is still used.
 
 ## Flags
 
@@ -32,9 +48,14 @@ Linked project in /home/you/my-app/coolship.toml
 | `--repo URL`         | Public repository URL (default: the origin remote).                                       |
 | `--branch NAME`      | Branch Coolify deploys (default: the checked-out branch).                                 |
 | `--name NAME`        | Application name (default: the repository name).                                          |
-| `--build-pack NAME`  | `nixpacks`, `dockerfile`, or `static` (default: detected).                                |
-| `--port N`           | Port the application listens on (default: 80 for `dockerfile` and `static`, 3000 for `nixpacks`). |
-| `--static`           | Serve the build output as a static site.                                                  |
+| `--build-pack NAME`  | `railpack`, `nixpacks`, `static`, `dockerfile`, or `dockercompose` (default: detected).   |
+| `--port N`           | Port the application listens on (default: 3000 for `railpack` and `nixpacks`, 80 for `dockerfile` and `static`; refused for `dockercompose`). |
+| `--static`           | Serve the `railpack` or `nixpacks` build output as a static site.                         |
+| `--publish-dir PATH` | Directory to serve with `--static` or `--build-pack static` (default `/dist` with `--static`). |
+| `--install-command`, `--build-command`, `--start-command` | Override what `railpack` or `nixpacks` detect.                       |
+| `--dockerfile PATH`  | Dockerfile to build, relative to the application root (default `Dockerfile`).             |
+| `--compose-file PATH` | Compose file to run, relative to the application root (default: the one found).          |
+| `--compose-domain SERVICE=URL` | Domain for one Compose service; repeat for each service.                        |
 | `--project NAME`     | Exact Coolify project name (default: prompt, or the only project).                        |
 | `--create-project`   | Create the `--project` if it does not exist.                                              |
 | `--server NAME`      | Exact server name (default: prompt, or the only usable server).                           |
@@ -45,7 +66,7 @@ Linked project in /home/you/my-app/coolship.toml
 `--environment` (global) defaults to `production`. In a monorepo, `--target NAME` writes an `[apps.NAME]` table with the current directory as its root, which becomes the application's base directory.
 
 <Callout type="warn" title="Check the port">
-  Coolify routes traffic to the port in the plan. It defaults to 80 for a Dockerfile or static site and 3000 for Nixpacks; pass `--port` when your application listens elsewhere.
+  Coolify routes traffic to the port in the plan. It defaults to 3000 for a Railpack or Nixpacks build and 80 for a Dockerfile or static site; pass `--port` when your application listens elsewhere. A Compose application has no such port: each service publishes its own.
 </Callout>
 
 ## Examples
@@ -55,14 +76,18 @@ coolship init                                                    # interactive
 coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
 coolship init --project Sandbox --create-project --deploy        # new project, first deployment
 coolship init --repo https://github.com/you/my-app --branch main --name my-app
+coolship init --static --publish-dir build --yes                  # railpack builds, nginx serves build/
+coolship init --dockerfile deploy/Dockerfile --port 8080 --yes
+coolship init --compose-domain web=https://app.example.com --compose-domain api=https://api.example.com --yes
 ```
 
 The project and server are asked for only when there is a choice. Noninteractive use needs `--yes`.
 
 ## Behavior and limits
 
-- **The repository must be public.** Coolify clones it without credentials (`POST /applications/public`). A private repository needs a GitHub App or deploy key registered in Coolify first, which the API requires by UUID; create those applications in Coolify and run [`link`](/docs/commands/link).
-- **Docker Compose projects are refused** before any request, because their domains and variables are per service, which no other Coolship command models yet.
+- **A private repository** is created through a GitHub App or a deploy key registered in Coolify; `--source`, `--github-app`, `--deploy-key`, and `--create-deploy-key` choose which (see the README for the full flow).
+- **A Compose application's domains are per service.** `init` sets them with `--compose-domain`; afterwards they are managed in Coolify, since [`domain set`](/docs/commands/domain) does not apply to Compose applications. Variables work as for any application.
+- **A refinement that does not belong to the pack is refused** before any request, so the plan never carries a setting Coolify would ignore: `--static` and the three commands need `railpack` or `nixpacks`, `--dockerfile` needs `dockerfile`, and `--compose-file`, `--compose-domain` need `dockercompose`.
 - **A directory that is already linked is refused** rather than re-pointed; use `link` to change a binding.
 - The application is created without an instant deployment; `--deploy` then submits and observes the first deployment exactly like [`deploy`](/docs/commands/deploy).
 - A refusal from the server carries its explanation — the message and field errors — so a repository Coolify cannot reach or a rejected value is reported as such rather than as a bare status code.
@@ -91,8 +116,8 @@ The project and server are asked for only when there is a choice. Noninteractive
 }
 ```
 
-`plan.static`, `plan.new_project`, and `plan.deploy` appear when set; `deployment` carries a [`deploy`](/docs/commands/deploy#json) result when `--deploy` was given.
+`plan.static`, `plan.publish_directory`, `plan.dockerfile`, `plan.compose_file`, `plan.compose_domains` (a list of `service` and `domain`), `plan.install_command`, `plan.build_command`, `plan.start_command`, `plan.new_project`, and `plan.deploy` appear when set; `plan.port` is `0` for a Compose application; `deployment` carries a [`deploy`](/docs/commands/deploy#json) result when `--deploy` was given.
 
 ## Exit codes
 
-`0` when the application was created and linked; `1` when Coolify refused or the deployment failed; `2` for invalid input, including a refused Compose project, an already linked directory, or noninteractive use without `--yes`; `130` when interrupted.
+`0` when the application was created and linked; `1` when Coolify refused or the deployment failed; `2` for invalid input, including a flag that does not belong to the build pack, a named Dockerfile or compose file that does not exist, an already linked directory, or noninteractive use without `--yes`; `130` when interrupted.

@@ -148,7 +148,7 @@ coolship logs --follow
 
 ### `coolship init`
 
-Create a Coolify application for the current repository, then link it — the first step for a repository that is not on Coolify yet. `init` reads the `origin` remote and the checked-out branch, checks whether the repository can be read without credentials, detects the build pack from the application root (a `Dockerfile` builds itself, anything else goes to Nixpacks), shows the plan, and creates the application only after you confirm:
+Create a Coolify application for the current repository, then link it — the first step for a repository that is not on Coolify yet. `init` reads the `origin` remote and the checked-out branch, checks whether the repository can be read without credentials, detects the build pack from the application root, shows the plan, and creates the application only after you confirm:
 
 ```text
 $ coolship init
@@ -156,6 +156,7 @@ Create application my-app on home?
   Repository:  https://github.com/you/my-app (branch main)
   Source:      public (cloned without credentials)
   Build pack:  dockerfile, port 80
+    Dockerfile: /Dockerfile
   Project:     Personal
   Environment: production
   Server:      Master Ubuntu
@@ -163,14 +164,30 @@ Create application my-app on home?
 Confirm [y/N]: y
 Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
 Build pack: dockerfile, port 80
+Dockerfile: /Dockerfile
 URL: https://9f8e7d6c.coolify.example.com
 Linked project in /home/you/my-app/coolship.toml
 ```
 
-The project and server are asked for only when there is a choice; `--project NAME` selects one, `--create-project` creates it when missing, `--server NAME` picks the server, and `--environment` defaults to `production`. `--repo`, `--branch`, `--name`, `--build-pack` (`nixpacks`, `dockerfile`, or `static`), `--port`, and `--static` override what was detected. **Check the port**: it defaults to 80 for a Dockerfile or static site and 3000 for Nixpacks, and Coolify routes traffic to it. Noninteractive use needs `--yes`:
+The project and server are asked for only when there is a choice; `--project NAME` selects one, `--create-project` creates it when missing, `--server NAME` picks the server, and `--environment` defaults to `production`. `--repo`, `--branch`, and `--name` override what Git said. Noninteractive use needs `--yes`:
 
 ```bash
 coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
+```
+
+**Build packs.** The application root decides, in the order Coolify's own form checks: a compose file (`docker-compose.yaml`, `docker-compose.yml`, `compose.yaml`, or `compose.yml`) makes a Compose application, a `Dockerfile` builds itself, an `index.html` with no `package.json` is served as it is, and anything else goes to Railpack, Coolify's default. `--build-pack` names one of `railpack`, `nixpacks`, `static`, `dockerfile`, or `dockercompose` instead. Each pack has its own flags, and one that does not belong to the pack is refused before any request:
+
+* `railpack` and `nixpacks` build an image and run it on `--port` (default 3000). `--install-command`, `--build-command`, and `--start-command` override what they detect. `--static` serves the build output with nginx on port 80 from `--publish-dir` (default `/dist`).
+* `static` serves the files as they are, with no build, on `--port` (default 80); `--publish-dir` serves a subdirectory.
+* `dockerfile` builds the `Dockerfile` in the root, or the one `--dockerfile PATH` names, and runs it on `--port` (default 80). Coolify's own health check is switched off at creation, as its form does, because the check it would generate needs `curl` or `wget` in the image; a `HEALTHCHECK` in the Dockerfile is still used.
+* `dockercompose` runs the compose file found, or the one `--compose-file PATH` names. Each service publishes the ports the file gives it, so `--port` is refused. `--compose-domain SERVICE=URL`, repeated per service, gives the services their domains; without one the plan warns, and the domains are set in Coolify afterwards, since `domain set` does not apply to Compose applications.
+
+**Check the port**: Coolify routes traffic to the one in the plan.
+
+```bash
+coolship init --static --publish-dir build --yes                  # railpack builds, nginx serves build/
+coolship init --dockerfile deploy/Dockerfile --port 8080 --yes
+coolship init --compose-domain web=https://app.example.com --compose-domain api=https://api.example.com --yes
 ```
 
 Nothing is deployed unless you pass `--deploy`, which then submits and observes the first deployment exactly like `deploy`. A directory that is already linked is refused rather than re-pointed; use `link` to change a binding.
@@ -198,7 +215,7 @@ Nothing is deployed unless you pass `--deploy`, which then submits and observes 
 
   Add that line under the repository's *Settings → Deploy keys* (or `gh repo deploy-key add key.pub`), then run the printed command. The private half never leaves Coolify: it is not written to disk, not printed, and not part of `--format json`.
 
-`--github-app`, `--deploy-key`, and `--create-deploy-key` each imply their source; `--source public` skips the probe and lets Coolify clone anonymously, which fails at deployment if the repository is private. **Docker Compose** projects are refused before any request, because their domains and variables are per service, which no other Coolship command models yet.
+`--github-app`, `--deploy-key`, and `--create-deploy-key` each imply their source; `--source public` skips the probe and lets Coolify clone anonymously, which fails at deployment if the repository is private.
 
 ### `coolship link`
 
@@ -554,7 +571,7 @@ scripts/e2e
 
 ## Planned
 
-Every command from the original brief is implemented, and `init` creates applications from public and private repositories. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for Compose projects, and sharing packages with `coolify-cli` once their interfaces settle.
+Every command from the original brief is implemented, and `init` creates applications from public and private repositories. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): sharing packages with `coolify-cli` once their interfaces settle.
 
 ## What Coolship is not
 

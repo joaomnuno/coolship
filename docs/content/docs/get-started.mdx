@@ -87,8 +87,8 @@ Context: home
 
 It writes a small, credential-free `coolship.toml` at the repository root. Commit it; see [Project binding](/docs/concepts/project-binding).
 
-<Callout title="init needs a public repository">
-  Coolify clones it without credentials. A private repository needs a GitHub App or deploy key registered in Coolify first, which the API takes by UUID; create those applications in Coolify and run `link`. Docker Compose projects are refused by `init` as well.
+<Callout title="Private repositories and build packs">
+  A public repository is cloned without credentials. A private one is created through a GitHub App or a deploy key registered in Coolify; `init` asks which, or takes `--github-app`, `--deploy-key`, or `--create-deploy-key`. The build pack is detected from the application root (Compose file, Dockerfile, plain HTML, or Railpack for anything else) and refined with the flags in the [init reference](/docs/commands/init).
 </Callout>
 
 </Step>

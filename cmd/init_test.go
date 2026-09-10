@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,16 +22,26 @@ func TestInitFlagsAndDefaults(t *testing.T) {
 		return service.InitResult{Plan: service.InitPlan{Path: "/p/coolship.toml", Name: options.Name, Repository: "https://github.com/o/r", Branch: "main", BuildPack: "static", Port: 8080},
 			Target: service.TargetInfo{Application: options.Name, ApplicationUUID: "a-9", Environment: "production", Project: "Personal", Instance: "home"}, URL: "https://a-9.example.com"}, nil
 	}}
-	out, diagnostic, err := execute(t, app, "init", "--repo", "git@github.com:o/r.git", "--branch", "main", "--build-pack", "static", "--port", "8080", "--static",
+	out, diagnostic, err := execute(t, app, "init", "--repo", "git@github.com:o/r.git", "--branch", "main", "--build-pack", "static", "--port", "8080", "--publish-dir", "public",
 		"--name", "site", "--project", "Personal", "--create-project", "--server", "Master", "--source", "github-app", "--github-app", "docs",
 		"--yes", "--deploy", "--timeout", "3m", "-t", "web", "-e", "staging", "--format", "json")
 	if err != nil || diagnostic != "" {
 		t.Fatalf("stderr=%q err=%v", diagnostic, err)
 	}
-	want := service.InitOptions{Options: service.Options{Target: "web", Environment: "staging"}, Repository: "git@github.com:o/r.git", Branch: "main", BuildPack: "static", Port: 8080, Static: true,
-		Name: "site", Project: "Personal", CreateProject: true, Server: "Master", Source: "github-app", GitHubApp: "docs", Yes: true, Deploy: true, Timeout: 3 * time.Minute}
-	if seen != want {
+	want := service.InitOptions{Options: service.Options{Target: "web", Environment: "staging"}, BuildOptions: service.BuildOptions{BuildPack: "static", Port: 8080, PublishDirectory: "public"},
+		Repository: "git@github.com:o/r.git", Branch: "main", Name: "site", Project: "Personal", CreateProject: true, Server: "Master", Source: "github-app", GitHubApp: "docs", Yes: true, Deploy: true, Timeout: 3 * time.Minute}
+	if !reflect.DeepEqual(seen, want) {
 		t.Fatalf("options = %#v\nwant %#v", seen, want)
+	}
+	// Every build refinement reaches the service as given; compose domains are parsed.
+	if _, _, err := execute(t, app, "init", "--yes", "--static", "--install-command", "npm ci", "--build-command", "npm run build", "--start-command", "node .",
+		"--dockerfile", "deploy/Dockerfile", "--compose-file", "stack.yml", "--compose-domain", "web=https://web.example.com", "--compose-domain", " api = https://api.example.com "); err != nil {
+		t.Fatal(err)
+	}
+	wantBuild := service.BuildOptions{Static: true, InstallCommand: "npm ci", BuildCommand: "npm run build", StartCommand: "node .", Dockerfile: "deploy/Dockerfile", ComposeFile: "stack.yml",
+		ComposeDomains: []service.ComposeDomain{{Service: "web", Domain: "https://web.example.com"}, {Service: "api", Domain: "https://api.example.com"}}}
+	if !reflect.DeepEqual(seen.BuildOptions, wantBuild) {
+		t.Fatalf("build options = %#v\nwant %#v", seen.BuildOptions, wantBuild)
 	}
 	var result service.InitResult
 	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Target.ApplicationUUID != "a-9" || result.Plan.Name != "site" {
@@ -44,11 +55,11 @@ func TestInitFlagsAndDefaults(t *testing.T) {
 	if _, _, err := execute(t, app, "init", "--yes"); err != nil {
 		t.Fatal(err)
 	}
-	if seen.Repository != "" || seen.Branch != "" || seen.BuildPack != "" || seen.Port != 0 || seen.Static || seen.Name != "" || seen.Timeout != 10*time.Minute || seen.Deploy ||
+	if seen.Repository != "" || seen.Branch != "" || !reflect.DeepEqual(seen.BuildOptions, service.BuildOptions{}) || seen.Name != "" || seen.Timeout != 10*time.Minute || seen.Deploy ||
 		seen.Source != "auto" || seen.GitHubApp != "" || seen.DeployKey != "" || seen.CreateDeployKey != "" {
 		t.Fatalf("defaults = %#v", seen)
 	}
-	for _, args := range [][]string{{"init", "--timeout", "0s"}, {"init", "--port", "eighty"}, {"init", "--target", "bad name"}, {"init", "extra"}} {
+	for _, args := range [][]string{{"init", "--timeout", "0s"}, {"init", "--port", "eighty"}, {"init", "--compose-domain", "web"}, {"init", "--compose-domain", "=https://x"}, {"init", "--target", "bad name"}, {"init", "extra"}} {
 		if _, _, err := execute(t, app, args...); !errors.Is(err, service.ErrInput) {
 			t.Errorf("%v: %v", args, err)
 		}

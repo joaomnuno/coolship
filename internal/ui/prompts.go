@@ -249,7 +249,10 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	if plan.NewProject {
 		project += " (new)"
 	}
-	buildPack := singleLine(plan.BuildPack) + ", port " + strconv.Itoa(plan.Port)
+	buildPack := singleLine(plan.BuildPack)
+	if plan.Port > 0 {
+		buildPack += ", port " + strconv.Itoa(plan.Port)
+	}
 	if plan.Static {
 		buildPack += ", static"
 	}
@@ -271,11 +274,16 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 		{"Repository", singleLine(plan.Repository) + " (branch " + singleLine(plan.Branch) + ")"},
 		{"Source", source},
 		{"Build pack", buildPack},
+	}
+	for _, detail := range buildDetails(plan) {
+		rows = append(rows, [2]string{"  " + detail[0], detail[1]})
+	}
+	rows = append(rows, [][2]string{
 		{"Project", project},
 		{"Environment", singleLine(plan.Environment)},
 		{"Server", singleLine(plan.Server)},
 		{"Binding", binding},
-	}
+	}...)
 	if plan.Deploy && !plan.NewDeployKey {
 		rows = append(rows, [2]string{"Then", "deploy and wait for it"})
 	}
@@ -395,4 +403,27 @@ func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (
 		return false, err
 	}
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+// buildDetails lists the build settings that refine the pack, in the order
+// Coolify's form shows them, so the plan and the result name them the same
+// way. Every value is single-line already except the commands, which are
+// the user's own text.
+func buildDetails(plan service.InitPlan) [][2]string {
+	var rows [][2]string
+	add := func(label, value string) {
+		if value != "" {
+			rows = append(rows, [2]string{label, singleLine(value)})
+		}
+	}
+	add("Dockerfile", plan.Dockerfile)
+	add("Compose file", plan.ComposeFile)
+	for _, domain := range plan.ComposeDomains {
+		add("Service "+singleLine(domain.Service), domain.Domain)
+	}
+	add("Publish dir", plan.PublishDirectory)
+	add("Install", plan.InstallCommand)
+	add("Build", plan.BuildCommand)
+	add("Start", plan.StartCommand)
+	return rows
 }
