@@ -6,3 +6,4 @@
 !.env.example
 *.test
 coverage.out
+/.claude/worktrees/

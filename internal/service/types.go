@@ -102,6 +102,36 @@ type DomainSetResult struct {
 	Warnings []string   `json:"warnings,omitempty"`
 }
 
+// LoginOptions registers an instance in the Coolify CLI configuration.
+type LoginOptions struct {
+	ConfigPath string // explicit --coolify-config; empty means the default path
+	Name       string
+	URL        string
+	Token      string `json:"-"`
+	Default    bool
+}
+
+type LoginResult struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Path     string `json:"path"`
+	Default  bool   `json:"default"`
+	Server   string `json:"server"`
+	Team     string `json:"team"`
+	Replaced bool   `json:"replaced"`
+}
+
+type LogoutOptions struct {
+	ConfigPath string
+	Name       string
+}
+
+type LogoutResult struct {
+	Name     string   `json:"name"`
+	Path     string   `json:"path"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
 type OpenOptions struct {
 	Options
 	Dashboard bool
@@ -224,6 +254,7 @@ type Emitter func(Event) error
 type Backend interface {
 	resolver.Catalog
 	Version(context.Context) (string, error)
+	Team(context.Context) (models.Team, error)
 	Deploy(context.Context, models.DeployRequest) ([]models.DeploymentReceipt, error)
 	GetDeployment(context.Context, string) (models.Deployment, error)
 	Logs(context.Context, string, int) (models.LogSnapshot, error)
@@ -237,6 +268,8 @@ type Dependencies struct {
 	ResolveCredentials func(auth.Options) (auth.Credentials, error)
 	ListInstances      func(auth.Options) ([]auth.Instance, error)
 	InspectCredentials func(auth.Options) auth.Report
+	SaveCredentials    func(path string, instance auth.Stored, makeDefault bool) (string, error)
+	RemoveCredentials  func(path, name string) (string, bool, error)
 	NewBackend         func(auth.Credentials) (Backend, error)
 	CredentialURL      string
 	CredentialToken    string

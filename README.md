@@ -44,7 +44,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `domain` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -63,7 +63,20 @@ A plain `go build -o coolship .` also works and reports the Git revision it was 
 
 ## Getting started
 
-Coolship reuses the contexts that [`coolify-cli`](https://github.com/coollabsio/coolify-cli) already stores, so if you have authenticated there, you are ready to go.
+Log in once. Coolship verifies the URL and token against the server, then stores them in the same file [`coolify-cli`](https://github.com/coollabsio/coolify-cli) uses — so if you have already authenticated there, skip this step, and if you log in here, coolify-cli is logged in too.
+
+```text
+$ coolship login
+Coolify URL: https://coolify.example.com
+Context name [coolify]: home
+API token:
+Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
+Saved to /home/you/.config/coolify/config.json
+```
+
+The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. `coolship logout NAME` removes a context.
+
+Then link a repository:
 
 ```bash
 cd my-app
@@ -319,7 +332,7 @@ Rules that keep the file unambiguous: a file uses `[project]` **or** `[apps.<nam
 
 ## Credentials
 
-Coolship does not store credentials or ask you to authenticate twice. It reads the Coolify CLI configuration:
+Coolship never asks you to authenticate twice. `coolship login` writes, and every command reads, the Coolify CLI configuration:
 
 * Unix and macOS: `~/.config/coolify/config.json`
 * Windows: `%APPDATA%\coolify\config.json`

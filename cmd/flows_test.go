@@ -77,14 +77,21 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	}
 	handle := func(pattern string, fn func(http.ResponseWriter, *http.Request, int)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer "+testToken {
-				t.Errorf("%s %s: missing bearer credentials", r.Method, r.URL.Path)
+			if authorization := r.Header.Get("Authorization"); authorization != "Bearer "+testToken {
+				// A wrong token is a legitimate 401 (login must handle it); a
+				// missing header is a wiring bug.
+				if authorization == "" {
+					t.Errorf("%s %s: missing bearer credentials", r.Method, r.URL.Path)
+				}
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 			fn(w, r, s.record(r.Method+" "+r.URL.Path))
 		})
 	}
+	handle("GET /api/v1/teams/current", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, map[string]any{"id": 0, "name": "PelicanOS"})
+	})
 	handle("GET /api/v1/version", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		// Coolify 4.3.18 answers in plain text with an HTML content type.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -576,5 +583,57 @@ func TestDomainRoundTripAgainstTheServer(t *testing.T) {
 	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
 	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {
 		t.Fatalf("status after set: out=%q err=%v", out, err)
+	}
+}
+
+// runWithFile executes a command with credentials taken from a Coolify CLI
+// configuration file rather than the environment pair.
+func runWithFile(t *testing.T, configPath, dir, in string, args ...string) (string, string, error) {
+	t.Helper()
+	var out, diagnostic bytes.Buffer
+	app := service.New(service.Dependencies{
+		NewBackend: func(credentials auth.Credentials) (service.Backend, error) {
+			return coolify.NewClient(credentials.URL, credentials.Token)
+		},
+		PollInterval: time.Millisecond,
+	})
+	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic}, "test-version")
+	root.SetArgs(append([]string{"--cwd", dir, "--coolify-config", configPath}, args...))
+	err := root.ExecuteContext(context.Background())
+	return out.String(), diagnostic.String(), err
+}
+
+func TestLoginWritesAFileEveryCommandCanUse(t *testing.T) {
+	s := &server{}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	configPath := filepath.Join(t.TempDir(), "coolify", "config.json")
+	out, _, err := runWithFile(t, configPath, dir, testToken+"\n", "login", "--url", instance.URL, "--name", "ci", "--token-stdin")
+	if err != nil || !strings.Contains(out, "Logged in to ci") || !strings.Contains(out, "PelicanOS") || strings.Contains(out, testToken) {
+		t.Fatalf("login: out=%q err=%v", out, err)
+	}
+	data, _ := os.ReadFile(configPath)
+	if info, _ := os.Stat(configPath); info.Mode().Perm() != 0o600 || !strings.Contains(string(data), `"default": true`) {
+		t.Fatalf("written file: mode=%o content=%s", info.Mode().Perm(), data)
+	}
+	// A wrong token is refused by the server and nothing is written for it.
+	if _, _, err := runWithFile(t, configPath, dir, "wrong\n", "login", "--url", instance.URL, "--name", "bad", "--token-stdin"); err == nil {
+		t.Fatal("wrong token accepted")
+	}
+	if data, _ := os.ReadFile(configPath); strings.Contains(string(data), `"bad"`) {
+		t.Fatal("rejected context was written")
+	}
+	if _, _, err := runWithFile(t, configPath, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link with the saved context: %v", err)
+	}
+	out, _, err = runWithFile(t, configPath, dir, "", "doctor")
+	if err != nil || !strings.Contains(out, "[ok]   Context: ci at "+instance.URL) {
+		t.Fatalf("doctor: out=%q err=%v", out, err)
+	}
+	if _, _, err := runWithFile(t, configPath, dir, "", "logout", "ci"); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if _, _, err := runWithFile(t, configPath, dir, "", "status"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("status after logout should fail on credentials: %v", err)
 	}
 }

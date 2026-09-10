@@ -7,6 +7,11 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Added
+
+- `login` and `logout`: save a Coolify instance and API token after verifying them against the server, in the same file coolify-cli uses, so both tools share one login. The token is read without echo, or from stdin with `--token-stdin`; it is never a flag.
+- A `LICENSE` file (MIT).
+
 ## [0.1.0] - 2026-09-09
 
 First release. Every command from the original brief is implemented and was

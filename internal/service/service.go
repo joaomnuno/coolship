@@ -24,6 +24,12 @@ func New(deps Dependencies) *App {
 	if deps.InspectCredentials == nil {
 		deps.InspectCredentials = auth.Inspect
 	}
+	if deps.SaveCredentials == nil {
+		deps.SaveCredentials = auth.Save
+	}
+	if deps.RemoveCredentials == nil {
+		deps.RemoveCredentials = auth.Remove
+	}
 	if deps.PollInterval <= 0 {
 		deps.PollInterval = 2 * time.Second
 	}

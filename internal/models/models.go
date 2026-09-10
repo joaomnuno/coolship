@@ -113,3 +113,9 @@ type DomainUpdate struct {
 	Redirect string
 	Force    bool
 }
+
+// Team identifies the team an API token acts for.
+type Team struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
