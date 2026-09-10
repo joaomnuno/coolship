@@ -61,6 +61,10 @@ coolship --version
 
 A plain `go build -o coolship .` also works and reports the Git revision it was built from. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).
 
+### Releases
+
+Every `vX.Y.Z` tag publishes a [GitHub Release](https://github.com/joaomnuno/coolship/releases) with `coolship_<version>_<os>_<arch>.tar.gz` archives (`.zip` on Windows) for Linux, macOS, and Windows on amd64 and arm64, plus a `checksums.txt` of SHA-256 sums. Tags with a suffix such as `v0.2.0-rc.1` and the rolling `nightly` build from `main` are marked as pre-releases; `latest` always points at the newest full release.
+
 ## Getting started
 
 Log in once. Coolship verifies the URL and token against the server, then stores them in the same file [`coolify-cli`](https://github.com/coollabsio/coolify-cli) uses — so if you have already authenticated there, skip this step, and if you log in here, coolify-cli is logged in too.

@@ -1,0 +1,76 @@
+# GoReleaser configuration (https://goreleaser.com), run by
+# .github/workflows/release.yml for vX.Y.Z tags and by
+# .github/workflows/nightly.yml with --snapshot for the rolling nightly.
+#
+# Asset names are a contract with scripts/install.sh; change them together:
+#   coolship_<version>_<os>_<arch>.tar.gz   (.zip on windows; <version> has no v)
+#   checksums.txt                            (sha256, "<sum>  <file>" lines)
+# The nightly build uses "nightly" in place of <version> so its URLs are stable.
+
+version: 2
+
+project_name: coolship
+
+# Keep build output under the gitignored .cache/ so the tree stays clean.
+dist: .cache/dist
+
+builds:
+  - id: coolship
+    main: .
+    binary: coolship
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # main.version expects the tag with its leading v (see resolveVersion in
+      # main.go). Nightly builds have no tag of their own and stamp the
+      # snapshot version instead, for example v0.1.1-nightly.abc1234.
+      - -s -w -X main.version={{ if .IsSnapshot }}v{{ .Version }}{{ else }}{{ .Tag }}{{ end }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: coolship
+    ids:
+      - coolship
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ if .IsSnapshot }}nightly{{ else }}{{ .Version }}{{ end }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-nightly.{{ .ShortCommit }}"
+
+release:
+  github:
+    owner: joaomnuno
+    name: coolship
+  # Tags with a pre-release suffix (v0.2.0-rc.1) become pre-releases.
+  prerelease: auto
+  # The workflow sets MAKE_LATEST=false for pre-releases and for tags that are
+  # not the highest stable version, so republishing v0.1.0 later never steals
+  # "latest" from a newer release.
+  make_latest: '{{ envOrDefault "MAKE_LATEST" "true" }}'
+  # Republishing an existing tag replaces its notes and assets.
+  mode: replace
+  replace_existing_artifacts: true
+  # Notes come from CHANGELOG.md through scripts/release-notes and
+  # --release-notes; GoReleaser's commit-based changelog is not used.
