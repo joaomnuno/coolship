@@ -17,6 +17,7 @@ change command behavior; the changelog says when they do.
 - `scripts/install.sh`: a curl-able installer for Linux and macOS that downloads a release archive from GitHub Releases, verifies its SHA-256 against `checksums.txt`, installs into `$HOME/.local/bin` (or `COOLSHIP_INSTALL_DIR` / `--dir`), and prints a PATH hint for bash, zsh, or fish. `COOLSHIP_VERSION` / `--version` selects a release, including pre-releases; `--dry-run` shows what would happen. It never runs `sudo`.
 - `scripts/e2e` and the `e2e` GitHub Actions workflow: every command is exercised against a live Coolify instance, confined to one example application, weekly and on each published release. The workflow is skipped when the `COOLSHIP_URL` and `COOLSHIP_TOKEN` secrets are absent.
 - Styled human output on terminals: `doctor` markers, deployment statuses, `Warning:` and `Error:` prefixes, prompt questions, `env diff` markers, and key/value labels are colored with plain ANSI sequences. Styling is decided per stream, so a piped stdout stays plain while prompts on a terminal stderr are styled; `NO_COLOR`, `TERM=dumb`, `CI`, and the new `--no-color` flag turn it off. `--format json` and streamed logs are never styled.
+- A one-page site in `site/`, published to GitHub Pages from `main` and buildable as an nginx image for deploying on Coolify.
 
 ## [0.1.0] - 2026-09-09
 

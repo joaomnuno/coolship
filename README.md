@@ -4,6 +4,8 @@
 
 Coolship aims to bring a **Wrangler-like developer experience** to [Coolify](https://coolify.io/), focused on the workflow between your local project and its deployed application.
 
+Site: [joaomnuno.github.io/coolship](https://joaomnuno.github.io/coolship/)
+
 Instead of repeatedly dealing with application UUIDs, projects, environments, and dashboard navigation, Coolship links a local repository to a Coolify application and lets you work with it directly from the terminal.
 
 ```bash
