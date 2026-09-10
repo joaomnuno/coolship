@@ -1,0 +1,42 @@
+---
+title: unlink
+description: Delete coolship.toml. Nothing on the Coolify server changes.
+---
+
+```text
+coolship unlink [flags]
+```
+
+`unlink` deletes the discovered `coolship.toml`. Deletion asks for confirmation, or requires `--yes` when input is noninteractive, and refuses if the file changed since it was read.
+
+```text
+$ coolship unlink
+Delete /home/you/my-app/coolship.toml (Personal / production / fenix-bot)? [y/N]: y
+Unlinked /home/you/my-app/coolship.toml
+```
+
+## Flags
+
+| Flag          | Purpose                     |
+| ------------- | --------------------------- |
+| `-y`, `--yes` | Delete without confirmation. |
+
+## Examples
+
+```bash
+coolship unlink
+coolship unlink --yes
+coolship --cwd ../other-app unlink --yes
+```
+
+In a monorepo the whole file is deleted, including every named target; to drop one target, edit the file.
+
+## JSON
+
+```json
+{ "path": "/home/you/my-app/coolship.toml" }
+```
+
+## Exit codes
+
+`0` when the file was deleted; `2` when there is no configuration to delete, when the file changed since it was read, or when `--yes` is missing noninteractively; `130` when the prompt is cancelled.

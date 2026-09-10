@@ -1,0 +1,70 @@
+---
+title: deploy
+description: Deploy the linked application using the source and branch already configured in Coolify, and observe exactly that deployment.
+---
+
+```text
+coolship deploy [target] [flags]
+```
+
+`deploy` submits one deployment of the linked application and, by default, waits for it to finish while streaming the server's build log. It does not upload your worktree or push local commits; Coolify deploys from its configured source and branch. [Deployments](/docs/concepts/deployments) explains the model.
+
+```text
+$ coolship deploy
+Deployment 03dusayin5rleswixblvdqba: queued
+Deployment 03dusayin5rleswixblvdqba: in_progress
+Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
+Building docker image started.
+Building docker image completed.
+Rolling update started.
+Attempt 2 of 10 | Healthcheck status: "healthy"
+Rolling update completed.
+Deployment 03dusayin5rleswixblvdqba: finished
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+```
+
+Status lines and the build log go to stderr as progress; the final result goes to stdout.
+
+## Flags
+
+| Flag                 | Purpose                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `--no-wait`          | Return after submission without observing completion.          |
+| `--force`            | Force Coolify to rebuild without cache.                        |
+| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`). |
+
+## Examples
+
+```bash
+coolship deploy                  # wait for the deployment to finish
+coolship deploy --no-wait        # return the queued deployment UUID
+coolship deploy --force          # rebuild without cache
+coolship deploy --timeout 20m
+coolship deploy api              # named target in a monorepo
+```
+
+## Behavior
+
+- Coolship observes exactly the UUID the submission returned, never "the latest deployment", which could belong to someone else.
+- States are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed.
+- The build log streams when your token may read it; otherwise progress continues without it, and the command says so.
+- Interrupting the command stops local waiting only. The remote deployment continues, and the UUID is reported so you can pick it back up.
+- An uncertain submission — the request was sent but no answer arrived — is never replayed automatically, because the API defines no idempotency key. Coolship reports what it knows.
+
+## JSON
+
+```json
+{
+  "target": { "…": "the resolved target, see the command reference" },
+  "deployment_uuid": "03dusayin5rleswixblvdqba",
+  "status": "finished"
+}
+```
+
+With `--no-wait`, `status` is `queued`. A failed or cancelled deployment is reported with its state and a nonzero exit. In JSON mode no progress reaches stdout.
+
+## Exit codes
+
+`0` when the deployment finished (or, with `--no-wait`, was queued); `1` when it failed, was cancelled, timed out, or could not be submitted; `2` when the directory is not linked or the target is ambiguous; `130` when interrupted while waiting — the deployment UUID is still printed.

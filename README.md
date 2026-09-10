@@ -4,7 +4,7 @@
 
 Coolship aims to bring a **Wrangler-like developer experience** to [Coolify](https://coolify.io/), focused on the workflow between your local project and its deployed application.
 
-Site: [joaomnuno.github.io/coolship](https://joaomnuno.github.io/coolship/)
+Documentation: [coolship.itrocas.com](https://coolship.itrocas.com) — get started, concepts, a reference page per command, guides, and limits, also published as Markdown and `llms.txt` for assistants. The site lives in [`docs/`](docs/README.md).
 
 Instead of repeatedly dealing with application UUIDs, projects, environments, and dashboard navigation, Coolship links a local repository to a Coolify application and lets you work with it directly from the terminal.
 

@@ -1,0 +1,72 @@
+---
+title: Project binding
+description: The committed coolship.toml file that ties a repository to a Coolify application, in its single and named-target forms.
+---
+
+`link` (and `init`) write a small, credential-free, versioned file at the repository root. Every later command reads it, so none of them need resource identifiers.
+
+```toml title="coolship.toml"
+version = 1
+
+[project]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "fenix-bot"
+root = "."
+```
+
+| Field         | Meaning                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `version`     | Schema version, currently `1`. Unknown fields and unsupported versions produce an error rather than being ignored.          |
+| `context`     | The name of a locally configured Coolify instance. It is neither a URL nor a token; see [Credentials](/docs/concepts/credentials). |
+| `project`     | Exact Coolify project name.                                                                                                |
+| `environment` | Exact environment name within that project.                                                                                |
+| `application` | Exact application name within that environment.                                                                            |
+| `root`        | The application root, relative to the configuration file's directory.                                                      |
+| `dev`         | Optional shell line for [`coolship dev`](/docs/commands/dev) to run when no command is given, for example `"npm run dev"`.  |
+
+Optional `project_uuid`, `environment_uuid`, and `application_uuid` fields pin identity when names are ambiguous or when you ask for a pin (`link --project-uuid`, `--environment-uuid`, `--application-uuid`). A pinned UUID is authoritative: if it disappears, Coolship reports that rather than falling back to a same-named replacement. `link` writes a pin automatically when a name cannot describe the selection uniquely.
+
+**Commit this file.** Tokens and secret values are never written to it, and neither are pulled variables.
+
+## Discovery
+
+Configuration is discovered by searching upward from the working directory, stopping at the enclosing Git worktree root, so a project never picks up a parent repository's binding. `--cwd` changes the directory that search starts from without changing the process directory, and `--config` names an explicit file instead.
+
+Overrides such as `--context`, `--environment`, and `--target` apply to a single invocation and never rewrite `coolship.toml`. [`coolship config`](/docs/commands/config) shows the effective result after overrides, without making a request.
+
+## Named targets
+
+A repository with several applications uses named targets instead of `[project]`:
+
+```toml title="coolship.toml"
+version = 1
+
+[apps.web]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "frontend"
+root = "apps/web"
+
+[apps.api]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "backend"
+root = "apps/api"
+```
+
+Target names match `[A-Za-z0-9][A-Za-z0-9_-]*`, and `default` is reserved for the single form. Commands pick the target whose root most specifically contains the current directory; from anywhere, name it instead as a positional argument (`coolship deploy api`) or with `--target api`. Two targets with the same root, or a directory outside every root, require an explicit name rather than a guess. The [Monorepos](/docs/guides/monorepos) guide walks through linking each target.
+
+## Migration rules
+
+Rules that keep the file unambiguous:
+
+- A file uses `[project]` **or** `[apps.<name>]`, never both; a mixed file is rejected so that it has one meaning.
+- Adding a target keeps the existing ones and needs no confirmation.
+- Changing a target's binding, or converting between the two forms (which drops the other form's bindings), asks for confirmation or requires `--replace` when noninteractive. The prompt says explicitly what would be dropped.
+- Re-running `link` with the same result leaves the file, including its comments, untouched. A file that changed since it was read is a conflict, not silently overwritten.
+
+[`coolship unlink`](/docs/commands/unlink) deletes the file; nothing on the server changes.

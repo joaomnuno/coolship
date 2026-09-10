@@ -1,0 +1,53 @@
+---
+title: preview
+description: Deploy the preview deployment Coolify already holds for a pull request, and observe it like deploy does.
+---
+
+```text
+coolship preview [flags]
+```
+
+`preview` submits a deployment of the pull-request preview Coolify holds for the linked application and observes it exactly like [`deploy`](/docs/commands/deploy). The pull request number comes from `--pr`, or from `GITHUB_REF` when running in a GitHub Actions `pull_request` workflow.
+
+Coolify must already know the pull request: preview deployments must be enabled for the application, and the pull request added by Coolify's GitHub webhook or in its UI. This command cannot create a preview — the API offers no way to — and reports the server's answer when it does not know the pull request. See [Preview deployments](/docs/concepts/previews).
+
+## Flags
+
+| Flag                 | Purpose                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| `--pr N`             | Pull request number (default: from `GITHUB_REF`).                |
+| `--no-wait`          | Return after submission without observing completion.            |
+| `--force`            | Force Coolify to rebuild without cache.                          |
+| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`). |
+
+## Examples
+
+```bash
+coolship preview --pr 42
+coolship preview                       # in a GitHub Actions pull_request job, reads GITHUB_REF
+coolship preview --pr 42 --no-wait
+```
+
+When the server does not know the pull request:
+
+```text
+$ coolship preview --pr 999999
+Error: server did not confirm a deployment for application mm4c0zpbrzx8z96t0qiw3tff: Pull request 999999 not found for this resource. (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)
+```
+
+## JSON
+
+```json
+{
+  "target": { "…": "the resolved target, see the command reference" },
+  "deployment_uuid": "gk2p8m1qz4vwx9c7n5b3ldrs",
+  "pull_request": 42,
+  "status": "finished"
+}
+```
+
+The shape is `deploy`'s with the `pull_request` number added.
+
+## Exit codes
+
+`0` when the preview deployment finished (or was queued with `--no-wait`); `1` when Coolify does not know the pull request, or the deployment failed, was cancelled, or timed out; `2` when no pull request number is available or the directory is not linked; `130` when interrupted while waiting.

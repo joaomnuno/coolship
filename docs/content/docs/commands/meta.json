@@ -1,0 +1,21 @@
+{
+  "title": "Commands",
+  "description": "Reference for every Coolship command.",
+  "pages": [
+    "index",
+    "init",
+    "link",
+    "unlink",
+    "status",
+    "deploy",
+    "logs",
+    "open",
+    "doctor",
+    "config",
+    "env",
+    "preview",
+    "dev",
+    "domain",
+    "login"
+  ]
+}

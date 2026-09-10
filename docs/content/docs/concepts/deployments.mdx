@@ -1,0 +1,50 @@
+---
+title: Deployments
+description: What coolship deploy does and does not do, how a deployment is observed, and how interruptions and uncertainty are handled.
+---
+
+`coolship deploy` triggers Coolify's configured deployment for the linked application. Understanding what that means avoids the most common surprise.
+
+## What deploy does not do
+
+Coolship deploys the source and branch **already configured in Coolify**. It does not upload your worktree, push local commits, or change the application's configured branch. Uncommitted or unpushed local changes are therefore not deployed; push them first, or use [`dev`](/docs/commands/dev) to run them locally with the application's variables.
+
+## Exactly one deployment
+
+Coolship submits one deployment (`POST /deploy` with the application UUID) and validates that the response names the selected resource and a nonempty deployment UUID; an informational message alone is not a queued deployment. It then observes **exactly that UUID**, never "the latest deployment" for the application, which could belong to someone else.
+
+Deployment states are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. Only a confirmed successful terminal state completes a waiting command successfully. An unknown state is shown as-is and waits for the timeout instead of being guessed as terminal. Deployment completion is reported separately from the application's health, which `status` reads.
+
+## Build logs
+
+While waiting, the server's build log streams to stderr — clone, build, rolling update, health checks — when your token may read it; otherwise progress continues without it. Each visible entry is emitted once, ahead of the status change it led to. Build logs belong to deployment observation; [`logs`](/docs/commands/logs) means application runtime logs.
+
+```text
+$ coolship deploy
+Deployment 03dusayin5rleswixblvdqba: queued
+Deployment 03dusayin5rleswixblvdqba: in_progress
+Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
+Building docker image started.
+Building docker image completed.
+Rolling update started.
+Attempt 2 of 10 | Healthcheck status: "healthy"
+Rolling update completed.
+Deployment 03dusayin5rleswixblvdqba: finished
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+```
+
+## Waiting, or not
+
+By default `deploy` waits for the deployment to finish, bounded by `--timeout` (10 minutes unless changed). `--no-wait` returns the queued deployment UUID immediately. `--force` asks Coolify to rebuild without cache.
+
+Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up in Coolify. Coolship does not cancel the remote deployment automatically.
+
+## Uncertain submission is never retried
+
+The Coolify API defines no idempotency key for deployments, so a `POST /deploy` whose outcome is uncertain — a network error after the request was sent, for example — is never replayed automatically. Coolship reports what it knows so you can recover manually, rather than risking a duplicate deployment.
+
+## Other commands that deploy
+
+[`init --deploy`](/docs/commands/init) submits and observes the first deployment of a newly created application exactly like `deploy`, and [`preview`](/docs/commands/preview) deploys the preview Coolify holds for a pull request through the same observation. Both share the flags above.

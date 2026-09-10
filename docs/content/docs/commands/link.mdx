@@ -1,0 +1,82 @@
+---
+title: link
+description: Bind this repository to an existing Coolify application and write coolship.toml.
+---
+
+```text
+coolship link [flags]
+```
+
+`link` selects a project, environment, and application — interactively, or from explicit selectors — verifies the binding against the server, and writes [`coolship.toml`](/docs/concepts/project-binding). Linking changes only local configuration; it never creates remote resources.
+
+```text
+$ coolship link
+Select project:
+  1. Personal (a1b2c3d4)
+  2. Work (e5f6a7b8)
+Choice [1-2, q to cancel]: 1
+
+Linked project in /home/you/my-app/coolship.toml
+Application: fenix-bot (9f8e7d6c)
+Environment: production
+Project: Personal
+Context: home
+```
+
+The prompts appear only when a choice is genuinely ambiguous; a single project, environment, or application is selected without asking.
+
+## Flags
+
+| Flag                        | Purpose                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--project NAME`            | Exact Coolify project name.                                                                                               |
+| `--project-uuid UUID`       | Pin a Coolify project UUID.                                                                                               |
+| `--environment-uuid UUID`   | Pin an environment UUID within the selected project.                                                                      |
+| `--application NAME`        | Exact application name within the selected environment.                                                                   |
+| `--application-uuid UUID`   | Pin an application UUID within the selected environment.                                                                  |
+| `--root PATH`               | Local application root, relative to the project configuration directory (default: `.` for `[project]`, the current directory for a named target). |
+| `--replace`                 | Replace existing changed configuration, including comments and unrelated settings.                                        |
+
+`-e`, `--environment NAME` (global) selects the environment by name, and `--target NAME` writes an `[apps.NAME]` table instead of `[project]`.
+
+## Examples
+
+```bash
+coolship link                                                              # interactive
+coolship link --project Personal --environment production --application fenix-bot
+coolship link --project-uuid a1b2c3d4 --application-uuid 9f8e7d6c          # pin identity
+cd apps/web && coolship link --target web                                  # monorepo target
+```
+
+Supplying selectors runs without prompts, which is what CI needs. Names are matched exactly within their selected parent. Use the `--*-uuid` flags to pin identity instead of a name; `link` also writes a pin automatically when a name cannot describe the selection uniquely.
+
+## Behavior
+
+- Replacing a different existing binding requires confirmation, or `--replace` when noninteractive. Replacing regenerates the complete configuration, including comments.
+- Re-running `link` with the same result leaves the file, including its comments, untouched.
+- In a monorepo, adding a target keeps the others; changing one, or converting between the single and named forms, requires review. See [Monorepos](/docs/guides/monorepos).
+- A directory outside the Git worktree of an existing configuration never picks it up: discovery stops at the worktree root.
+
+## JSON
+
+```json
+{
+  "path": "/home/you/my-app/coolship.toml",
+  "target": {
+    "target": "default",
+    "instance": "home",
+    "instance_url": "https://coolify.example.com",
+    "project": "Personal",
+    "project_uuid": "rxv3lqhdvuprnl433dczvo0s",
+    "environment": "production",
+    "environment_uuid": "5omkp5uuj0qpet6dy16r6bag",
+    "application": "fenix-bot",
+    "application_uuid": "mm4c0zpbrzx8z96t0qiw3tff",
+    "root": "/home/you/my-app"
+  }
+}
+```
+
+## Exit codes
+
+`0` when the binding was written or was already identical; `2` when a selector matches nothing or more than one resource, when a pin no longer exists, or when a changed binding needs review noninteractively without `--replace`; `1` when the server cannot be reached; `130` when the prompt is cancelled.

@@ -1,0 +1,49 @@
+---
+title: open
+description: Open the linked application's URL, or its Coolify page, in the default browser, and always print it.
+---
+
+```text
+coolship open [target] [flags]
+```
+
+`open` resolves the application's public URL — or, with `--dashboard`, its page in Coolify — prints it on stdout, and launches the default browser. When stdin is not a terminal, or with `--print`, nothing is launched, so the command composes with other tools.
+
+```text
+$ coolship open --print
+https://coolship.example.com
+```
+
+## Flags
+
+| Flag          | Purpose                                                                  |
+| ------------- | ------------------------------------------------------------------------ |
+| `--dashboard` | Open the application's page in Coolify instead of its public URL.        |
+| `--print`     | Print the URL without launching a browser.                               |
+
+## Examples
+
+```bash
+coolship open
+coolship open --dashboard
+coolship open --print | pbcopy
+coolship open api --dashboard
+```
+
+The dashboard URL is `<instance>/project/<project uuid>/environment/<environment uuid>/application/<application uuid>`. Only web URLs are ever handed to the browser opener. Preview deployment URLs are not readable through the API, so `open` does not offer them.
+
+## JSON
+
+```json
+{
+  "target": { "…": "the resolved target, see the command reference" },
+  "kind": "application",
+  "url": "https://coolship.example.com"
+}
+```
+
+`kind` is `application` or `dashboard`.
+
+## Exit codes
+
+`0` when the URL was resolved (whether or not a browser was launched); `1` when the application has no domain to open or the server cannot be reached; `2` when the directory is not linked.

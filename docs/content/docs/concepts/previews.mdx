@@ -1,0 +1,31 @@
+---
+title: Preview deployments
+description: How Coolship deploys pull-request previews, and why Coolify must already know the pull request.
+---
+
+Coolify can deploy a preview of a pull request. [`coolship preview`](/docs/commands/preview) deploys the preview Coolify holds for a pull request and observes it exactly like [`deploy`](/docs/concepts/deployments).
+
+## Coolify must know the pull request
+
+The Coolify API accepts a pull request number when deploying, but only for a pull request it already holds as a preview record. There is no API endpoint that creates or lists previews: they are created through the Coolify UI, or by Coolify's GitHub webhook when *Preview Deployments* is enabled on the application and a pull request is opened.
+
+`coolship preview` therefore cannot create a preview either. When the server does not know the pull request it answers with a message and no deployment, and Coolship repeats that answer with what to do about it:
+
+```text
+$ coolship preview --pr 999999
+Error: server did not confirm a deployment for application mm4c0zpbrzx8z96t0qiw3tff: Pull request 999999 not found for this resource. (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)
+```
+
+To make previews work:
+
+1. Enable *Preview Deployments* on the application in Coolify.
+2. Let Coolify's GitHub webhook register the pull request (or add it in the UI).
+3. Run `coolship preview --pr N`, or plain `coolship preview` in a GitHub Actions `pull_request` job, where the number is read from `GITHUB_REF`.
+
+This path was verified live against a public repository through the webhook: a webhook-created preview deployed in 12 seconds.
+
+## What Coolship can and cannot show
+
+Preview URLs follow the application's preview URL template but are not readable through the API, so [`open`](/docs/commands/open) does not offer them. Preview deployments use the application's **preview** variable scope; [`env --preview`](/docs/commands/env) and [`dev --preview`](/docs/commands/dev) act on it.
+
+The [CI guide](/docs/guides/ci) shows a `pull_request` workflow that runs `coolship preview`.

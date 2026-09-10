@@ -1,0 +1,69 @@
+---
+title: Monorepos
+description: Bind several Coolify applications in one repository with named targets, selected by directory or by name.
+---
+
+A repository with several applications uses named `[apps.<name>]` targets in `coolship.toml` instead of the single `[project]` table. Each target has its own binding and its own root.
+
+```toml title="coolship.toml"
+version = 1
+
+[apps.web]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "frontend"
+root = "apps/web"
+
+[apps.api]
+context = "home"
+project = "Personal"
+environment = "production"
+application = "backend"
+root = "apps/api"
+```
+
+## Link each target
+
+Link each target from its own directory, which becomes its root:
+
+```bash
+cd apps/web && coolship link --target web
+cd ../api  && coolship link --target api
+```
+
+`link --target NAME` proposes the working directory relative to the configuration root as the root, so linking from `apps/web` records `apps/web`. Adding a target keeps the existing ones and needs no confirmation. `--root` overrides the proposed root.
+
+For an application that is not on Coolify yet, `init --target NAME` creates it with the current directory as its base directory and writes the same table.
+
+## Select a target
+
+Commands pick the target whose root most specifically contains the current directory, so `cd apps/api && coolship deploy` deploys the API. From anywhere, name it instead:
+
+```bash
+coolship deploy api
+coolship logs web --follow
+coolship status --target api
+```
+
+`status`, `deploy`, `logs`, `open`, `dev`, and `domain` take the name as a positional argument; every command takes `--target`. Two targets with the same root, or a directory outside every root, require an explicit name rather than a guess, and the error lists the choices.
+
+`coolship config` shows which target a directory selects.
+
+## Rules
+
+- A file uses `[project]` **or** `[apps.<name>]`, never both.
+- Target names match `[A-Za-z0-9][A-Za-z0-9_-]*`; `default` is reserved for the single form.
+- Changing a target's binding, or converting between the two forms — which drops the other form's bindings — asks for confirmation or requires `--replace`, and the prompt says what would be dropped.
+- Roots are validated against the configuration root, including symlinks, exactly as in the single form.
+- Targets can point at different contexts, projects, or environments; each is resolved independently.
+
+`dev` honors a per-target `dev` setting:
+
+```toml
+[apps.web]
+# …
+dev = "npm run dev"
+```
+
+This layout was verified live by linking a two-target monorepo against Coolify 4.3.18.

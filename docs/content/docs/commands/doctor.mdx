@@ -1,0 +1,54 @@
+---
+title: doctor
+description: Run every step a command performs and report each one, with a failing exit status when a check fails.
+---
+
+```text
+coolship doctor [flags]
+```
+
+`doctor` runs the preparation every other command performs, one step at a time, and reports all of them: project configuration, Git boundary, binding, credentials, context, server reachability and version, and whether the binding resolves to an application. Local checks continue past failures; remote checks stop at the first.
+
+```text
+$ coolship doctor
+[ok]   Project configuration: /home/you/my-app/coolship.toml
+[ok]   Git repository: /home/you/my-app
+[ok]   Binding: Personal / production / fenix-bot in /home/you/my-app
+[ok]   Credentials: /home/you/.config/coolify/config.json (1 instance, default home)
+[ok]   Context: home at https://coolify.example.com
+[ok]   Server: Coolify 4.3.18
+[ok]   Application: fenix-bot (9f8e7d6c) is running:healthy
+```
+
+Each check is marked `ok`, `warning`, `failed`, or `skipped`. Exit status is `1` when any check fails; warnings do not fail the command.
+
+## Examples
+
+```bash
+coolship doctor
+coolship doctor --context work
+COOLSHIP_URL=https://coolify.example.com COOLSHIP_TOKEN=… coolship doctor
+```
+
+Running `doctor` in CI with the environment pair confirms that the credentials, the committed binding, and the server agree before a deployment.
+
+## JSON
+
+```json
+{
+  "checks": [
+    { "name": "Project configuration", "status": "ok", "detail": "/home/you/my-app/coolship.toml" },
+    { "name": "Git repository", "status": "ok", "detail": "/home/you/my-app" },
+    { "name": "Binding", "status": "ok", "detail": "Personal / production / fenix-bot in /home/you/my-app" },
+    { "name": "Credentials", "status": "ok", "detail": "/home/you/.config/coolify/config.json (1 instance, default home)" },
+    { "name": "Context", "status": "ok", "detail": "home at https://coolify.example.com" },
+    { "name": "Server", "status": "ok", "detail": "Coolify 4.3.18" },
+    { "name": "Application", "status": "ok", "detail": "fenix-bot (9f8e7d6c) is running:healthy" }
+  ],
+  "failed": false
+}
+```
+
+## Exit codes
+
+`0` when no check failed; `1` when any check failed, in human and JSON mode alike.

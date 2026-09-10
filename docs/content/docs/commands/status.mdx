@@ -1,0 +1,57 @@
+---
+title: status
+description: Inspect the linked application's current status and URL.
+---
+
+```text
+coolship status [target] [flags]
+```
+
+`status` resolves the binding once and reports the application's identity, its current status as the server states it, and its URL.
+
+```text
+$ coolship status
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Environment: production
+Project: coolship-example
+Context: home
+Status: running:healthy
+URL: https://coolship.example.com
+```
+
+Unfamiliar status strings are preserved rather than interpreted. A never-deployed application, for example, reports `exited:unhealthy` on Coolify 4.3.18.
+
+## Examples
+
+```bash
+coolship status
+coolship status api                # named target in a monorepo
+coolship status --format json | jq -r .status
+```
+
+## JSON
+
+```json
+{
+  "target": {
+    "target": "default",
+    "instance": "home",
+    "instance_url": "https://coolify.example.com",
+    "project": "coolship-example",
+    "project_uuid": "rxv3lqhdvuprnl433dczvo0s",
+    "environment": "production",
+    "environment_uuid": "5omkp5uuj0qpet6dy16r6bag",
+    "application": "coolship-example",
+    "application_uuid": "mm4c0zpbrzx8z96t0qiw3tff",
+    "root": "/home/you/my-app"
+  },
+  "status": "running:healthy",
+  "url": "https://coolship.example.com"
+}
+```
+
+`url` is omitted when the application has no domain.
+
+## Exit codes
+
+`0` on a successful read regardless of the application's status; `1` when the server cannot be reached or refuses the request; `2` when the directory is not linked or the binding no longer resolves.

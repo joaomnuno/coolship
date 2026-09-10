@@ -1,0 +1,37 @@
+---
+title: Environment variables
+description: The two scopes Coolify keeps per application, withheld values, shared references, and what each command does with them.
+---
+
+Coolify keeps environment variables per application, and Coolship's [`env`](/docs/commands/env) and [`dev`](/docs/commands/dev) commands work with them under three rules.
+
+## Two scopes
+
+Coolify keeps a separate copy of every variable for preview deployments. Commands act on the **regular** scope unless `--preview` is given, and never touch the other one.
+
+Coolify itself creates a preview copy of any regular variable that `push` creates, so a later `--preview` diff will show them. Selecting a remote environment (`--environment`) and selecting the preview scope are different dimensions: an environment holds applications, and each application holds both scopes.
+
+## Withheld values are never invented
+
+A value Coolify hides (a shown-once secret, or a value your token may not read) is:
+
+- noted in the pulled file as a comment rather than written empty;
+- reported as `?` in a diff, and listed under `withheld` in JSON output;
+- overwritten by `push` only with `--force`;
+- reported by `dev` and left to your own environment.
+
+## References stay references
+
+A shared variable such as `{{team.API_KEY}}` is pulled and compared as that reference, never as the value it resolves to, so a push cannot replace the reference with the secret. `dev` is the exception by design: it injects shared references as the values they resolve to, because a local process needs the real value.
+
+## Flags and timing
+
+`push` preserves each variable's literal, multiline, and shown-once flags. The server resets them when an update omits them, so Coolship restates the remote values on every update. Build-time and runtime are independent flags on the server; `dev` injects the **runtime** variables.
+
+Changes made by `push` take effect on the next deployment.
+
+## Where values appear
+
+Values are masked in human and JSON output unless `--show-values` is given. Pulled values land only in the dotenv file, which defaults to `.env` in the application root and is created with private permissions (mode 0600) and replaced atomically; comments and ordering in an existing file are preserved. Raw application logs can themselves contain secrets: Coolship prints them as requested output and does not persist them anywhere else.
+
+The [environment-variable workflow](/docs/guides/environment-variables) guide puts these rules into a day-to-day sequence.

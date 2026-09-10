@@ -1,0 +1,65 @@
+---
+title: config
+description: Show the effective configuration for this directory after overrides, reading files only.
+---
+
+```text
+coolship config [flags]
+```
+
+`config` shows the discovered configuration file, the selected target, the binding, and which credentials would be used, after applying any overrides. It reads files only: no request is made to Coolify and no token is shown.
+
+```text
+$ coolship config --context home
+Configuration:    /home/you/my-app/coolship.toml
+Git root:         /home/you/my-app
+Target:           default
+Application root: /home/you/my-app
+Context:          home
+Project:          Personal
+Environment:      production
+Application:      fenix-bot
+Credentials:      /home/you/.config/coolify/config.json
+Instance:         home at https://coolify.example.com
+Override context: home
+```
+
+## Examples
+
+```bash
+coolship config
+coolship config --target api
+coolship config --environment staging --format json
+```
+
+Use it to see what `--cwd`, `--config`, `--context`, `--environment`, and `--target` resolve to, or which of the committed context and the `COOLSHIP_URL`/`COOLSHIP_TOKEN` pair applies.
+
+## JSON
+
+```json
+{
+  "config_path": "/home/you/my-app/coolship.toml",
+  "config_root": "/home/you/my-app",
+  "git_root": "/home/you/my-app",
+  "target": "default",
+  "app_root": "/home/you/my-app",
+  "binding": {
+    "context": "home",
+    "project": "Personal",
+    "environment": "production",
+    "application": "fenix-bot",
+    "root": "."
+  },
+  "credential_source": "file",
+  "credential_path": "/home/you/.config/coolify/config.json",
+  "instance": "home",
+  "instance_url": "https://coolify.example.com",
+  "overrides": { "context": "home" }
+}
+```
+
+`binding` is the selected table from `coolship.toml`, including any UUID pins and `dev` setting. `credential_source` is `file` when the Coolify CLI configuration supplies the credentials and reflects the environment pair when `COOLSHIP_URL` and `COOLSHIP_TOKEN` do; `git_root`, `credential_path`, `instance`, `instance_url`, `overrides`, and `warnings` are omitted when empty.
+
+## Exit codes
+
+`0` when the configuration could be resolved; `2` when the directory is not linked, the file is invalid, the target is ambiguous, or the credentials cannot be selected.

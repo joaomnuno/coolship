@@ -1,0 +1,87 @@
+---
+title: Environment-variable workflow
+description: Pull the application's variables into .env, edit locally, review the diff, push, and run locally with the real values.
+---
+
+This guide strings the [`env`](/docs/commands/env) and [`dev`](/docs/commands/dev) commands into a day-to-day sequence. The rules they follow are described under [Environment variables](/docs/concepts/variables).
+
+<Steps>
+<Step>
+
+## Pull
+
+```bash
+coolship env pull
+```
+
+The remote regular-scope variables are written into `.env` in the application root, created with private permissions. Keys that exist only locally are kept, comments and ordering are preserved, and a value Coolify withholds — a shown-once secret, or one your token may not read — is noted as a comment rather than written empty.
+
+Do not commit the pulled file; it holds real values. Coolship never writes them anywhere else.
+
+</Step>
+<Step>
+
+## Edit and review
+
+Edit `.env` as usual, then look at what a push would do:
+
+```bash
+coolship env diff
+coolship env diff --show-values      # only when you need to see them
+```
+
+Added keys would be created, changed keys updated, and remote-only keys deleted only if you later pass `--prune`. A `?` marks a key whose remote value is withheld; `push` overwrites it only with `--force`. A shared reference such as `{{team.API_KEY}}` compares as the reference, so the diff never suggests replacing it with a secret.
+
+</Step>
+<Step>
+
+## Push
+
+```bash
+coolship env push
+coolship env push --prune            # also delete remote-only keys
+```
+
+The plan is shown and confirmed before anything changes (`--yes` when noninteractive). Creates and updates go in one bulk request; each variable's literal, multiline, and shown-once flags are preserved. Changes take effect on the next deployment, so follow with `coolship deploy` when you want them live.
+
+Coolify creates a preview-scope twin of every regular variable a push creates.
+
+</Step>
+<Step>
+
+## Preview scope
+
+Preview deployments read a separate copy of the variables. Every command acts on one scope at a time and never touches the other:
+
+```bash
+coolship env pull --preview --file .env.preview
+coolship env diff --preview --file .env.preview
+coolship env push --preview --file .env.preview
+```
+
+</Step>
+<Step>
+
+## Run locally without a file
+
+`dev` injects the application's runtime variables over your environment for one process, so you do not need to pull at all:
+
+```bash
+coolship dev -- npm run dev
+coolship dev --preview -- npm test
+```
+
+Unlike `pull`, `dev` resolves shared references to their values, because a local process needs them. Withheld values are reported and left to your own environment. The command's exit status becomes Coolship's.
+
+</Step>
+</Steps>
+
+## In CI
+
+Keep a committed, value-free file (for example `.env.example`) and fail a job when it drifts from Coolify:
+
+```bash
+coolship env diff --file .env.example --exit-code
+```
+
+Values stay masked in the output, and the exit status is `1` when the two differ.

@@ -1,0 +1,62 @@
+name: Docs site
+
+# Builds the documentation site's container image (docs/Dockerfile, vinext),
+# runs it, and checks every route the site depends on. The site itself is
+# deployed by Coolify from the same Dockerfile; this workflow only proves that
+# the image builds and serves. It exists because a missing Vite plugin lets the
+# build pass while every MDX route answers 500 (see docs/README.md).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-site.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container:
+    name: Build and smoke-test the image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build --tag coolship-docs --build-arg SITE_URL=http://127.0.0.1:3000 docs
+
+      - name: Run the container
+        run: docker run --detach --name docs --publish 3000:3000 coolship-docs
+
+      - name: Smoke-test the routes
+        run: docs/scripts/smoke.sh http://127.0.0.1:3000
+
+      - name: Wait for the container healthcheck
+        run: |
+          for _ in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' docs)
+            echo "health: $status"
+            [ "$status" = healthy ] && exit 0
+            sleep 2
+          done
+          echo "::error::container never became healthy"
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs docs
+
+      - name: Stop the container
+        if: always()
+        run: docker rm --force docs

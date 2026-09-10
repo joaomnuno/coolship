@@ -1,0 +1,5 @@
+{
+  "title": "Platform",
+  "description": "Limits, output conventions, and machine-readable documentation.",
+  "pages": ["limits", "output", "ai"]
+}

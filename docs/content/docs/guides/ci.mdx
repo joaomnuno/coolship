@@ -1,0 +1,97 @@
+---
+title: Deploy from CI
+description: Use Coolship in GitHub Actions with COOLSHIP_URL and COOLSHIP_TOKEN, deploy on push, and deploy pull-request previews.
+---
+
+In CI there is no interactive login and usually no Coolify CLI configuration file. Coolship takes its credentials from two environment variables instead, and reads the binding from the committed `coolship.toml`.
+
+## Credentials
+
+Add two repository secrets under *Settings → Secrets and variables → Actions*: `COOLSHIP_URL`, the instance URL, and `COOLSHIP_TOKEN`, a token with the read, write, and deploy abilities. Both are required together, and the pair cannot be combined with `--context` or `--coolify-config`. It overrides any context committed in `coolship.toml` for that invocation, and Coolship says so in a warning. See [Credentials](/docs/concepts/credentials).
+
+## Deploy on push
+
+```yaml title=".github/workflows/deploy.yml"
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      COOLSHIP_URL: ${{ secrets.COOLSHIP_URL }}
+      COOLSHIP_TOKEN: ${{ secrets.COOLSHIP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Coolship
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check the binding and the server
+        run: coolship doctor
+
+      - name: Deploy
+        run: coolship deploy --timeout 20m
+```
+
+Notes:
+
+- The installer puts `coolship` in `$HOME/.local/bin`; adding that directory to `GITHUB_PATH` makes it available to later steps. Pin a release with `COOLSHIP_VERSION=0.2.0` in the step's `env` if you want reproducible runs.
+- Coolify deploys from its configured source and branch. The checkout step is there for `coolship.toml`; nothing from the runner's worktree is uploaded. Push before you deploy.
+- `deploy` waits for the exact deployment it submitted and fails the job when it fails, is cancelled, or times out. The build log streams into the job output when the token may read it.
+- `concurrency` keeps two pushes from racing. Coolship never retries an uncertain submission, so a cancelled job leaves at most one deployment queued, and its UUID is in the log.
+- `CI` in the environment turns styling off, so logs stay plain.
+
+## Preview a pull request
+
+Enable *Preview Deployments* on the application in Coolify and let its GitHub webhook register pull requests; the API cannot create previews, so this step is not optional. See [Preview deployments](/docs/concepts/previews).
+
+```yaml title=".github/workflows/preview.yml"
+name: Preview
+
+on:
+  pull_request:
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    env:
+      COOLSHIP_URL: ${{ secrets.COOLSHIP_URL }}
+      COOLSHIP_TOKEN: ${{ secrets.COOLSHIP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Coolship
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # The pull request number is read from GITHUB_REF; --pr overrides it.
+      - name: Deploy the preview
+        run: coolship preview
+```
+
+When Coolify does not yet know the pull request — the webhook has not fired, or previews are disabled — the job fails with the server's explanation and what to do about it.
+
+## Linking in CI
+
+Commit `coolship.toml` so CI does not need to link. If a job must link a fresh checkout, supply every selector so no prompt is needed:
+
+```bash
+coolship link --project Personal --environment production --application fenix-bot
+```
+
+Names are matched exactly within their parent; use `--project-uuid`, `--environment-uuid`, or `--application-uuid` to pin identity. `link` only writes local configuration, never remote resources.
+
+## Keeping variables honest
+
+`coolship env diff --exit-code` exits `1` when a committed `.env.example`-style file (given with `--file`) has drifted from Coolify, with values masked, so a job can fail before a deployment ships with a missing variable. See the [environment-variable workflow](/docs/guides/environment-variables).

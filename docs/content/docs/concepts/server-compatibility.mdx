@@ -1,0 +1,47 @@
+---
+title: Server compatibility
+description: Coolship is verified against Coolify 4.3.18. What the verification covered, what the server was observed to do, and what other versions can expect.
+---
+
+**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo.
+
+The 4.3.19 source has no changes to any endpoint Coolship uses — the API routes, the deploy and project controllers, the sensitive-data middleware, and the deployment-status enum are identical — so it is expected to behave identically. Other versions are untested.
+
+## What the verification uses
+
+Coolship talks to the API under `/api/v1` with a `coolship/<version>` user agent. The endpoints, per command:
+
+| Command                    | Operations                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `link`                     | `GET /projects`, `GET /projects/{uuid}/environments`, `GET /projects/{uuid}/{environment_uuid}`, `GET /applications/{uuid}` as needed |
+| `init`                     | `GET /servers`, the `link` reads, optionally `POST /projects`, then `POST /applications/public`; with `--deploy`, the `deploy` calls |
+| `status`                   | resolution, then `GET /applications/{uuid}`                                                                                     |
+| `deploy`, `preview`        | `POST /deploy`; `GET /deployments/{deployment_uuid}` while waiting                                                              |
+| `logs`                     | `GET /applications/{uuid}/logs?lines=…&show_timestamps=true`                                                                   |
+| `doctor`                   | `GET /version`, then resolution                                                                                                 |
+| `domain`, `domain set`     | resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`                                    |
+| `login`                    | `GET /version`, `GET /teams/current`                                                                                            |
+| `dev`, `env pull\|diff\|push` | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`     |
+
+`open`, `config`, and `unlink` make no request beyond resolution, and `config` and `unlink` make none at all.
+
+## Observed server behavior
+
+These observations shape Coolship's client and were not visible from the server's source alone:
+
+- **Runtime log snapshots omit the newline after the final line.** Overlap detection compares lines without terminators, and every emitted chunk ends with a newline.
+- **`GET /version` returns plain text** (`4.3.18`) with an HTML content type.
+- **Deployment logs are present only when the token can read sensitive data.** Without that ability the field is absent, which Coolship reports as unavailable rather than empty.
+- **A deployment response identifies its application by integer id and name**, not by UUID. Coolship verifies the returned deployment UUID against the one it submitted.
+- **Creating a regular variable also creates a preview-scope twin.** Preview scope is a separate dimension that every variable workflow selects explicitly.
+- **A shown-once variable's value is withheld from the regular row**, but its auto-created preview twin is returned in clear. Coolship never reads around a withheld value; the twin is a server defect that was reported privately to Coolify on 2026-09-10.
+- **The variable API accepts `is_buildtime` and `is_runtime`**; bulk creation is `PATCH …/envs/bulk` and deletion is by variable UUID.
+- **`POST /deploy` accepts a pull request number** and answers HTTP 200 with a message-only receipt when the pull request has no preview record. No endpoint creates previews.
+- **`POST /applications/public` answers 201 with the UUID and domains** and assigns the generated `https://<uuid>.<wildcard>` domain at once. A GitHub URL is stored as `owner/repo`; other hosts keep the full URL. A never-deployed application reports `exited:unhealthy`. A refusal is a 422 with a message and field errors, which Coolship includes in its error.
+- **A Cloudflare bot rule in front of an instance can reject some default user agents.** Coolship's `coolship/<version>` agent is accepted.
+
+The limits that follow from the API, independent of version, are listed under [Limits](/docs/platform/limits).
+
+## End-to-end tests
+
+The repository's `scripts/e2e` runs every command against a live instance and prints a PASS/FAIL line per step, confined to one example application; a GitHub Actions workflow runs it weekly and on every published release when the `COOLSHIP_URL` and `COOLSHIP_TOKEN` secrets are present. [ARCHITECTURE.md](https://github.com/joaomnuno/coolship/blob/main/ARCHITECTURE.md) records the verification in detail.

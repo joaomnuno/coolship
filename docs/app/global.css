@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* No web fonts: the system stack loads instantly and needs no network at build time. */
+@theme {
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* Brand accent, the same teal as the CLI's terminal styling and the previous site. */
+:root {
+  --color-fd-primary: hsl(177 82% 24%);
+  --color-fd-primary-foreground: hsl(0 0% 100%);
+}
+
+.dark {
+  --color-fd-primary: hsl(174 52% 55%);
+  --color-fd-primary-foreground: hsl(180 20% 6%);
+}
+
+html {
+  font-family: var(--font-sans);
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* Terminal transcripts on the landing page. */
+.terminal {
+  background: hsl(170 22% 7%);
+  color: hsl(165 20% 88%);
+}
+
+.terminal-bar {
+  background: hsl(168 20% 11%);
+  color: hsl(160 10% 56%);
+}
+
+.terminal .prompt,
+.terminal .dim {
+  color: hsl(160 10% 56%);
+}
+
+.terminal .ok {
+  color: hsl(158 56% 60%);
+}

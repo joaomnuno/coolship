@@ -1,0 +1,44 @@
+---
+title: Limits
+description: What Coolship does not do, mostly because the Coolify API does not allow it, and how it behaves at those edges.
+---
+
+Coolship is verified against Coolify 4.3.18 (see [Server compatibility](/docs/concepts/server-compatibility)). The limits below hold independently of the version; each one is reported rather than papered over.
+
+## Deployments
+
+- **Deployment states** are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed as terminal.
+- **An uncertain deployment submission is never retried automatically**, since the API defines no idempotency key. Coolship reports what it knows so you can recover manually.
+- **Interrupting `deploy` does not cancel the remote deployment.** Local waiting stops and the UUID is reported.
+- **Build logs can be withheld** by token ability and team role. Withheld data is reported as unavailable, never as empty data.
+- **`deploy` does not upload your worktree** or push commits; Coolify deploys from its configured source and branch.
+
+## Logs
+
+- **`logs --follow` polls snapshots and compares overlapping lines.** The endpoint has no cursor, so log rotation, a container restart, or a gap larger than `--lines` can cause gaps or duplicates. Coolship reports the reset rather than pretending the stream is lossless.
+- **Selecting a container is not supported**, because the server ignores the parameter the Coolify CLI sends for it and returns the first container.
+
+## Previews
+
+- **Coolship cannot create a preview.** The API only deploys a pull request Coolify already holds; previews are created by Coolify's GitHub webhook or in its UI. `preview` repeats the server's refusal with what to do about it.
+- **Preview URLs are not readable through the API**, so `open` does not offer them.
+
+## Creating applications
+
+- **`init` needs a public repository.** Private repositories require a GitHub App or deploy key registered in Coolify, which the API takes by UUID; create those applications in Coolify and run `link`.
+- **Docker Compose projects are refused by `init`**, and `domain set` does not set per-service domains, because Compose domains and variables are per service, which Coolship does not model.
+
+## Variables
+
+- **Secret values can be withheld** (shown-once variables, or a token that may not read sensitive data). They are never invented, and `push` overwrites a withheld value only with `--force`.
+- **Shared references are never flattened** by `pull`, `diff`, or `push`; only `dev` resolves them.
+- **Changes made by `push` take effect on the next deployment.**
+
+## Resolution
+
+- **Pagination is not assumed.** A `Link` header advertising a next page is refused rather than treated as a complete candidate list.
+- **Names are matched exactly** within their parent; an ambiguous or missing selection is an error, never a guess. A pinned UUID that disappears is reported rather than replaced.
+
+## Scope
+
+Coolship is not a replacement interface for every Coolify API resource. Server, private-key, and team administration belong in a general-purpose tool such as [`coolify-cli`](https://github.com/coollabsio/coolify-cli). The install script supports Linux and macOS; on Windows, build from source or use WSL.

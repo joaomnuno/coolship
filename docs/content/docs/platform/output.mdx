@@ -1,0 +1,35 @@
+---
+title: Output and exit codes
+description: Which stream carries what, when output is styled, what --format json prints, and what each exit code means.
+---
+
+## Streams
+
+Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping stdout stays useful. `coolship open --print | pbcopy` copies only the URL, and `coolship deploy > result.txt` keeps the status lines and build log on the terminal while the final result lands in the file.
+
+## JSON
+
+`--format json` prints one result object per command. The shapes are documented on each command page, and every result that names an application carries the same `target` object (see the [command reference](/docs/commands)). `logs --format json` prints newline-delimited events, one object per line, for a single snapshot and when following. JSON mode never mixes human progress into stdout, and JSON output is never styled.
+
+Values that may be secrets are masked in JSON as well, unless `--show-values` is given. Tokens never appear in any output.
+
+## Styling
+
+Human output is colored only when the stream it goes to is a terminal, and each stream is decided on its own, so `coolship status | cat` prints plain text while a prompt on the terminal is still styled. Styled elements are `doctor` markers, deployment statuses, `Warning:` and `Error:` prefixes, prompt questions, `env diff` markers, and key/value labels, using plain ANSI sequences.
+
+Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
+
+## Prompts
+
+Commands that change something show their plan and ask for confirmation on stderr. When stdin is not a terminal there is no prompt: pass `--yes` (`--replace` for `link`) or the command refuses. `link` and `init` prompt for a choice only when it is genuinely ambiguous; `q` cancels a selection.
+
+## Exit codes
+
+| Code  | Meaning                                                   |
+| ----- | --------------------------------------------------------- |
+| `0`   | Success.                                                  |
+| `1`   | The operation failed.                                     |
+| `2`   | Invalid input, configuration, or selection.               |
+| `130` | Interrupted.                                              |
+
+Errors are printed once, as a single `Error:` line on stderr, and classified into these codes at the process boundary. Some commands give a code a specific meaning: `doctor` exits `1` when any check fails, `env diff --exit-code` exits `1` when there are differences, and `dev` exits with the child process's status.

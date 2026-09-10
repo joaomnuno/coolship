@@ -1,0 +1,12 @@
+node_modules
+.next
+.source
+dist
+.vinext
+next-env.d.ts
+*.tsbuildinfo
+Dockerfile*
+.dockerignore
+README.md
+scripts
+.DS_Store

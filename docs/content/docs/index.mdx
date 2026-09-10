@@ -1,0 +1,89 @@
+---
+title: Overview
+description: Coolship is a project-local developer CLI for Coolify. Link a repository to its Coolify application once, then deploy, read logs, and sync variables from the terminal.
+---
+
+Coolship brings a Wrangler-like developer experience to [Coolify](https://coolify.io/), focused on the workflow between your local project and its deployed application. Instead of repeatedly dealing with application UUIDs, projects, environments, and dashboard navigation, Coolship links a local repository to a Coolify application and lets you work with it directly from the terminal:
+
+```bash
+coolship link
+coolship status
+coolship deploy
+coolship logs
+coolship open
+```
+
+Every command after `link` reads the binding it wrote, so none of them need resource identifiers.
+
+## Install
+
+On Linux (glibc or musl) and macOS, amd64 or arm64:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+```
+
+The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and never runs `sudo`. See [Get started](/docs/get-started) for the options and for building from source.
+
+## Why not coolify-cli?
+
+Coolify already has [`coolify-cli`](https://github.com/coollabsio/coolify-cli), which provides command-line access to Coolify and its resources. Coolship is not intended to replace it or to become another general-purpose Coolify administration CLI. The distinction is:
+
+- **`coolify-cli`** manages Coolify resources.
+- **Coolship** manages the developer workflow around the project you are currently working on.
+
+Instead of
+
+```bash
+coolify deploy uuid <application-uuid>
+```
+
+the workflow is
+
+```bash
+cd my-project
+coolship deploy
+```
+
+because the repository is already linked to the correct Coolify project, environment, and application. The two tools share one login: Coolship reads and writes the same credentials file as `coolify-cli`, so authenticating in either is enough for both. Operations such as creating servers, private keys, or team members deliberately stay outside Coolship's scope.
+
+## A session
+
+```text
+$ coolship deploy
+Deployment 03dusayin5rleswixblvdqba: queued
+Deployment 03dusayin5rleswixblvdqba: in_progress
+Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
+Building docker image started.
+Building docker image completed.
+Rolling update started.
+Attempt 2 of 10 | Healthcheck status: "healthy"
+Rolling update completed.
+Deployment 03dusayin5rleswixblvdqba: finished
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+```
+
+`deploy` submits one deployment and then observes exactly the UUID that submission returned, streaming the server's build log while it waits. It deploys the source and branch already configured in Coolify; it does not upload your worktree or push local commits.
+
+## Status
+
+Coolship is in early development. `init`, `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live **Coolify 4.3.18** instance. [Server compatibility](/docs/concepts/server-compatibility) describes what that does and does not cover, and [Limits](/docs/platform/limits) lists what the API does not allow.
+
+## Where next
+
+<Cards>
+  <Card title="Get started" href="/docs/get-started">
+    Install, log in, link a repository, deploy, and read its logs in five minutes.
+  </Card>
+  <Card title="Concepts" href="/docs/concepts/project-binding">
+    The binding file, credentials, variable scopes, what a deployment is, and previews.
+  </Card>
+  <Card title="Command reference" href="/docs/commands">
+    Every command with its flags, output, JSON shape, and exit codes.
+  </Card>
+  <Card title="Guides" href="/docs/guides/ci">
+    GitHub Actions, monorepos, and the environment-variable workflow.
+  </Card>
+</Cards>
