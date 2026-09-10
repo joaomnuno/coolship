@@ -7,6 +7,10 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-10
+
+Every command is now installable from a release, and the tool logs you in itself.
+
 ### Added
 
 - `login` and `logout`: save a Coolify instance and API token after verifying them against the server, in the same file coolify-cli uses, so both tools share one login. The token is read without echo, or from stdin with `--token-stdin`; it is never a flag.
@@ -44,5 +48,6 @@ example repository and an isolated project on that instance.
 - Verified against Coolify 4.3.18; the 4.3.19 source has no changes to any endpoint used. Other versions are untested.
 - Requires Go 1.26 to build, matching `coolify-cli`.
 
-[Unreleased]: https://github.com/joaomnuno/coolship/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joaomnuno/coolship/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/joaomnuno/coolship/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joaomnuno/coolship/releases/tag/v0.1.0
