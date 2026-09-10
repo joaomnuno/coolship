@@ -45,6 +45,10 @@ type server struct {
 	// an application without a container.
 	status     string
 	notRunning bool
+	// stopAfter is how many logs snapshots are served before the container
+	// goes away: later logs calls refuse as notRunning does, and the
+	// application reads exited:unhealthy from then on.
+	stopAfter int
 }
 
 func (s *server) record(entry string) int {
@@ -121,6 +125,8 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		write(w, environment)
 	})
 	handle("GET /api/v1/applications/app-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		write(w, application)
 	})
 	handle("PATCH /api/v1/applications/app-1", func(w http.ResponseWriter, r *http.Request, _ int) {
@@ -203,7 +209,13 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		if r.URL.Query().Get("show_timestamps") != "true" {
 			t.Errorf("logs requested without timestamps: %s", r.URL.RawQuery)
 		}
-		if s.notRunning {
+		stopped := s.stopAfter > 0 && calls > s.stopAfter
+		if stopped {
+			s.mu.Lock()
+			application["status"] = "exited:unhealthy"
+			s.mu.Unlock()
+		}
+		if s.notRunning || stopped {
 			w.WriteHeader(http.StatusBadRequest)
 			write(w, map[string]any{"message": "Application is not running."})
 			return
@@ -846,6 +858,17 @@ func TestLogsOfAStoppedApplicationSayWhy(t *testing.T) {
 		if !strings.Contains(err.Error(), "application is not running (status exited:unhealthy)") || strings.Contains(err.Error(), "400") {
 			t.Fatalf("%v: %v", args, err)
 		}
+	}
+	// A container that goes away mid-follow is reported with the status read
+	// then, not the running one seen when the follow started.
+	s = &server{stopAfter: 1, logs: []string{"2026-09-09T10:00:00Z hello\n"}}
+	instance = newServer(t, s)
+	out, _, err := run(t, instance.URL, dir, "", "logs", "--follow")
+	if err == nil || ui.ExitCode(err) != 1 || !strings.Contains(out, "hello") {
+		t.Fatalf("follow past a stop: out=%q err=%v", out, err)
+	}
+	if !strings.Contains(err.Error(), "application is not running (status exited:unhealthy)") || strings.Contains(err.Error(), "running:healthy") {
+		t.Fatalf("follow past a stop: %v", err)
 	}
 	// Out-of-range --lines fails before any request.
 	before := s.counts()["GET /api/v1/applications/app-1/logs"]

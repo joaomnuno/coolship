@@ -40,7 +40,9 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 		snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines)
 		if err != nil {
 			if notRunning(err) {
-				return logsError(err, s.project.Application.Status)
+				// The status read when the follow started is stale by now;
+				// the one at the refusal says what became of the container.
+				return logsError(err, currentStatus(ctx, s))
 			}
 			return fmt.Errorf("log follow stopped: %w", err)
 		}
@@ -64,6 +66,17 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 func notRunning(err error) bool {
 	var refusal interface{ NotRunning() bool }
 	return errors.As(err, &refusal) && refusal.NotRunning()
+}
+
+// currentStatus re-reads the application's status once time has passed since
+// prepare read it. A failed read leaves the status unknown rather than
+// repeating one that no longer holds.
+func currentStatus(ctx context.Context, s session) string {
+	application, err := s.backend.GetApplication(ctx, s.project.Application.UUID)
+	if err != nil {
+		return ""
+	}
+	return application.Status
 }
 
 // logsError names the application's observed status when the server has no

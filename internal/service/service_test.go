@@ -44,6 +44,9 @@ type fakeBackend struct {
 	createError  error
 	deployError  error
 	logsErrors   []error // per Logs call; nil entries answer normally
+	// stopAfter is how many Logs calls are answered before the container goes
+	// away: later calls refuse, and the application reads exited:unhealthy.
+	stopAfter int
 	// The fake Git inspector lives here too, so one fixture drives a test.
 	repository      gitinfo.Repository
 	repositoryError error
@@ -217,6 +220,10 @@ func (f *fakeBackend) Logs(_ context.Context, id string, _ int) (models.LogSnaps
 	}
 	if index < len(f.logsErrors) && f.logsErrors[index] != nil {
 		return models.LogSnapshot{}, f.logsErrors[index]
+	}
+	if f.stopAfter > 0 && index >= f.stopAfter {
+		f.application.Status = "exited:unhealthy"
+		return models.LogSnapshot{}, notRunningRefusal{}
 	}
 	return models.LogSnapshot{Logs: f.snapshots[min(index, len(f.snapshots)-1)]}, nil
 }
@@ -396,6 +403,31 @@ func TestUnknownDeploymentStateTimesOut(t *testing.T) {
 	}
 }
 
+// clientTimeout is net/http's client-timeout error as the adapter reports it:
+// it satisfies errors.Is(context.DeadlineExceeded) and Timeout(), while the
+// command's own context has no deadline.
+type clientTimeout struct{}
+
+func (clientTimeout) Error() string {
+	return "Coolify GET /api/v1/deployments/deploy-1: request timed out"
+}
+func (clientTimeout) Is(target error) bool { return target == context.DeadlineExceeded }
+func (clientTimeout) Timeout() bool        { return true }
+
+func TestRequestTimeoutWhileObservingIsNotTheFlag(t *testing.T) {
+	f := newBackend()
+	f.readError = clientTimeout{}
+	app, _, _ := testApp(f)
+	result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), Timeout: 30 * time.Second}, nil)
+	var timeout *TimeoutError
+	if errors.As(err, &timeout) || strings.Contains(err.Error(), "--timeout") {
+		t.Fatalf("a request timeout was reported as the flag: %v", err)
+	}
+	if !strings.Contains(err.Error(), "deploy-1: observation stopped") || !strings.Contains(err.Error(), "request timed out") || result.DeploymentUUID != "deploy-1" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestDeploymentRefusalsNameTheRemedy(t *testing.T) {
 	f := newBackend()
 	f.deployError = statusError{code: 429}
@@ -431,6 +463,20 @@ func TestDeploymentRefusalsNameTheRemedy(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no longer holds this deployment (HTTP 404)") || !strings.Contains(err.Error(), "--force") || strings.Contains(err.Error(), "may still be running") || !errors.As(err, &status) {
 		t.Fatalf("dropped: %v", err)
+	}
+	// The server applies the queued check per pull request, so preview gets
+	// the same remedy; only another refusal is about the pull request itself.
+	f = newBackend()
+	f.receipts = []models.DeploymentReceipt{{ResourceUUID: "app-1", DeploymentUUID: "never-queued", Message: "Deployment already queued for this commit."}}
+	app, _, _ = testApp(f)
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: 42}, nil)
+	if err == nil || !strings.Contains(err.Error(), "--force") || strings.Contains(err.Error(), "know the pull request") {
+		t.Fatalf("already queued preview: %v", err)
+	}
+	f.receipts = []models.DeploymentReceipt{{ResourceUUID: "app-1", Message: "Pull request 42 not found for this resource."}}
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: 42}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Pull request 42 not found") || !strings.Contains(err.Error(), "know the pull request") || strings.Contains(err.Error(), "--force") {
+		t.Fatalf("unknown pull request: %v", err)
 	}
 	// Any other message-only receipt is reported as the server put it.
 	f = newBackend()
@@ -468,7 +514,19 @@ func TestLogsNameTheStatusWhenTheApplicationIsNotRunning(t *testing.T) {
 	if err == nil || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "log follow stopped") || len(events) != 1 {
 		t.Fatalf("follow: err=%v events=%v", err, events)
 	}
+	// A container that goes away while following is reported with the status
+	// read at that moment, not the one seen when the follow started.
+	f = newBackend()
+	f.stopAfter = 1
+	app, _, _ = testApp(f)
+	events = nil
+	err = app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Follow: true}, collect)
+	if err == nil || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "running:healthy") || len(events) != 1 || f.calls["application"] != 2 {
+		t.Fatalf("follow past a stop: err=%v events=%v calls=%v", err, events, f.calls)
+	}
 	// Other failures keep their own words.
+	f = newBackend()
+	app, _, _ = testApp(f)
 	f.logsErrors = []error{errors.New("network unavailable")}
 	f.calls["logs"] = 0
 	if err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect); err == nil || err.Error() != "network unavailable" {
