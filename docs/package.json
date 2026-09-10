@@ -1,0 +1,44 @@
+{
+  "name": "coolship-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Documentation site for Coolship, built with Fumadocs and served as a Node.js server.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vinext dev --hostname 127.0.0.1",
+    "build": "vinext build",
+    "start": "node dist/standalone/server.js",
+    "dev:next": "next dev",
+    "build:next": "next build",
+    "start:next": "node .next/standalone/server.js",
+    "check": "next typegen && tsc --noEmit",
+    "smoke": "sh scripts/smoke.sh"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.15.8",
+    "fumadocs-mdx": "15.4.0",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.15.8",
+    "lucide-react": "1.44.0",
+    "next": "16.3.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-server-dom-webpack": "19.3.0",
+    "vinext": "1.0.0-beta.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/mdx": "2.0.14",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@vitejs/plugin-rsc": "0.5.34",
+    "postcss": "8.5.28",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  }
+}

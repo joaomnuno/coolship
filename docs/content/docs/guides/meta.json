@@ -1,0 +1,5 @@
+{
+  "title": "Guides",
+  "description": "How-to guides for common Coolship workflows.",
+  "pages": ["ci", "monorepos", "environment-variables"]
+}

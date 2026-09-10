@@ -1,0 +1,72 @@
+---
+title: Command reference
+description: Every Coolship command, the options they all share, and the conventions for prompts, output, and exit codes.
+---
+
+```text
+coolship [command] [flags]
+```
+
+| Command                                   | Purpose                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| [`init`](/docs/commands/init)             | Create a Coolify application for this repository, then link it                  |
+| [`link`](/docs/commands/link)             | Bind this repository to an existing Coolify application                         |
+| [`unlink`](/docs/commands/unlink)         | Remove this repository's binding to its Coolify application                     |
+| [`status`](/docs/commands/status)         | Inspect the linked application's current status                                 |
+| [`deploy`](/docs/commands/deploy)         | Deploy the linked application using its configured Coolify source               |
+| [`logs`](/docs/commands/logs)             | Read runtime logs from the linked application                                   |
+| [`open`](/docs/commands/open)             | Open the linked application, or its Coolify page, in a browser                  |
+| [`doctor`](/docs/commands/doctor)         | Check configuration, credentials, and server access                             |
+| [`config`](/docs/commands/config)         | Show the effective configuration for this directory                             |
+| [`env`](/docs/commands/env)               | Synchronize a local `.env` file with the linked application's variables         |
+| [`preview`](/docs/commands/preview)       | Deploy the preview Coolify holds for a pull request                             |
+| [`dev`](/docs/commands/dev)               | Run a local command with the application's variables                            |
+| [`domain`](/docs/commands/domain)         | Show or change the linked application's domains                                 |
+| [`login`, `logout`](/docs/commands/login) | Save or remove a Coolify instance and API token on this machine                 |
+
+`coolship --version` prints the version, and `coolship <command> --help` prints each command's help.
+
+## Global flags
+
+Every command accepts these. Overrides apply to a single invocation and never rewrite `coolship.toml`.
+
+| Flag                     | Purpose                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `--cwd DIR`              | Use this working directory without changing the process directory.                |
+| `--config PATH`          | Project configuration path, relative to the effective working directory.          |
+| `--context NAME`         | Coolify CLI instance name for this invocation.                                    |
+| `--coolify-config PATH`  | Read credentials from this Coolify CLI configuration file.                        |
+| `-e`, `--environment`    | Remote environment name for this invocation.                                      |
+| `-t`, `--target NAME`    | Named target in a monorepo configuration (`[apps.<name>]`).                       |
+| `--format human\|json`   | Output format; `human` is the default, and `logs --format json` prints NDJSON.    |
+| `--no-color`             | Disable styled output (`NO_COLOR` does the same).                                 |
+
+`status`, `deploy`, `logs`, `open`, `dev`, and `domain` also take the target as a positional argument: `coolship deploy api`.
+
+## Conventions
+
+- **Nothing changes without a look first.** Commands that change something — `init`, `link` over a different binding, `unlink`, `env push`, `domain set` — show the plan and ask for confirmation. When stdin is not a terminal, pass `--yes` (`--replace` for `link`) or the command refuses rather than guessing.
+- **Results go to stdout; prompts, progress, and diagnostics go to stderr**, so piping stdout stays useful. `--format json` prints one result object per command (`logs` prints one event per line) and never mixes human progress into stdout.
+- **Values that may be secrets are masked** unless `--show-values` is given, and tokens are never printed.
+- **Exit codes** are `0` success, `1` the operation failed, `2` invalid input, configuration, or selection, and `130` interrupted. See [Output and exit codes](/docs/platform/output).
+
+Every JSON result that names an application carries the same `target` object:
+
+```json
+{
+  "target": {
+    "target": "default",
+    "instance": "home",
+    "instance_url": "https://coolify.example.com",
+    "project": "Personal",
+    "project_uuid": "rxv3lqhdvuprnl433dczvo0s",
+    "environment": "production",
+    "environment_uuid": "5omkp5uuj0qpet6dy16r6bag",
+    "application": "fenix-bot",
+    "application_uuid": "mm4c0zpbrzx8z96t0qiw3tff",
+    "root": "/home/you/my-app"
+  }
+}
+```
+
+`target` is `default` for the single `[project]` form and the target name otherwise; `root` is the absolute application root. Optional `warnings` arrays carry the same text the human output prints as `Warning:` lines.

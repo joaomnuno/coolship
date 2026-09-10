@@ -1,0 +1,56 @@
+---
+title: logs
+description: Read runtime logs from the linked application, once or by following snapshots.
+---
+
+```text
+coolship logs [target] [flags]
+```
+
+`logs` reads the application's runtime logs — the container output — not the build log, which [`deploy`](/docs/commands/deploy) streams while it waits.
+
+```text
+$ coolship logs --lines 3
+2026-09-10T11:49:33.442427921Z 127.0.0.1 - - [10/Sep/2026:11:49:33 +0000] "GET / HTTP/1.1" 200 182 "-" "Wget" "-"
+2026-09-10T11:49:43.474192232Z 127.0.0.1 - - [10/Sep/2026:11:49:43 +0000] "GET / HTTP/1.1" 200 182 "-" "Wget" "-"
+2026-09-10T11:49:53.513347418Z 127.0.0.1 - - [10/Sep/2026:11:49:53 +0000] "GET / HTTP/1.1" 200 182 "-" "Wget" "-"
+```
+
+Lines are printed exactly as the server returns them, with its timestamps, and never styled.
+
+## Flags
+
+| Flag            | Purpose                                                        |
+| --------------- | -------------------------------------------------------------- |
+| `-f`, `--follow` | Poll new log snapshots until interrupted.                     |
+| `-n`, `--lines N` | Maximum number of lines in each requested snapshot (default `100`). |
+
+## Examples
+
+```bash
+coolship logs
+coolship logs --lines 500
+coolship logs --follow
+coolship logs web -f              # named target in a monorepo
+coolship logs --format json | jq -r .logs
+```
+
+## Following
+
+The endpoint has no cursor, so `--follow` polls bounded snapshots and compares overlapping lines to emit only what is new. Repeated identical lines are handled correctly, but log rotation, a container restart, or a gap larger than `--lines` can still produce gaps or duplicates. Coolship reports such a reset as a warning on stderr rather than pretending the stream is lossless. Persistent polling failures are surfaced, and the command stops promptly on Ctrl-C.
+
+Selecting a container is not supported: the server ignores the parameter Coolify CLI sends for it and returns the first container.
+
+## JSON
+
+`--format json` prints newline-delimited events, one object per line, both for a single snapshot and when following:
+
+```json
+{"type":"logs","logs":"2026-09-10T11:49:33.442427921Z 127.0.0.1 - - [10/Sep/2026:11:49:33 +0000] \"GET / HTTP/1.1\" 200 182 \"-\" \"Wget\" \"-\"\n"}
+```
+
+Each event has a `type`; log events carry the chunk in `logs`, and warnings such as a detected reset carry `message`. Every chunk ends with a newline.
+
+## Exit codes
+
+`0` when the snapshot was read, or when following ended by interruption after at least one snapshot; `1` when the logs cannot be read; `2` when the directory is not linked; `130` when interrupted before any snapshot.

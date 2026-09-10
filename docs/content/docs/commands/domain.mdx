@@ -1,0 +1,70 @@
+---
+title: domain
+description: Show the linked application's domains, or replace them with domain set.
+---
+
+```text
+coolship domain [target] [flags]
+coolship domain set DOMAIN [DOMAIN...] [flags]
+```
+
+Coolify generates a domain from the application UUID until you set your own. `domain` shows the current list, one per line; `domain set` replaces it.
+
+```text
+$ coolship domain
+https://coolship.example.com
+```
+
+## domain set
+
+A bare host such as `app.example.com` means `https://app.example.com`. The change is shown and confirmed first, or requires `--yes` when noninteractive. Coolship refuses a domain Coolify sees in use elsewhere on the server unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment.
+
+| Flag                | Purpose                                                              |
+| ------------------- | -------------------------------------------------------------------- |
+| `--redirect POLICY` | Redirect policy: `www`, `non-www`, or `both`.                        |
+| `--force`           | Bypass Coolify's check that a domain is unused on the server.        |
+| `-y`, `--yes`       | Change without confirmation.                                         |
+
+Docker Compose applications take per-service domains, which this command does not set; the server's refusal explains it.
+
+## Examples
+
+```bash
+coolship domain
+coolship domain api                                          # named target in a monorepo
+coolship domain set app.example.com                          # bare host means https://
+coolship domain set https://app.example.com https://www.example.com --redirect non-www
+coolship domain set app.example.com --yes
+```
+
+## JSON
+
+`domain`:
+
+```json
+{
+  "target": { "…": "the resolved target, see the command reference" },
+  "domains": ["https://coolship.example.com"],
+  "generated": false
+}
+```
+
+`generated` is `true` while the application still uses Coolify's automatic `<uuid>.<wildcard>` domain.
+
+`domain set`:
+
+```json
+{
+  "plan": {
+    "target": { "…": "the resolved target" },
+    "current": ["https://9f8e7d6c.coolify.example.com"],
+    "domains": ["https://app.example.com", "https://www.example.com"],
+    "redirect": "non-www"
+  },
+  "warnings": ["The proxy learns the new domains on the next deployment."]
+}
+```
+
+## Exit codes
+
+`0` on success; `1` when Coolify refuses the change (including a domain in use elsewhere without `--force`) or the server cannot be reached; `2` when the directory is not linked, a domain is malformed, or `--yes` is missing noninteractively; `130` when the confirmation is cancelled.

@@ -1,0 +1,5 @@
+{
+  "title": "Concepts",
+  "description": "How Coolship binds a repository to Coolify and what its commands rely on.",
+  "pages": ["project-binding", "credentials", "variables", "deployments", "previews", "server-compatibility"]
+}

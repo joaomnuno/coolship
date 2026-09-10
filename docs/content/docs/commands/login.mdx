@@ -1,0 +1,79 @@
+---
+title: login and logout
+description: Save a Coolify instance URL and API token in the Coolify CLI configuration after verifying them, or remove a saved instance.
+---
+
+```text
+coolship login [flags]
+coolship logout NAME [flags]
+```
+
+`login` saves a Coolify instance URL and API token in the Coolify CLI configuration, which [`coolify-cli`](https://github.com/coollabsio/coolify-cli) shares, after verifying them against the server. Interactively, it asks for the URL, a context name, and the token, which is not echoed:
+
+```text
+$ coolship login
+Coolify URL: https://coolify.example.com
+Context name [coolify]: home
+API token:
+Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
+Saved to /home/you/.config/coolify/config.json
+```
+
+Noninteractively, pass `--url` and `--name` and pipe the token on stdin with `--token-stdin`. The token is never accepted as a flag, so it stays out of shell history and process listings. Create a token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities.
+
+## Flags
+
+| Flag            | Purpose                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `--url URL`     | Coolify instance URL, e.g. `https://coolify.example.com`.        |
+| `--name NAME`   | Context name (default: derived from the URL's host).             |
+| `--token-stdin` | Read the API token from stdin.                                   |
+| `--default`     | Make this the default context.                                   |
+
+`--coolify-config PATH` (global) writes to an explicit file instead of the default one.
+
+## Examples
+
+```bash
+coolship login
+echo "$TOKEN" | coolship login --url https://coolify.example.com --name ci --token-stdin
+coolship login --url https://coolify.example.com --name work --default
+coolship logout work
+```
+
+The first context saved becomes the default. A context with the same name is replaced, and the result says so.
+
+## logout
+
+`logout NAME` removes a context from the Coolify CLI configuration. The token remains valid on the server until you revoke it in Coolify.
+
+## JSON
+
+`login`:
+
+```json
+{
+  "name": "home",
+  "url": "https://coolify.example.com",
+  "path": "/home/you/.config/coolify/config.json",
+  "default": true,
+  "server": "4.3.18",
+  "team": "Personal",
+  "replaced": false
+}
+```
+
+`logout`:
+
+```json
+{
+  "name": "work",
+  "path": "/home/you/.config/coolify/config.json"
+}
+```
+
+The token never appears in either.
+
+## Exit codes
+
+`0` when the context was saved or removed; `1` when the server rejects the token or cannot be reached; `2` when the URL is invalid, `--token-stdin` is missing noninteractively, or the context to remove does not exist.

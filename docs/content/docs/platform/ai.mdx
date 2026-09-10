@@ -1,0 +1,42 @@
+---
+title: Docs for AI assistants
+description: This documentation is published as Markdown too, with an llms.txt index and a Markdown rendition of every page, so assistants and agents can read it directly.
+---
+
+Every page of this site is generated from Markdown, and the same Markdown is served next to the HTML.
+
+## llms.txt
+
+[`/llms.txt`](/llms.txt) is an index in the [llms.txt](https://llmstxt.org) format: a title, a summary, and every page grouped by section with a one-line description and an absolute URL. Point an assistant at it when you want it to choose which pages to read.
+
+[`/llms-full.txt`](/llms-full.txt) is the whole documentation in one Markdown file, in sidebar order, for assistants that would rather read everything at once.
+
+## One page as Markdown
+
+Append `.md` to any page URL to get that page as Markdown, with its title, description, and URL at the top:
+
+```text
+https://coolship.itrocas.com/docs/commands/deploy.md
+https://coolship.itrocas.com/docs/index.md
+```
+
+A request for the page URL itself that prefers Markdown gets the same text, so tools that send `Accept: text/markdown` need no special URL:
+
+```bash
+curl -H 'Accept: text/markdown' https://coolship.itrocas.com/docs/commands/deploy
+```
+
+Callouts, cards, and steps are rendered as plain Markdown; code blocks and tables are unchanged, and links are absolute.
+
+## Page actions
+
+Below the title of every page:
+
+- **Copy as Markdown** puts the page's Markdown on the clipboard.
+- **View as Markdown** opens the `.md` rendition of the page.
+- **Open in Claude** and **Open in ChatGPT** start a conversation with a prompt that asks the assistant to read the page's Markdown before answering.
+- **Edit on GitHub** opens the source file.
+
+## For agents using the CLI
+
+The CLI's own `--help` text is the source of the [command reference](/docs/commands), and `--format json` gives every command a stable, documented shape; see [Output and exit codes](/docs/platform/output). Mutations confirm interactively and require `--yes` (or `--replace` for `link`) when there is no terminal, so an agent must pass those flags explicitly rather than expect a prompt.

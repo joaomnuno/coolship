@@ -1,0 +1,98 @@
+---
+title: init
+description: Create a Coolify application for this repository from its public Git remote, then link it exactly as link would.
+---
+
+```text
+coolship init [flags]
+```
+
+`init` is the first step for a repository that is not on Coolify yet. It reads the `origin` remote and the checked-out branch from Git (SSH forms are normalized to `https://github.com/owner/repo`), detects the build pack from the application root — a `Dockerfile` builds itself, anything else is handed to Nixpacks — shows the plan, and creates the application only after you confirm. Nothing is deployed unless you pass `--deploy`.
+
+```text
+$ coolship init
+Create application my-app on home?
+  Repository:  https://github.com/you/my-app (branch main)
+  Build pack:  dockerfile, port 80
+  Project:     Personal
+  Environment: production
+  Server:      Master Ubuntu
+  Binding:     /home/you/my-app/coolship.toml
+Confirm [y/N]: y
+Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
+Build pack: dockerfile, port 80
+URL: https://9f8e7d6c.coolify.example.com
+Linked project in /home/you/my-app/coolship.toml
+```
+
+## Flags
+
+| Flag                 | Purpose                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `--repo URL`         | Public repository URL (default: the origin remote).                                       |
+| `--branch NAME`      | Branch Coolify deploys (default: the checked-out branch).                                 |
+| `--name NAME`        | Application name (default: the repository name).                                          |
+| `--build-pack NAME`  | `nixpacks`, `dockerfile`, or `static` (default: detected).                                |
+| `--port N`           | Port the application listens on (default: 80 for `dockerfile` and `static`, 3000 for `nixpacks`). |
+| `--static`           | Serve the build output as a static site.                                                  |
+| `--project NAME`     | Exact Coolify project name (default: prompt, or the only project).                        |
+| `--create-project`   | Create the `--project` if it does not exist.                                              |
+| `--server NAME`      | Exact server name (default: prompt, or the only usable server).                           |
+| `--deploy`           | Deploy after creating and wait for it.                                                    |
+| `--timeout DURATION` | Maximum time to wait for the deployment with `--deploy` (default `10m0s`).                |
+| `-y`, `--yes`        | Create without confirmation.                                                              |
+
+`--environment` (global) defaults to `production`. In a monorepo, `--target NAME` writes an `[apps.NAME]` table with the current directory as its root, which becomes the application's base directory.
+
+<Callout type="warn" title="Check the port">
+  Coolify routes traffic to the port in the plan. It defaults to 80 for a Dockerfile or static site and 3000 for Nixpacks; pass `--port` when your application listens elsewhere.
+</Callout>
+
+## Examples
+
+```bash
+coolship init                                                    # interactive
+coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
+coolship init --project Sandbox --create-project --deploy        # new project, first deployment
+coolship init --repo https://github.com/you/my-app --branch main --name my-app
+```
+
+The project and server are asked for only when there is a choice. Noninteractive use needs `--yes`.
+
+## Behavior and limits
+
+- **The repository must be public.** Coolify clones it without credentials (`POST /applications/public`). A private repository needs a GitHub App or deploy key registered in Coolify first, which the API requires by UUID; create those applications in Coolify and run [`link`](/docs/commands/link).
+- **Docker Compose projects are refused** before any request, because their domains and variables are per service, which no other Coolship command models yet.
+- **A directory that is already linked is refused** rather than re-pointed; use `link` to change a binding.
+- The application is created without an instant deployment; `--deploy` then submits and observes the first deployment exactly like [`deploy`](/docs/commands/deploy).
+- A refusal from the server carries its explanation — the message and field errors — so a repository Coolify cannot reach or a rejected value is reported as such rather than as a bare status code.
+- The binding is written and verified through the same step `link` uses.
+
+## JSON
+
+```json
+{
+  "plan": {
+    "path": "/home/you/my-app/coolship.toml",
+    "target": "default",
+    "root": "/home/you/my-app",
+    "repository": "https://github.com/you/my-app",
+    "branch": "main",
+    "build_pack": "dockerfile",
+    "port": 80,
+    "name": "my-app",
+    "instance": "home",
+    "project": "Personal",
+    "environment": "production",
+    "server": "Master Ubuntu"
+  },
+  "target": { "…": "the resolved target, see the command reference" },
+  "url": "https://9f8e7d6c.coolify.example.com"
+}
+```
+
+`plan.static`, `plan.new_project`, and `plan.deploy` appear when set; `deployment` carries a [`deploy`](/docs/commands/deploy#json) result when `--deploy` was given.
+
+## Exit codes
+
+`0` when the application was created and linked; `1` when Coolify refused or the deployment failed; `2` for invalid input, including a refused Compose project, an already linked directory, or noninteractive use without `--yes`; `130` when interrupted.

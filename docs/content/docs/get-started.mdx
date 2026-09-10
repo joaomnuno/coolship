@@ -1,0 +1,136 @@
+---
+title: Get started
+description: Install Coolship, log in to your Coolify instance, link a repository, deploy it, and read its logs.
+---
+
+This walk-through takes about five minutes. You need a Coolify instance you can reach, an API token for it, and a repository that is (or will be) an application on that instance.
+
+<Steps>
+<Step>
+
+## Install
+
+On Linux (glibc or musl) and macOS, amd64 or arm64:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+```
+
+The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
+
+Overrides, as environment variables or flags (`sh -s -- --version 0.2.0 --dir /opt/bin`):
+
+| Variable               | Flag        | Default            | Meaning                                                              |
+| ---------------------- | ----------- | ------------------ | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version` | latest             | Release to install; a pre-release such as `0.2.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`     | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run` |                    | Resolve the version and print what would happen                      |
+
+### Build from source
+
+Coolship needs Go 1.26 or newer, matching `coolify-cli` so code can move upstream. Newer toolchains build it unchanged.
+
+```bash
+git clone https://github.com/joaomnuno/coolship.git
+cd coolship
+scripts/build            # bin/coolship, version stamped from the nearest tag
+bin/coolship --version
+```
+
+A plain `go build -o coolship .` also works and reports the Git revision it was built from. Every `vX.Y.Z` tag publishes a [GitHub Release](https://github.com/joaomnuno/coolship/releases) with archives for Linux, macOS, and Windows on amd64 and arm64, plus a `checksums.txt`.
+
+</Step>
+<Step>
+
+## Log in
+
+Log in once. Coolship verifies the URL and token against the server, then stores them in the same file [`coolify-cli`](https://github.com/coollabsio/coolify-cli) uses, so if you have already authenticated there, skip this step, and if you log in here, coolify-cli is logged in too.
+
+```text
+$ coolship login
+Coolify URL: https://coolify.example.com
+Context name [coolify]: home
+API token:
+Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
+Saved to /home/you/.config/coolify/config.json
+```
+
+Create the token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. See [Credentials](/docs/concepts/credentials).
+
+</Step>
+<Step>
+
+## Link the repository
+
+If the repository is already an application on Coolify, `link` binds it. If it is not on Coolify yet, `init` creates the application from the repository's public remote and binds it in one step.
+
+```bash
+cd my-app
+coolship link          # bind to an existing application
+coolship init          # or: create the application first, then bind
+```
+
+`link` walks the hierarchy, asking only when a choice is genuinely ambiguous:
+
+```text
+Select project:
+  1. Personal (a1b2c3d4)
+  2. Work (e5f6a7b8)
+Choice [1-2, q to cancel]: 1
+
+Linked project in /home/you/my-app/coolship.toml
+Application: fenix-bot (9f8e7d6c)
+Environment: production
+Project: Personal
+Context: home
+```
+
+It writes a small, credential-free `coolship.toml` at the repository root. Commit it; see [Project binding](/docs/concepts/project-binding).
+
+<Callout title="init needs a public repository">
+  Coolify clones it without credentials. A private repository needs a GitHub App or deploy key registered in Coolify first, which the API takes by UUID; create those applications in Coolify and run `link`. Docker Compose projects are refused by `init` as well.
+</Callout>
+
+</Step>
+<Step>
+
+## Deploy
+
+```bash
+coolship deploy
+```
+
+Coolship deploys the source and branch **already configured in Coolify**, submits exactly one deployment, and waits for that deployment to finish, streaming the server's build log to stderr when your token may read it. Interrupting the command stops local waiting only; the remote deployment continues, and its UUID is reported. `--no-wait` returns the queued UUID immediately, `--force` rebuilds without cache, and `--timeout` bounds the wait (default 10 minutes). See [Deployments](/docs/concepts/deployments).
+
+</Step>
+<Step>
+
+## Read the logs
+
+```bash
+coolship logs
+coolship logs --lines 500
+coolship logs --follow
+```
+
+`logs` reads the application's runtime logs; `--follow` keeps polling snapshots and reports any gap it cannot rule out instead of hiding it. `coolship open` opens the application's public URL in your browser, or its Coolify page with `--dashboard`, and `coolship status` reports the current status and URL.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="Check the setup" href="/docs/commands/doctor">
+    `doctor` runs every step a command performs and reports each one.
+  </Card>
+  <Card title="Sync environment variables" href="/docs/guides/environment-variables">
+    Pull, diff, and push a `.env` file against one scope of the application's variables.
+  </Card>
+  <Card title="Deploy from CI" href="/docs/guides/ci">
+    Use `COOLSHIP_URL` and `COOLSHIP_TOKEN` in GitHub Actions, and deploy pull-request previews.
+  </Card>
+  <Card title="Monorepos" href="/docs/guides/monorepos">
+    Bind several applications in one repository with named targets.
+  </Card>
+</Cards>

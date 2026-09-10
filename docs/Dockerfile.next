@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+# Fallback: the same site built by `next build` (output: 'standalone') instead
+# of vinext. Point Coolify at this file (Dockerfile Location: docs/Dockerfile.next)
+# if the vinext build regresses; the site behaves the same on every route.
+
+FROM node:24-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+ARG SITE_URL=https://coolship.itrocas.com
+ENV SITE_URL=$SITE_URL
+RUN npm run build:next
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+# The Next.js standalone server binds to HOSTNAME (vinext uses HOST).
+ENV HOSTNAME=0.0.0.0
+ARG SITE_URL=https://coolship.itrocas.com
+ENV SITE_URL=$SITE_URL
+RUN addgroup -S -g 1001 nodejs \
+ && adduser -S -u 1001 -G nodejs docs
+COPY --from=build --chown=docs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=docs:nodejs /app/.next/static ./.next/static
+COPY --from=build --chown=docs:nodejs /app/public ./public
+USER docs
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT}/" >/dev/null || exit 1
+CMD ["node", "server.js"]
