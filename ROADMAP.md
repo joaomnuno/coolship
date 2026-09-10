@@ -40,7 +40,7 @@ Every command from the brief is implemented and verified against a live Coolify 
 
 - [x] `init`: create a Coolify application from a repository's public remote and link it (verified live on 4.3.18). Private repositories need a GitHub App or deploy key the API takes by UUID, and Compose projects need per-service domains; both remain open.
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
-- [ ] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18.
+- [x] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18 (reported privately to Coolify on 2026-09-10, per their security policy).
 - [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.
 
 No server administration, runtime emulation, proxy orchestration, or automatic GitHub integration is in scope.
