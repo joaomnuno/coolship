@@ -19,6 +19,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/coolify"
+	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -37,6 +38,7 @@ type server struct {
 	deployment []string
 	logs       []string
 	variables  []map[string]any
+	creations  []map[string]any
 }
 
 func (s *server) record(entry string) int {
@@ -103,8 +105,11 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	handle("GET /api/v1/projects/project-1/environments", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{{"uuid": "env-1", "name": "production"}})
 	})
+	environment := map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application, second}}
 	handle("GET /api/v1/projects/project-1/env-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
-		write(w, map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application, second}})
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		write(w, environment)
 	})
 	handle("GET /api/v1/applications/app-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, application)
@@ -121,6 +126,45 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	})
 	handle("GET /api/v1/applications/app-2", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, second)
+	})
+	handle("GET /api/v1/servers", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, []map[string]any{
+			{"uuid": "server-1", "name": "Master Ubuntu", "ip": "10.0.0.1", "is_reachable": true, "is_usable": true, "settings": map[string]any{"is_usable": true}},
+			{"uuid": "server-2", "name": "Build box", "ip": "10.0.0.2", "is_reachable": false, "is_usable": false},
+		})
+	})
+	// Creation answers as Coolify 4.3.18 does: 201 with the uuid and the
+	// generated domain, or 422 with a message and field errors. The new
+	// application then appears in the environment like any other.
+	handle("POST /api/v1/applications/public", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("creation body: %v", err)
+		}
+		s.mu.Lock()
+		s.creations = append(s.creations, body)
+		s.mu.Unlock()
+		if body["git_repository"] == "https://github.com/joaomnuno/private" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			write(w, map[string]any{"message": "Validation failed.", "errors": map[string]any{"git_repository": []string{"Repository is not accessible."}}})
+			return
+		}
+		if body["project_uuid"] != "project-1" || body["environment_name"] != "production" || body["server_uuid"] != "server-1" || body["instant_deploy"] != false {
+			t.Errorf("unexpected creation body %v", body)
+		}
+		name, _ := body["name"].(string)
+		created := map[string]any{"uuid": "app-" + name, "name": name, "status": "exited:unhealthy", "fqdn": "https://app-" + name + ".coolify.example.com"}
+		environment["applications"] = append(environment["applications"].([]map[string]any), created)
+		mux.HandleFunc("GET /api/v1/applications/app-"+name, func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer "+testToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			s.record(r.Method + " " + r.URL.Path)
+			write(w, created)
+		})
+		w.WriteHeader(http.StatusCreated)
+		write(w, map[string]any{"uuid": created["uuid"], "domains": created["fqdn"]})
 	})
 	handle("POST /api/v1/deploy", func(w http.ResponseWriter, r *http.Request, calls int) {
 		var body struct {
@@ -218,6 +262,11 @@ func run(t *testing.T, url, dir string, in string, args ...string) (string, stri
 			// Record what a real runner would receive; flows do not spawn processes.
 			fmt.Fprintf(&out, "spec dir=%s args=%v shell=%q env=%v\n", filepath.Base(spec.Dir), spec.Args, spec.Shell, spec.Env)
 			return 0, nil
+		},
+		// Test directories carry a .git marker, not a repository; the answer
+		// git would give is supplied here.
+		InspectRepository: func(_ context.Context, dir string) (gitinfo.Repository, error) {
+			return gitinfo.Repository{Remote: "https://github.com/joaomnuno/" + filepath.Base(dir), Branch: "main"}, nil
 		},
 	})
 	streams := ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic, Interactive: in != ""}
@@ -328,6 +377,81 @@ func TestLinkedProjectDrivesEveryWorkflow(t *testing.T) {
 		if counts[endpoint] != expected {
 			t.Errorf("%s requested %d times, want %d", endpoint, counts[endpoint], expected)
 		}
+	}
+}
+
+func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
+	s := &server{deployment: []string{"finished"}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM nginx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(dir)
+
+	// Noninteractive without --yes stops at the plan: no request creates anything.
+	_, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--yes") || len(s.creations) != 0 {
+		t.Fatalf("without --yes: err=%v creations=%d", err, len(s.creations))
+	}
+	// Interactively, the plan is shown on stderr and declined.
+	_, diagnostic, err := run(t, instance.URL, dir, "n\n", "init", "--project", "Personal")
+	if !errors.Is(err, service.ErrCancelled) || !strings.Contains(diagnostic, "Create application "+name+" on") || !strings.Contains(diagnostic, "Master Ubuntu") || len(s.creations) != 0 {
+		t.Fatalf("declined: err=%v stderr=%q", err, diagnostic)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
+		t.Fatalf("declined init wrote configuration: %v", err)
+	}
+	// The server's refusal reaches the user with its explanation, and nothing is written.
+	_, _, err = run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/private", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "Repository is not accessible") || ui.ExitCode(err) != 1 {
+		t.Fatalf("refusal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
+		t.Fatalf("refused init wrote configuration: %v", err)
+	}
+
+	// Accepted: the only usable server is chosen, the Dockerfile sets the
+	// build pack, the repository comes from Git, and the binding is written.
+	out, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--yes", "--format", "json")
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	var result service.InitResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("init output %q: %v", out, err)
+	}
+	if result.Target.ApplicationUUID != "app-"+name || result.Plan.Server != "Master Ubuntu" || result.Plan.BuildPack != "dockerfile" || result.Plan.Port != 80 ||
+		result.Plan.Repository != "https://github.com/joaomnuno/"+name || result.URL != "https://app-"+name+".coolify.example.com" {
+		t.Fatalf("unexpected init result %+v", result)
+	}
+	if len(s.creations) != 2 || s.creations[1]["ports_exposes"] != "80" || s.creations[1]["build_pack"] != "dockerfile" || s.creations[1]["git_branch"] != "main" {
+		t.Fatalf("creations %v", s.creations)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, "coolship.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := config.Parse(written)
+	if err != nil || binding.Project.Application != name || binding.Project.Project != "Personal" || binding.Project.Environment != "production" || binding.Project.ApplicationUUID != "" {
+		t.Fatalf("written binding %+v: %v", binding.Project, err)
+	}
+	// status resolves the new application from the same directory with no flags.
+	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	var status service.StatusResult
+	if err := json.Unmarshal([]byte(out), &status); err != nil || status.Target.ApplicationUUID != "app-"+name || status.URL != result.URL {
+		t.Fatalf("status %s: %v", out, err)
+	}
+	// A second init in the linked directory is refused before any request.
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--name", "again", "--yes"); !errors.Is(err, service.ErrInput) || len(s.creations) != 2 {
+		t.Fatalf("already linked: err=%v creations=%d", err, len(s.creations))
+	}
+	// Nothing was deployed, and no request went to the unusable server.
+	if counts := s.counts(); counts["POST /api/v1/deploy"] != 0 || counts["POST /api/v1/applications/public"] != 2 {
+		t.Fatalf("requests %v", counts)
 	}
 }
 

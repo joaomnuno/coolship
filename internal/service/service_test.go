@@ -13,6 +13,7 @@ import (
 
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
+	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
 )
@@ -36,6 +37,13 @@ type fakeBackend struct {
 	exitCode     int
 	domainUpdate models.DomainUpdate
 	teamError    error
+	servers      []models.Server
+	created      []models.ApplicationSpec
+	createError  error
+	// The fake Git inspector lives here too, so one fixture drives a test.
+	repository      gitinfo.Repository
+	repositoryError error
+	inspected       []string
 }
 
 func newBackend() *fakeBackend {
@@ -47,7 +55,40 @@ func newBackend() *fakeBackend {
 		receipts:     []models.DeploymentReceipt{{ResourceUUID: "app-1", DeploymentUUID: "deploy-1"}},
 		deployments:  []models.Deployment{{UUID: "deploy-1", Status: "finished"}},
 		snapshots:    []string{"2026-09-09T10:00:00Z hello\n"}, calls: map[string]int{},
+		servers:    []models.Server{{UUID: "server-1", Name: "Master", IP: "10.0.0.1", IsReachable: true, IsUsable: true}},
+		repository: gitinfo.Repository{Remote: "https://github.com/owner/new-app", Branch: "main"},
 	}
+}
+
+func (f *fakeBackend) ListServers(context.Context) ([]models.Server, error) {
+	f.calls["servers"]++
+	return f.servers, nil
+}
+
+// CreateProject adds a project whose environments mirror the existing one.
+func (f *fakeBackend) CreateProject(_ context.Context, name, _ string) (models.Project, error) {
+	f.calls["create-project"]++
+	created := models.Project{UUID: "project-" + name, Name: name}
+	f.projects = append(f.projects, created)
+	return created, nil
+}
+
+// CreateApplication records the request and makes the application resolvable
+// under env-1, as the server would list it afterwards.
+func (f *fakeBackend) CreateApplication(_ context.Context, spec models.ApplicationSpec) (models.CreatedApplication, error) {
+	f.calls["create-application"]++
+	if f.createError != nil {
+		return models.CreatedApplication{}, f.createError
+	}
+	f.created = append(f.created, spec)
+	uuid := "app-" + spec.Name
+	application := models.Application{UUID: uuid, Name: spec.Name, Status: "exited", FQDN: "https://" + uuid + ".example.com"}
+	f.environments[0].Applications = append(f.environments[0].Applications, application)
+	if f.more == nil {
+		f.more = map[string]models.Application{}
+	}
+	f.more[uuid] = application
+	return models.CreatedApplication{UUID: uuid, Domains: application.FQDN}, nil
 }
 
 func (f *fakeBackend) ListEnvironmentVariables(_ context.Context, id string) ([]models.EnvironmentVariable, error) {
@@ -106,16 +147,28 @@ func (f *fakeBackend) ListProjects(context.Context) ([]models.Project, error) {
 	f.calls["projects"]++
 	return f.projects, nil
 }
+
+// knownProject reports whether the fake lists a project; every listed project
+// shares the same environments, so a project init creates is usable at once.
+func (f *fakeBackend) knownProject(id string) bool {
+	for _, project := range f.projects {
+		if project.UUID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *fakeBackend) ListEnvironments(_ context.Context, id string) ([]models.Environment, error) {
 	f.calls["environments"]++
-	if id != "project-1" {
+	if !f.knownProject(id) {
 		return nil, errors.New("wrong project")
 	}
 	return f.environments, nil
 }
 func (f *fakeBackend) GetEnvironment(_ context.Context, projectID, id string) (models.Environment, error) {
 	f.calls["environment"]++
-	if projectID != "project-1" || id != "env-1" {
+	if !f.knownProject(projectID) || id != "env-1" {
 		return models.Environment{}, errors.New("wrong environment")
 	}
 	return f.environments[0], nil
@@ -133,7 +186,7 @@ func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Appli
 func (f *fakeBackend) Deploy(_ context.Context, request models.DeployRequest) ([]models.DeploymentReceipt, error) {
 	f.calls["deploy"]++
 	f.lastDeploy = request
-	if request.ApplicationUUID != "app-1" {
+	if _, created := f.more[request.ApplicationUUID]; request.ApplicationUUID != "app-1" && !created {
 		return nil, errors.New("wrong deployment target")
 	}
 	return f.receipts, nil
@@ -178,6 +231,13 @@ func testApp(f *fakeBackend) (*App, *int, *int) {
 		},
 		NewBackend:   func(auth.Credentials) (Backend, error) { factories++; return f, nil },
 		PollInterval: time.Millisecond,
+		InspectRepository: func(_ context.Context, dir string) (gitinfo.Repository, error) {
+			f.inspected = append(f.inspected, dir)
+			if f.repositoryError != nil {
+				return gitinfo.Repository{}, f.repositoryError
+			}
+			return f.repository, nil
+		},
 	})
 	return app, &credentials, &factories
 }

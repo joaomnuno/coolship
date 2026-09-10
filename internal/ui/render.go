@@ -57,6 +57,39 @@ func (r *Renderer) Link(result service.LinkResult) error {
 	return r.target(result.Target)
 }
 
+// Init reports the creation, then the binding like Link does. A deployment
+// that followed is rendered like Deploy's result; its progress already went
+// to stderr as events.
+func (r *Renderer) Init(result service.InitResult) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	plan := result.Plan
+	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s (%s) from %s at %s\n%s %s, port %d\n",
+		singleLine(plan.Name), singleLine(result.Target.ApplicationUUID), singleLine(plan.Repository), singleLine(plan.Branch),
+		r.out.key("Build pack"), singleLine(plan.BuildPack), plan.Port); err != nil {
+		return err
+	}
+	if result.URL != "" {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("URL"), singleLine(result.URL)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(r.streams.Out, "Linked project in %s\n", singleLine(plan.Path)); err != nil {
+		return err
+	}
+	if err := r.target(result.Target); err != nil {
+		return err
+	}
+	if result.Deployment != nil {
+		return r.Deploy(*result.Deployment)
+	}
+	return nil
+}
+
 // Deploy renders the final result only. The same warnings already reached
 // stderr as events before submission, so repeating them here would duplicate
 // every warning in both formats.

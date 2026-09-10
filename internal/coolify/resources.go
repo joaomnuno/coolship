@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -147,6 +148,54 @@ func (c *Client) UpdateApplicationDomains(ctx context.Context, uuid string, upda
 	}
 	var response json.RawMessage
 	return c.request(ctx, http.MethodPatch, []string{"applications", uuid}, nil, body, &response)
+}
+
+func (c *Client) ListServers(ctx context.Context) ([]models.Server, error) {
+	var servers []models.Server
+	err := c.request(ctx, http.MethodGet, []string{"servers"}, nil, nil, &servers)
+	return servers, err
+}
+
+// CreateProject creates a project; the server creates its production
+// environment with it. A POST is never retried here.
+func (c *Client) CreateProject(ctx context.Context, name, description string) (models.Project, error) {
+	if strings.TrimSpace(name) == "" {
+		return models.Project{}, errors.New("project name is required")
+	}
+	body := map[string]string{"name": name, "description": description}
+	var response struct {
+		UUID string `json:"uuid"`
+	}
+	if err := c.request(ctx, http.MethodPost, []string{"projects"}, nil, body, &response); err != nil {
+		return models.Project{}, err
+	}
+	if response.UUID == "" {
+		return models.Project{}, &ProtocolError{Endpoint: "/projects", Reason: "response omits the project uuid"}
+	}
+	return models.Project{UUID: response.UUID, Name: name}, nil
+}
+
+// CreateApplication creates an application from a public repository. The
+// server answers 201 with the new uuid and its domains; a refusal carries the
+// server's explanation. A POST is never retried here: if the request fails
+// without an answer, the application may or may not exist.
+func (c *Client) CreateApplication(ctx context.Context, spec models.ApplicationSpec) (models.CreatedApplication, error) {
+	for _, required := range []struct{ name, value string }{
+		{"project uuid", spec.ProjectUUID}, {"environment name", spec.EnvironmentName}, {"server uuid", spec.ServerUUID},
+		{"name", spec.Name}, {"repository", spec.GitRepository}, {"branch", spec.GitBranch}, {"build pack", spec.BuildPack}, {"port", spec.PortsExposes},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			return models.CreatedApplication{}, fmt.Errorf("application %s is required", required.name)
+		}
+	}
+	var response models.CreatedApplication
+	if err := c.request(ctx, http.MethodPost, []string{"applications", "public"}, nil, spec, &response); err != nil {
+		return models.CreatedApplication{}, err
+	}
+	if response.UUID == "" {
+		return models.CreatedApplication{}, &ProtocolError{Endpoint: "/applications/public", Reason: "response omits the application uuid"}
+	}
+	return response, nil
 }
 
 // Team reads the team the token belongs to; it doubles as a credential check.

@@ -16,6 +16,7 @@ type Application interface {
 	Deploy(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
 	Logs(context.Context, service.LogsOptions, service.Emitter) error
 	Link(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
+	Init(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	Open(context.Context, service.OpenOptions) (service.OpenResult, error)
 	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
 	Config(context.Context, service.Options) (service.ConfigResult, error)
@@ -64,7 +65,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root := &cobra.Command{
 		Use:           "coolship",
 		Short:         "Project-local deployment workflows for Coolify",
-		Long:          "Link this repository to an existing Coolify application, then inspect, deploy, open, and read the logs of that application.",
+		Long:          "Link this repository to a Coolify application — an existing one with link, or a new one with init — then inspect, deploy, open, and read the logs of that application.",
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -99,7 +100,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	// tree exists, because styling is a stream capability decided with the
 	// streams; the flag is declared here so parsing accepts and documents it.
 	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
-	root.AddCommand(newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
+	root.AddCommand(newInitCommand(app, options, streams), newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
 		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
 		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
 		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams),

@@ -114,6 +114,42 @@ type DomainUpdate struct {
 	Force    bool
 }
 
+// Server is a host Coolify can deploy to. IsUsable is the server's own
+// readiness flag; IsReachable is its last connectivity check.
+type Server struct {
+	UUID        string `json:"uuid"`
+	Name        string `json:"name"`
+	IP          string `json:"ip"`
+	IsReachable bool   `json:"is_reachable"`
+	IsUsable    bool   `json:"is_usable"`
+}
+
+// ApplicationSpec creates one application from a public Git repository. The
+// field names follow the server's request contract for POST
+// /applications/public; PortsExposes is a comma-separated port list.
+type ApplicationSpec struct {
+	ProjectUUID     string `json:"project_uuid"`
+	EnvironmentName string `json:"environment_name"`
+	ServerUUID      string `json:"server_uuid"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	GitRepository   string `json:"git_repository"`
+	GitBranch       string `json:"git_branch"`
+	BuildPack       string `json:"build_pack"`
+	PortsExposes    string `json:"ports_exposes"`
+	BaseDirectory   string `json:"base_directory,omitempty"`
+	IsStatic        bool   `json:"is_static,omitempty"`
+	InstantDeploy   bool   `json:"instant_deploy"`
+}
+
+// CreatedApplication is the server's answer to a creation: the new identity
+// and the domains it assigned, which is a generated <uuid>.<wildcard> URL
+// unless the request set its own.
+type CreatedApplication struct {
+	UUID    string `json:"uuid"`
+	Domains string `json:"domains"`
+}
+
 // Team identifies the team an API token acts for.
 type Team struct {
 	ID   int    `json:"id"`

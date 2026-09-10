@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
+	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 )
@@ -19,25 +21,9 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if err != nil {
 		return LinkResult{}, input(err)
 	}
-	authOptions := a.authOptions(options.Options, p.Config.Project.Context)
-	if authOptions.Context == "" && authOptions.URL == "" && authOptions.Token == "" {
-		instances, err := a.deps.ListInstances(authOptions)
-		if err != nil {
-			return LinkResult{}, input(err)
-		}
-		choices := make([]Choice, len(instances))
-		for i, instance := range instances {
-			choices[i] = Choice{ID: instance.Name, Name: instance.Name, Detail: instance.URL}
-		}
-		name, err := choose(ctx, "context", choices, selectChoice)
-		if err != nil {
-			return LinkResult{}, err
-		}
-		authOptions.Context = name
-	}
-	credentials, err := a.deps.ResolveCredentials(authOptions)
+	authOptions, credentials, err := a.selectCredentials(ctx, options.Options, p.Config.Project.Context, selectChoice)
 	if err != nil {
-		return LinkResult{}, input(err)
+		return LinkResult{}, err
 	}
 	backend, err := a.backend(credentials)
 	if err != nil {
@@ -103,90 +89,162 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if err != nil {
 		return LinkResult{}, resolutionError(err)
 	}
-	binding := config.Binding{Context: credentials.Name, Project: remoteProject.Name,
-		Environment: environment.Name, Application: application.Name, Root: options.Root}
-	if authOptions.URL != "" {
+	outcome, err := a.writeBinding(ctx, p, backend, bindingRequest{
+		credentials: credentials, authOptions: authOptions, target: options.Target, root: options.Root, replace: options.Replace,
+		projects: projects, project: remoteProject, environments: environments, environment: environment,
+		applications: details.Applications, application: application,
+		pinProject: options.ProjectUUID != "", pinEnvironment: options.EnvironmentUUID != "", pinApplication: options.ApplicationUUID != "",
+	}, confirm)
+	if err != nil {
+		return LinkResult{}, err
+	}
+	return outcome.result, nil
+}
+
+// selectCredentials resolves the instance for a workflow that has no complete
+// binding yet: an explicit context, the committed one, the CI pair, or a
+// choice among the configured instances.
+func (a *App) selectCredentials(ctx context.Context, options Options, configuredContext string, selectChoice Selector) (auth.Options, auth.Credentials, error) {
+	authOptions := a.authOptions(options, configuredContext)
+	if authOptions.Context == "" && authOptions.URL == "" && authOptions.Token == "" {
+		instances, err := a.deps.ListInstances(authOptions)
+		if err != nil {
+			return auth.Options{}, auth.Credentials{}, input(err)
+		}
+		choices := make([]Choice, len(instances))
+		for i, instance := range instances {
+			choices[i] = Choice{ID: instance.Name, Name: instance.Name, Detail: instance.URL}
+		}
+		name, err := choose(ctx, "context", choices, selectChoice)
+		if err != nil {
+			return auth.Options{}, auth.Credentials{}, err
+		}
+		authOptions.Context = name
+	}
+	credentials, err := a.deps.ResolveCredentials(authOptions)
+	if err != nil {
+		return auth.Options{}, auth.Credentials{}, input(err)
+	}
+	return authOptions, credentials, nil
+}
+
+// bindingRequest is a chosen application together with the candidate lists it
+// was chosen from, which decide whether names describe it uniquely.
+type bindingRequest struct {
+	credentials  auth.Credentials
+	authOptions  auth.Options
+	target       string // named target to write; empty writes [project]
+	root         string // explicit root; empty applies the default rule
+	replace      bool
+	projects     []models.Project
+	project      models.Project
+	environments []models.Environment
+	environment  models.Environment
+	applications []models.Application
+	application  models.Application
+	// Explicit UUID selectors are always written as pins.
+	pinProject, pinEnvironment, pinApplication bool
+}
+
+type bindingOutcome struct {
+	result  LinkResult
+	context project.Context // the verified binding, usable as a session
+}
+
+// proposedRoot is the root a binding gets without an explicit one: the
+// existing [project] root when that form is kept, else the default rule.
+func proposedRoot(p project.Project, target, explicit string) string {
+	root := explicit
+	if root == "" && target == "" && !p.Config.Named() {
+		root = p.Config.Project.Root
+	}
+	if root == "" {
+		root = project.DefaultRoot(p, target)
+	}
+	return root
+}
+
+// writeBinding composes the binding, verifies it through the resolver exactly
+// as every later command will, reviews a replacement, and writes the file.
+func (a *App) writeBinding(ctx context.Context, p project.Project, backend Backend, request bindingRequest, confirm Confirm) (bindingOutcome, error) {
+	binding := config.Binding{Context: request.credentials.Name, Project: request.project.Name,
+		Environment: request.environment.Name, Application: request.application.Name, Root: proposedRoot(p, request.target, request.root)}
+	if request.authOptions.URL != "" {
 		binding.Context = ""
 	}
-	if binding.Root == "" && options.Target == "" && !p.Config.Named() {
-		binding.Root = p.Config.Project.Root
-	}
-	if binding.Root == "" {
-		binding.Root = project.DefaultRoot(p, options.Target)
-	}
 	projectMatches, environmentMatches, applicationMatches := 0, 0, 0
-	for _, item := range projects {
+	for _, item := range request.projects {
 		if item.Name == binding.Project {
 			projectMatches++
 		}
 	}
-	for _, item := range environments {
+	for _, item := range request.environments {
 		if item.Name == binding.Environment {
 			environmentMatches++
 		}
 	}
-	for _, item := range details.Applications {
+	for _, item := range request.applications {
 		if item.Name == binding.Application {
 			applicationMatches++
 		}
 	}
-	if options.ProjectUUID != "" || projectMatches > 1 {
-		binding.ProjectUUID = remoteProject.UUID
+	if request.pinProject || projectMatches > 1 {
+		binding.ProjectUUID = request.project.UUID
 	}
-	if options.EnvironmentUUID != "" || environmentMatches > 1 {
-		binding.EnvironmentUUID = environment.UUID
+	if request.pinEnvironment || environmentMatches > 1 {
+		binding.EnvironmentUUID = request.environment.UUID
 	}
-	if options.ApplicationUUID != "" || applicationMatches > 1 {
-		binding.ApplicationUUID = application.UUID
+	if request.pinApplication || applicationMatches > 1 {
+		binding.ApplicationUUID = request.application.UUID
 	}
-	proposal, err := project.Propose(p, options.Target, binding)
+	proposal, err := project.Propose(p, request.target, binding)
 	if err != nil {
-		return LinkResult{}, input(err)
+		return bindingOutcome{}, input(err)
 	}
 	candidate := p
 	candidate.Config = proposal.Config
 	candidate.Exists = true
 	target, err := project.Select(candidate, proposal.Key, "")
 	if err != nil {
-		return LinkResult{}, input(err)
+		return bindingOutcome{}, input(err)
 	}
 	verified, err := resolver.Resolve(ctx, backend, target)
 	if err != nil {
-		return LinkResult{}, resolutionError(err)
+		return bindingOutcome{}, resolutionError(err)
 	}
 	// Selection must remain the same even if a resource changes during the prompts.
-	if verified.Project.UUID != remoteProject.UUID || verified.Environment.UUID != environment.UUID || verified.Application.UUID != application.UUID {
-		return LinkResult{}, errors.New("remote selection changed while linking; run link again")
+	if verified.Project.UUID != request.project.UUID || verified.Environment.UUID != request.environment.UUID || verified.Application.UUID != request.application.UUID {
+		return bindingOutcome{}, errors.New("remote selection changed while linking; run link again")
 	}
-	resolved := project.Context{Project: candidate, Target: target, InstanceName: credentials.Name, InstanceURL: credentials.URL,
+	resolved := project.Context{Project: candidate, Target: target, InstanceName: request.credentials.Name, InstanceURL: request.credentials.URL,
 		RemoteProject: verified.Project, Environment: verified.Environment, Application: verified.Application}
 	plan := LinkPlan{Path: p.ConfigPath, Target: targetInfo(resolved), Replacing: proposal.Review,
 		Converting: p.Exists && p.Config.Named() != proposal.Config.Named()}
-	replace := options.Replace
+	replace := request.replace
 	if plan.Replacing && !replace {
 		if confirm == nil {
-			return LinkResult{}, input(project.ErrReplacementRequired)
+			return bindingOutcome{}, input(project.ErrReplacementRequired)
 		}
 		accepted, err := confirm(ctx, plan)
 		if err != nil {
-			return LinkResult{}, err
+			return bindingOutcome{}, err
 		}
 		if !accepted {
-			return LinkResult{}, ErrCancelled
+			return bindingOutcome{}, ErrCancelled
 		}
 		replace = true
 	}
 	if err := ctx.Err(); err != nil {
-		return LinkResult{}, err
+		return bindingOutcome{}, err
 	}
-	if err := project.WriteBinding(p, options.Target, binding, replace); err != nil {
-		return LinkResult{}, input(err)
+	if err := project.WriteBinding(p, request.target, binding, replace); err != nil {
+		return bindingOutcome{}, input(err)
 	}
 	warnings := verified.Warnings
-	if authOptions.URL != "" {
+	if request.authOptions.URL != "" {
 		warnings = append(warnings, "Credentials come from COOLSHIP_URL and COOLSHIP_TOKEN; no named context was written.")
 	}
-	return LinkResult{Path: p.ConfigPath, Target: plan.Target, Warnings: warnings}, nil
+	return bindingOutcome{result: LinkResult{Path: p.ConfigPath, Target: plan.Target, Warnings: warnings}, context: resolved}, nil
 }
 
 func choose(ctx context.Context, kind string, choices []Choice, selectChoice Selector) (string, error) {

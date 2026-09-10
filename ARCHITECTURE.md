@@ -76,7 +76,7 @@ coolship/
 │   ├── deploy.go
 │   ├── logs.go
 │   ├── open.go                     # Later
-│   ├── init.go                     # Later
+│   ├── init.go                     # Create an application, then bind it
 │   ├── unlink.go                   # Later
 │   ├── config.go                   # Later
 │   ├── doctor.go                   # Later
@@ -100,6 +100,8 @@ coolship/
 │   │   └── coolify_cli.go          # Read existing contexts and select credentials
 │   ├── process/
 │   │   └── process.go              # Local child process: shell, environment, signals, status
+│   ├── gitinfo/
+│   │   └── gitinfo.go              # Origin remote and branch through git; remote URL normalization
 │   ├── envfile/
 │   │   └── envfile.go              # Dotenv codec preserving comments and order
 │   ├── models/
@@ -116,6 +118,7 @@ coolship/
 │   │   ├── service.go              # Dependencies, shared preparation, status
 │   │   ├── types.go                # Options, public results, ports, events, typed errors
 │   │   ├── link.go                 # Resource selection and binding plan/write
+│   │   ├── init.go                 # Repository detection, creation plan, then the link write
 │   │   ├── deploy.go               # Trigger and observe one deployment
 │   │   ├── logs.go                 # Snapshot/follow workflow
 │   │   └── environment.go          # Later pull/push/diff policy
@@ -146,6 +149,7 @@ flowchart TD
     main --> resolver
     main --> coolify
     main --> ui
+    main --> gitinfo
     cmd --> envcmd[cmd/env: later]
     cmd --> service
     cmd --> ui
@@ -156,6 +160,7 @@ flowchart TD
     service --> auth
     service --> resolver
     service --> models
+    service --> gitinfo
     resolver --> project
     resolver --> models
     project --> config
@@ -170,7 +175,7 @@ flowchart TD
 
 | Package | Why it exists and what it owns | Allowed direct project imports |
 | --- | --- | --- |
-| `main` | Makes concrete dependencies visible in one place. Constructs services, adapters, and UI; supplies signal cancellation; executes Cobra and exits once. Constructors do not perform network requests or require a linked project. | `cmd`, `service`, `project`, `auth`, `resolver`, `coolify`, `ui` |
+| `main` | Makes concrete dependencies visible in one place. Constructs services, adapters, and UI; supplies signal cancellation; executes Cobra and exits once. Constructors do not perform network requests or require a linked project. | `cmd`, `service`, `project`, `auth`, `resolver`, `coolify`, `ui`, `gitinfo`, `process` |
 | `cmd` | Translates CLI arguments into typed service requests. Registers commands, conducts prompt interaction, and sends results to UI. Contains no HTTP, filesystem search, credential lookup, or name-matching algorithm. | `service`, `ui`; later `cmd/env` |
 | `cmd/env` | Groups future variable commands without making each handler responsible for configuration or authentication. It receives dependencies from its parent and never imports `cmd`. | `service`, `ui` |
 | `config` | Defines the committed file contract independently of machine paths and credentials. Parses, validates, normalizes, and encodes TOML. Unknown fields and unsupported schema versions produce actionable errors. | None |
@@ -179,7 +184,8 @@ flowchart TD
 | `models` | Gives the resolver, adapter, and workflows a small shared resource vocabulary without importing one another. Owns resource identity and operation data, not credentials, TOML, Cobra, rendering, or polling. | None |
 | `coolify` | Encapsulates endpoint paths, request/response conversion, authentication headers, timeouts, HTTP errors, and read retries. It receives a base URL and token; it does not know the current directory or config files. | `models` |
 | `resolver` | Converts semantic selectors into a verified project/environment/application binding. Owns hierarchy constraints, exact matching, ambiguity detection, and cached-binding validation policy. Reads resources through `Catalog`; performs no prompts or filesystem writes. | `project`, `models` |
-| `service` | Implements project workflows and the one shared preparation path. Owns link planning, deployment observation, log following, and later variable synchronization. Takes ordinary values and `context.Context`; returns results/events/errors. | `project`, `auth`, `resolver`, `models` |
+| `service` | Implements project workflows and the one shared preparation path. Owns link planning, deployment observation, log following, and later variable synchronization. Takes ordinary values and `context.Context`; returns results/events/errors. | `project`, `auth`, `resolver`, `models`, `gitinfo` (types and URL normalization only; `git` runs through an injected function) |
+| `gitinfo` | Answers where Coolify should clone from: the origin remote, normalized to an https URL, and the checked-out branch. Runs `git` through `os/exec` and nothing else; `main` injects `Inspect` into `service.Dependencies` so tests substitute a function. | None |
 | `ui` | Owns prompts, terminal capability checks, colors, progress rendering, JSON, and error presentation. May consume service result/event types; never fetches data or selects a remote target by business rules. | `service` |
 
 The UI dependency on service types is intentional: presentation knows what it renders, while workflows know nothing about presentation. Service event callbacks provide backpressure and return output errors; no global event bus or unbounded background channels are needed.
@@ -340,13 +346,14 @@ The same service accepts complete selectors from noninteractive flags. Missing r
 
 The binding plan includes the original file fingerprint. Before writing, detect concurrent edits and fail instead of overwriting them. Preserve unrelated configuration and comments when updating a binding. If lossless editing is not available initially, restrict writes to new files and explicitly reviewed replacements rather than silently regenerating existing TOML. Write through a temporary file and rename; a later cache write failure must not invalidate an otherwise successful link.
 
-`unlink`, when added, removes the selected local binding and its cache only. `init` creates local configuration or delegates into the same link flow. Neither operation deletes or creates a remote application implicitly.
+`unlink` removes the selected local binding only. `init` is the one workflow that creates a remote resource, and only explicitly: it detects the repository and build pack, shows the complete plan, creates the application after confirmation (or `--yes`), and then hands the new application to the same binding step `link` uses — `writeBinding` composes the binding, verifies it through the resolver, and writes the file — so the two commands cannot drift. A directory whose target is already bound is refused before any request rather than re-pointed. Neither operation deletes a remote application.
 
 ## 7. MVP command behavior and API boundary
 
 | Command | Service responsibility | Initial API operations under `/api/v1` |
 | --- | --- | --- |
 | `link` | Discover, select a scoped binding, validate, and persist it. | `GET /projects`, `GET /projects/{uuid}/environments`, `GET /projects/{uuid}/{environment_uuid}`, `GET /applications/{uuid}` as needed. |
+| `init` | Read the repository's public remote and branch, detect the build pack, refuse a linked directory or a Compose project before any request, confirm the plan, create the application without deploying, then persist and verify the binding through `link`'s write step. `--deploy` reuses the deployment service on the verified session. Private repositories are out of scope: `POST /applications/private-github-app` requires a `github_app_uuid` and `/private-deploy-key` a `private_key_uuid`, both registered in Coolify beforehand. | `GET /servers`, the `link` reads, optionally `POST /projects`, then `POST /applications/public` with `instant_deploy: false`; with `--deploy`, `POST /deploy` and `GET /deployments/{uuid}`. |
 | `status` | Resolve once and return observed application status and identity. Preserve unfamiliar server status strings. | Shared resolution, then `GET /applications/{uuid}`. |
 | `deploy` | Resolve once, submit exactly the selected application, and observe the returned deployment UUID. | `POST /deploy` with the application UUID; `GET /deployments/{deployment_uuid}` while waiting. |
 | `logs` | Resolve once, fetch runtime logs, optionally follow snapshots. | `GET /applications/{uuid}/logs?lines=…&show_timestamps=true`. |
@@ -360,7 +367,7 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 | `dev` | Run a local command in the application root with the target's runtime variables injected, through an injected process runner; the child's exit status becomes the exit code. | `GET /applications/{uuid}/envs`. |
 | `env pull\|diff\|push` | Compare one scope of the application's variables with a local dotenv file; pull writes, push upserts in one bulk request and deletes by identity only with `--prune`. | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`. |
 
-The hierarchy leaves room for `init`. Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
+Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
 ### Deployment semantics
 
@@ -460,7 +467,7 @@ Gates 1 to 3 are complete; gates 4 and 5 remain. [ROADMAP.md](ROADMAP.md) tracks
 
 ### Supported server baseline
 
-**Verified: Coolify 4.3.18**, reached through Cloudflare, with a token holding read, write, deploy, and sensitive-read abilities. The reference checkout is 4.3.19 (`424dbd3`); a transient fetch of upstream tag `v4.3.18` showed no change between the two in `routes/api.php`, `DeployController`, `ProjectController`, the sensitive-data middleware, or the deployment-status enum. The only `ApplicationsController` change is inside application creation, which Coolship never calls. The source observations in section 1 therefore describe the verified server exactly for every endpoint Coolship uses.
+**Verified: Coolify 4.3.18**, reached through Cloudflare, with a token holding read, write, deploy, and sensitive-read abilities. The reference checkout is 4.3.19 (`424dbd3`); a transient fetch of upstream tag `v4.3.18` showed no change between the two in `routes/api.php`, `DeployController`, `ProjectController`, the sensitive-data middleware, or the deployment-status enum. The only `ApplicationsController` change is inside application creation, which `init` calls; that path was verified live on 4.3.18 itself (below). The source observations in section 1 therefore describe the verified server exactly for every endpoint Coolship uses.
 
 Validation ran `link`, `status`, `deploy` (observed to `finished` in 29 s), `logs`, and `logs --follow` against a Dockerfile application created for that purpose ([example-coolify-project](https://github.com/joaomnuno/example-coolify-project)), plus read-only `link`, `status`, and `logs` against a pre-existing application. Sanitized fixtures preserving the observed response shapes live in `internal/coolify/testdata/`; they contain no identifiers, hostnames, or values from the validating instance.
 
@@ -474,6 +481,7 @@ Observed behavior that shapes the client, none of which was visible from source 
 - **`is_shown_once` withholds `value` and `real_value`** from the regular row, but the auto-created preview twin is returned with the value in clear. Coolship never reads around a withheld value; the twin is a server defect to report upstream.
 - **The variable API accepts `is_buildtime` and `is_runtime`**; `is_build_time` is rejected with 422. Bulk creation is `PATCH /applications/{uuid}/envs/bulk` with `{"data": [...]}`; deletion is by variable UUID.
 - **`POST /deploy` accepts `pr`** (pull request id) alongside `uuid` and `force`, and answers HTTP 200 with a message-only receipt when the pull request has no preview record. No endpoint creates previews; section 9 defines `preview` against that.
+- **`POST /applications/public` answers 201 with `{uuid, domains}`** and, without `domains` in the request, assigns the generated `https://<uuid>.<wildcard>` domain at once. A GitHub URL is stored as `owner/repo` with the built-in public GitHub source (`source_id` 0); other hosts keep the full URL. A never-deployed application reports `exited:unhealthy`. A refusal is `422 {"message": "Validation failed.", "errors": {field: [...]}}`, which the client surfaces for 4xx mutations. `DELETE /applications/{uuid}` queues a `DeleteResourceJob` and answers 200; the application is gone from reads within seconds. Verified by creating `coolship-init-test` from the example repository and deleting it again.
 - **A Cloudflare bot rule in front of the validating instance rejects some default user agents.** Coolship sends `coolship/<version>`; Coolify CLI sends Go's default. Both are accepted; a generic scripting-language default was not.
 
 Limits that remain, independent of the version:
