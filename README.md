@@ -273,7 +273,7 @@ coolship start                # deploy again, observed like deploy
 coolship restart --yes        # queue a restart, observed like deploy
 ```
 
-`stop` shows the application and its environment and asks before stopping — production deserves a clear question — then waits until the status leaves `running` (2 minutes by default) and reports the last status it saw. Coolify stops and removes the containers; the application, its configuration, and its history stay, and `deploy` or `start` brings it back. An application that is not running is left alone with a warning.
+`stop` shows the application and its environment and asks before stopping — production deserves a clear question — then waits until the status reports `exited` (2 minutes by default) and reports the last status it saw. Coolify stops and removes the containers; the application, its configuration, and its history stay, and `deploy` or `start` brings it back. Only an application that already reports `exited` is left alone, with a warning; every other status is stopped, as Coolify's own Stop button does — a crash-looping application reports `restarting` or `degraded`, never `running`, and is the usual reason to reach for the command.
 
 ```text
 $ coolship stop --yes

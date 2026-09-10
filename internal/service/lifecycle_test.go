@@ -17,7 +17,7 @@ func record(uuid, status, commit string) models.DeploymentRecord {
 		CreatedAt: "2026-09-10T11:37:12.000000Z", UpdatedAt: "2026-09-10T11:37:37.000000Z", FinishedAt: "2026-09-10T11:37:36.000000Z"}
 }
 
-func TestStopConfirmsThenWaitsForTheStatusToLeaveRunning(t *testing.T) {
+func TestStopConfirmsThenWaitsForTheStatusToReportExited(t *testing.T) {
 	f := newBackend()
 	app, _, _ := testApp(f)
 	options := StopOptions{Options: linkedOptions(t)}
@@ -48,7 +48,7 @@ func TestStopConfirmsThenWaitsForTheStatusToLeaveRunning(t *testing.T) {
 	if f.calls["projects"] != 3 {
 		t.Fatalf("each invocation prepares once: %v", f.calls)
 	}
-	// An application that is not running is left alone, with a warning and no request.
+	// An application that already reports exited is left alone, with a warning and no request.
 	f.application.Status = "exited:unhealthy"
 	f.environments[0].Applications[0] = f.application
 	f.stopped = false
@@ -59,8 +59,38 @@ func TestStopConfirmsThenWaitsForTheStatusToLeaveRunning(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || f.calls["stop"] != 1 || warnings != 1 || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "not running") {
+	if err != nil || f.calls["stop"] != 1 || warnings != 1 || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "already stopped (exited:unhealthy)") {
 		t.Fatalf("already stopped: result=%+v err=%v calls=%v warnings=%d", result, err, f.calls, warnings)
+	}
+}
+
+func TestStopSendsForEveryStatusButExitedAndWaitsForExited(t *testing.T) {
+	// Coolify reports a crash-looping container as restarting, a recent crash
+	// loop as degraded, a swarm replica as starting, and other Docker states as
+	// they are; its own Stop acts on every status that is not exited, and the
+	// server's action has no precondition at all.
+	for _, before := range []string{"restarting:unhealthy", "degraded:unhealthy", "starting:unhealthy", "created:unhealthy", "paused:healthy", "running:unhealthy"} {
+		f := newBackend()
+		f.application.Status = before
+		f.environments[0].Applications[0] = f.application
+		// The queued job's first effects can be other non-exited readings; only exited ends the wait.
+		f.stopStatuses = []string{before, "restarting:unhealthy", "degraded:unhealthy", "exited:unhealthy"}
+		app, _, _ := testApp(f)
+		var plan StopPlan
+		accepted := func(_ context.Context, p StopPlan) (bool, error) { plan = p; return true, nil }
+		var statuses []string
+		result, err := app.Stop(context.Background(), StopOptions{Options: linkedOptions(t)}, accepted, func(e Event) error {
+			if e.Type == "application" && e.Message == "" {
+				statuses = append(statuses, e.Status)
+			}
+			return nil
+		})
+		if err != nil || plan.Status != before || result.Before != before || result.Status != "exited:unhealthy" || f.calls["stop"] != 1 || len(result.Warnings) != 0 {
+			t.Fatalf("%s: result=%+v plan=%+v err=%v calls=%v", before, result, plan, err, f.calls)
+		}
+		if n := len(statuses); n < 2 || statuses[n-1] != "exited:unhealthy" || statuses[n-2] != "degraded:unhealthy" {
+			t.Fatalf("%s: the wait ended at %v, want to pass degraded and end at exited", before, statuses)
+		}
 	}
 }
 
@@ -72,6 +102,12 @@ func TestStopReportsTimeoutAndRequestFailures(t *testing.T) {
 	result, err := app.Stop(context.Background(), options, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "still reports running:healthy") || result.Status != "running:healthy" {
 		t.Fatalf("timeout: result=%+v err=%v", result, err)
+	}
+	// A crash loop that keeps reporting degraded is not mistaken for stopped.
+	f.stopStatuses = []string{"degraded:unhealthy"}
+	result, err = app.Stop(context.Background(), options, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "still reports degraded:unhealthy") || result.Status != "degraded:unhealthy" {
+		t.Fatalf("degraded timeout: result=%+v err=%v", result, err)
 	}
 	f.stopError = errors.New("boom")
 	if _, err := app.Stop(context.Background(), options, nil, nil); err == nil || !strings.Contains(err.Error(), "stop application: boom") {

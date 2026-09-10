@@ -49,7 +49,7 @@ type server struct {
 	// goes away: later logs calls refuse as notRunning does, and the
 	// application reads exited:unhealthy from then on.
 	stopAfter int
-	history    []map[string]any // deployment rows, newest first, as the list endpoint returns them
+	history   []map[string]any // deployment rows, newest first, as the list endpoint returns them
 }
 
 func (s *server) record(entry string) int {
@@ -842,8 +842,8 @@ func TestLifecycleAgainstTheServer(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"status":"exited:unhealthy"`) {
 		t.Fatalf("status after stop: out=%q err=%v", out, err)
 	}
-	// A second stop finds nothing running and sends nothing.
-	if _, diagnostic, err := run(t, instance.URL, dir, "", "stop", "--yes"); err != nil || !strings.Contains(diagnostic, "not running") || s.counts()["POST /api/v1/applications/app-1/stop"] != 1 {
+	// A second stop finds the application already exited and sends nothing.
+	if _, diagnostic, err := run(t, instance.URL, dir, "", "stop", "--yes"); err != nil || !strings.Contains(diagnostic, "already stopped (exited:unhealthy)") || s.counts()["POST /api/v1/applications/app-1/stop"] != 1 {
 		t.Fatalf("stop when stopped: stderr=%q err=%v counts=%v", diagnostic, err, s.counts())
 	}
 
