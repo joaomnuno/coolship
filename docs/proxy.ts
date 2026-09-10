@@ -27,17 +27,16 @@ export default function proxy(request: NextRequest) {
   const explicit = markdownTarget(pathname);
   if (explicit) return NextResponse.rewrite(new URL(explicit, request.nextUrl));
 
-  if (isMarkdownPreferred(request)) {
-    const negotiated = negotiatedTarget(pathname);
-    if (negotiated) {
-      return NextResponse.rewrite(new URL(negotiated, request.nextUrl), {
-        // The page URL has two representations, selected by Accept.
-        headers: { Vary: 'Accept' },
-      });
-    }
-  }
+  const negotiated = negotiatedTarget(pathname);
+  if (!negotiated) return NextResponse.next();
 
-  return NextResponse.next();
+  // A page URL has two representations, selected by Accept, so both the HTML
+  // and the Markdown response tell shared caches to key on it.
+  const vary = { headers: { Vary: 'Accept' } };
+  if (isMarkdownPreferred(request)) {
+    return NextResponse.rewrite(new URL(negotiated, request.nextUrl), vary);
+  }
+  return NextResponse.next(vary);
 }
 
 export const config = {

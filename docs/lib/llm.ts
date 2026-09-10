@@ -24,7 +24,12 @@ function absolutize(markdown: string) {
   return markdown.replace(/\]\(\/(?!\/)/g, `](${siteUrl}/`);
 }
 
-/** One page as plain Markdown: the title and URL, then the processed body. */
+/**
+ * One page as plain Markdown: the title and URL, then the processed body.
+ * The components listed in lib/source.ts arrive as placeholders whose
+ * children are already Markdown blocks separated by blank lines; the
+ * renderers below keep those separators.
+ */
 export async function getLLMText(page: Page) {
   const processed = await page.data.getText('processed');
   const body = await renderPlaceholder(processed, {
@@ -32,11 +37,13 @@ export async function getLLMText(page: Page) {
       const label = text(attributes.title) || capitalize(text(attributes.type) || 'note');
       return `> **${label}**\n${quote(children)}`;
     },
-    Cards: ({ children }) => children.trim(),
+    // One tight list: the cards arrive as `- ` items separated by blank lines.
+    Cards: ({ children }) => children.trim().replace(/\n{2,}(?=- )/g, '\n'),
     Card: ({ attributes, children }) => {
       const title = text(attributes.title);
       const href = text(attributes.href);
-      const body = children.trim();
+      // A card body with several blocks stays inside its list item.
+      const body = children.trim().replace(/\n/g, '\n  ');
       const link = href ? `[${title}](${href})` : title;
       return `- ${link}${body ? `: ${body}` : ''}`;
     },
