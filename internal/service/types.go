@@ -9,6 +9,7 @@ import (
 
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
+	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/resolver"
 )
@@ -32,6 +33,55 @@ type LinkOptions struct {
 	ApplicationUUID string
 	Root            string
 	Replace         bool
+}
+
+// InitOptions creates an application for the current repository and binds it.
+// Repository and Branch are read from Git when empty; BuildPack is detected
+// from the application root when empty.
+type InitOptions struct {
+	Options
+	Repository    string
+	Branch        string
+	BuildPack     string // nixpacks, dockerfile, or static
+	Port          int    // 0 means the build pack's default
+	Static        bool   // serve the build output as a static site
+	Name          string // defaults to the repository name
+	Project       string
+	CreateProject bool
+	Server        string
+	Yes           bool
+	Deploy        bool
+	Timeout       time.Duration // deployment observation, when Deploy is set
+}
+
+// InitPlan is everything init will create and write, shown before it does.
+type InitPlan struct {
+	Path        string `json:"path"`
+	Target      string `json:"target"`
+	Root        string `json:"root"`
+	Repository  string `json:"repository"`
+	Branch      string `json:"branch"`
+	BuildPack   string `json:"build_pack"`
+	Port        int    `json:"port"`
+	Static      bool   `json:"static,omitempty"`
+	Name        string `json:"name"`
+	Instance    string `json:"instance"`
+	Project     string `json:"project"`
+	NewProject  bool   `json:"new_project,omitempty"`
+	Environment string `json:"environment"`
+	Server      string `json:"server"`
+	Deploy      bool   `json:"deploy,omitempty"`
+}
+
+type ConfirmInit func(context.Context, InitPlan) (bool, error)
+
+type InitResult struct {
+	Plan   InitPlan   `json:"plan"`
+	Target TargetInfo `json:"target"`
+	// URL is the domain Coolify assigned at creation.
+	URL        string        `json:"url,omitempty"`
+	Deployment *DeployResult `json:"deployment,omitempty"`
+	Warnings   []string      `json:"warnings,omitempty"`
 }
 
 type DeployOptions struct {
@@ -262,6 +312,9 @@ type Backend interface {
 	UpsertEnvironmentVariables(context.Context, string, []models.EnvironmentVariableInput) error
 	DeleteEnvironmentVariable(context.Context, string, string) error
 	UpdateApplicationDomains(context.Context, string, models.DomainUpdate) error
+	ListServers(context.Context) ([]models.Server, error)
+	CreateProject(ctx context.Context, name, description string) (models.Project, error)
+	CreateApplication(context.Context, models.ApplicationSpec) (models.CreatedApplication, error)
 }
 
 type Dependencies struct {
@@ -275,6 +328,10 @@ type Dependencies struct {
 	CredentialToken    string
 	PollInterval       time.Duration
 	RunProcess         func(context.Context, ProcessSpec) (int, error)
+	// InspectRepository reads the remote and branch of the repository
+	// containing a directory; init asks it only for what --repo and --branch
+	// did not supply. Without it, both flags are required.
+	InspectRepository func(context.Context, string) (gitinfo.Repository, error)
 }
 
 var ErrInput = errors.New("invalid command input")

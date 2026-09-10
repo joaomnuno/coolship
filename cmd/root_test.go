@@ -22,6 +22,7 @@ type fakeApplication struct {
 	deploy func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
 	logs   func(context.Context, service.LogsOptions, service.Emitter) error
 	link   func(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
+	init   func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	open   func(context.Context, service.OpenOptions) (service.OpenResult, error)
 	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
 	config func(context.Context, service.Options) (service.ConfigResult, error)
@@ -89,6 +90,9 @@ func (f fakeApplication) Logs(ctx context.Context, options service.LogsOptions, 
 func (f fakeApplication) Link(ctx context.Context, options service.LinkOptions, selectChoice service.Selector, confirm service.Confirm) (service.LinkResult, error) {
 	return f.link(ctx, options, selectChoice, confirm)
 }
+func (f fakeApplication) Init(ctx context.Context, options service.InitOptions, selectChoice service.Selector, confirm service.ConfirmInit, emit service.Emitter) (service.InitResult, error) {
+	return f.init(ctx, options, selectChoice, confirm, emit)
+}
 
 func execute(t *testing.T, app cmd.Application, args ...string) (string, string, error) {
 	t.Helper()
@@ -109,7 +113,7 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
+	for _, command := range []string{"init", "link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
 		}

@@ -12,18 +12,33 @@ import (
 
 // Deploy submits one deployment and optionally observes that exact deployment.
 func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (DeployResult, error) {
-	if options.Timeout < 0 {
-		return DeployResult{}, input(errors.New("deployment timeout must be positive"))
+	timeout, err := deployTimeout(options.Timeout)
+	if err != nil {
+		return DeployResult{}, err
 	}
-	if options.Timeout == 0 {
-		options.Timeout = 10 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	s, err := a.prepare(ctx, options.Options)
 	if err != nil {
 		return DeployResult{}, err
 	}
+	return a.deploy(ctx, s, options, emit)
+}
+
+// deployTimeout bounds one submission and its observation.
+func deployTimeout(requested time.Duration) (time.Duration, error) {
+	if requested < 0 {
+		return 0, input(errors.New("deployment timeout must be positive"))
+	}
+	if requested == 0 {
+		return 10 * time.Minute, nil
+	}
+	return requested, nil
+}
+
+// deploy submits and observes through an already prepared session, so a
+// workflow that has just verified a binding does not resolve it again.
+func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit Emitter) (DeployResult, error) {
 	if options.PullRequest < 0 {
 		return DeployResult{}, input(errors.New("pull request number must be positive"))
 	}

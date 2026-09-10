@@ -38,7 +38,7 @@ Every command from the brief is implemented and verified against a live Coolify 
 
 ## Later
 
-- [ ] `init`: scaffold a new Coolify application from a repository, once creation semantics are agreed.
+- [x] `init`: create a Coolify application from a repository's public remote and link it (verified live on 4.3.18). Private repositories need a GitHub App or deploy key the API takes by UUID, and Compose projects need per-service domains; both remain open.
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
 - [ ] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18.
 - [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.

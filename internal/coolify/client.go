@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -167,6 +168,10 @@ func (c *Client) fetch(ctx context.Context, method string, parts []string, query
 			return nil, "", &RequestError{Method: method, Endpoint: endpoint, Err: err}
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			message := ""
+			if method != http.MethodGet && resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				message = serverMessage(resp.Body)
+			}
 			resp.Body.Close()
 			delay, canRetry := c.retryAfter(resp.Header.Get("Retry-After"), attempt)
 			if method == http.MethodGet && attempt < c.retries && retryable(resp.StatusCode) && canRetry {
@@ -175,7 +180,7 @@ func (c *Client) fetch(ctx context.Context, method string, parts []string, query
 				}
 				continue
 			}
-			return nil, "", &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint}
+			return nil, "", &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint, Message: message}
 		}
 		if strings.Contains(resp.Header.Get("Link"), `rel="next"`) || strings.Contains(resp.Header.Get("Link"), "rel=next") {
 			resp.Body.Close()
@@ -191,6 +196,66 @@ func (c *Client) fetch(ctx context.Context, method string, parts []string, query
 		}
 		return data, endpoint, nil
 	}
+}
+
+// maxMessageBytes bounds what is read from a refusal; an explanation is short.
+const maxMessageBytes = 64 << 10
+
+// serverMessage extracts the explanation Coolify's API puts in a refusal:
+// {"message": ..., "errors": {field: [text, ...]}}. Field errors are listed by
+// name, since they say which request value to change. Anything that is not
+// that shape yields nothing.
+func serverMessage(body io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(body, maxMessageBytes))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Message string                     `json:"message"`
+		Errors  map[string]json.RawMessage `json:"errors"`
+	}
+	if json.Unmarshal(data, &payload) != nil {
+		return ""
+	}
+	parts := []string{printable(payload.Message)}
+	fields := make([]string, 0, len(payload.Errors))
+	for field := range payload.Errors {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	for _, field := range fields {
+		var texts []string
+		var text string
+		switch raw := payload.Errors[field]; {
+		case json.Unmarshal(raw, &texts) == nil:
+		case json.Unmarshal(raw, &text) == nil:
+			texts = []string{text}
+		}
+		if joined := printable(strings.Join(texts, " ")); joined != "" {
+			parts = append(parts, printable(field)+": "+joined)
+		}
+	}
+	var kept []string
+	for _, part := range parts {
+		if part != "" {
+			kept = append(kept, part)
+		}
+	}
+	result := strings.Join(kept, "; ")
+	if len(result) > 500 {
+		result = result[:500] + "…"
+	}
+	return result
+}
+
+// printable keeps text that can be shown on one line of a terminal.
+func printable(value string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, value))
 }
 
 func retryable(status int) bool {

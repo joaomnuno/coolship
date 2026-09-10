@@ -46,7 +46,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
+🚧 **Early development.** `init`, `link`, `status`, `deploy`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, `domain`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover.
 
 Ideas, feedback, and contributions are welcome.
 
@@ -102,11 +102,12 @@ Saved to /home/you/.config/coolify/config.json
 
 The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. `coolship logout NAME` removes a context.
 
-Then link a repository:
+Then link a repository. If it is already an application on Coolify, `link` binds it; if it is not on Coolify yet, `init` creates the application from the repository's public remote and binds it in one step:
 
 ```bash
 cd my-app
-coolship link
+coolship link          # bind to an existing application
+coolship init          # or: create the application first, then bind
 ```
 
 `link` walks the hierarchy, asking only when a choice is genuinely ambiguous:
@@ -133,6 +134,36 @@ coolship logs --follow
 ```
 
 ## Commands
+
+### `coolship init`
+
+Create a Coolify application for the current repository, then link it — the first step for a repository that is not on Coolify yet. `init` reads the `origin` remote (SSH forms become `https://github.com/owner/repo`) and the checked-out branch, detects the build pack from the application root (a `Dockerfile` builds itself, anything else goes to Nixpacks), shows the plan, and creates the application only after you confirm:
+
+```text
+$ coolship init
+Create application my-app on home?
+  Repository:  https://github.com/you/my-app (branch main)
+  Build pack:  dockerfile, port 80
+  Project:     Personal
+  Environment: production
+  Server:      Master Ubuntu
+  Binding:     /home/you/my-app/coolship.toml
+Confirm [y/N]: y
+Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
+Build pack: dockerfile, port 80
+URL: https://9f8e7d6c.coolify.example.com
+Linked project in /home/you/my-app/coolship.toml
+```
+
+The project and server are asked for only when there is a choice; `--project NAME` selects one, `--create-project` creates it when missing, `--server NAME` picks the server, and `--environment` defaults to `production`. `--repo`, `--branch`, `--name`, `--build-pack` (`nixpacks`, `dockerfile`, or `static`), `--port`, and `--static` override what was detected. **Check the port**: it defaults to 80 for a Dockerfile or static site and 3000 for Nixpacks, and Coolify routes traffic to it. Noninteractive use needs `--yes`:
+
+```bash
+coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
+```
+
+Nothing is deployed unless you pass `--deploy`, which then submits and observes the first deployment exactly like `deploy`. A directory that is already linked is refused rather than re-pointed; use `link` to change a binding.
+
+Two limits, both from the server side. The repository must be **public**: Coolify clones it without credentials (`POST /applications/public`), and a private repository needs a GitHub App or deploy key registered in Coolify first, which the API requires by UUID — create those applications in Coolify and run `link`. And **Docker Compose** projects are refused before any request, because their domains and variables are per service, which no other Coolship command models yet.
 
 ### `coolship link`
 
@@ -390,7 +421,7 @@ Human output is colored only when the stream it goes to is a terminal, and each 
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
 
 Limits worth knowing:
 
@@ -418,7 +449,7 @@ scripts/e2e
 
 ## Planned
 
-Every command from the original brief is implemented. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for scaffolding new applications, and sharing packages with `coolify-cli` once their interfaces settle.
+Every command from the original brief is implemented, and `init` creates applications from public repositories. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for private repositories and Compose projects, and sharing packages with `coolify-cli` once their interfaces settle.
 
 ## What Coolship is not
 

@@ -12,6 +12,7 @@ import (
 	"github.com/joaomnuno/coolship/cmd"
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/coolify"
+	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/process"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
@@ -70,6 +71,7 @@ func run() int {
 		RunProcess: func(ctx context.Context, spec service.ProcessSpec) (int, error) {
 			return runner.Run(ctx, process.Spec{Dir: spec.Dir, Args: spec.Args, Shell: spec.Shell, Env: spec.Env})
 		},
+		InspectRepository: gitinfo.Inspect,
 	})
 	info, ok := debug.ReadBuildInfo()
 	resolved := resolveVersion(version, info, ok)

@@ -144,6 +144,8 @@ func selectionFlags(kind string) string {
 		return "--environment or --environment-uuid"
 	case "application":
 		return "--application or --application-uuid"
+	case "server":
+		return "--server"
 	default:
 		return "the corresponding link flags"
 	}
@@ -187,6 +189,55 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 			if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", label, singleLine(change.Key)); err != nil {
 				return false, err
 			}
+		}
+	}
+	if _, err := fmt.Fprint(p.streams.Err, p.question("Confirm [y/N]:")+" "); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+// ConfirmInit shows everything init is about to create and write.
+func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("creating an application requires --yes when input is noninteractive")}
+	}
+	project := singleLine(plan.Project)
+	if plan.NewProject {
+		project += " (new)"
+	}
+	buildPack := singleLine(plan.BuildPack) + ", port " + strconv.Itoa(plan.Port)
+	if plan.Static {
+		buildPack += ", static"
+	}
+	binding := singleLine(plan.Path)
+	if plan.Target != "" && plan.Target != "default" {
+		binding += " [apps." + singleLine(plan.Target) + "]"
+	}
+	rows := [][2]string{
+		{"Repository", singleLine(plan.Repository) + " (branch " + singleLine(plan.Branch) + ")"},
+		{"Build pack", buildPack},
+		{"Project", project},
+		{"Environment", singleLine(plan.Environment)},
+		{"Server", singleLine(plan.Server)},
+		{"Binding", binding},
+	}
+	if plan.Deploy {
+		rows = append(rows, [2]string{"Then", "deploy and wait for it"})
+	}
+	if _, err := fmt.Fprintln(p.streams.Err, p.question("Create application "+singleLine(plan.Name)+" on "+singleLine(plan.Instance)+"?")); err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if _, err := fmt.Fprintf(p.streams.Err, "  %-12s %s\n", row[0]+":", row[1]); err != nil {
+			return false, err
 		}
 	}
 	if _, err := fmt.Fprint(p.streams.Err, p.question("Confirm [y/N]:")+" "); err != nil {

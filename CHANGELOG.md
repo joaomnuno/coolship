@@ -7,6 +7,11 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Added
+
+- `init`: create a Coolify application for the current repository from its public Git remote, then link it exactly as `link` would. The remote and branch come from Git (SSH forms are normalized to https), the build pack from the application root (`Dockerfile` or Nixpacks; Docker Compose is refused), and the plan — repository, branch, build pack, port, project, environment, server, name — is confirmed before anything is created, or requires `--yes`. `--project` with `--create-project` creates a missing project; `--server` names the server, otherwise the only usable one is used; `--deploy` submits and observes the first deployment. A directory that is already linked is refused. Private repositories are not supported: the API needs a GitHub App or deploy key registered in Coolify.
+- Refusals of creation and other mutations now carry the server's explanation (its `message` and field errors) in the error, so a repository Coolify cannot reach or a rejected value is reported as such rather than as a bare status code. Reads and server faults still report the status alone.
+
 ## [0.2.0] - 2026-09-10
 
 Every command is now installable from a release, and the tool logs you in itself.
