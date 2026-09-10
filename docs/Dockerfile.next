@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Fallback: the same site built by `next build` (output: 'standalone') instead
-# of vinext. Point Coolify at this file (Dockerfile Location: docs/Dockerfile.next)
-# if the vinext build regresses; the site behaves the same on every route.
+# of vinext. Point Coolify at this file (Dockerfile Location: /Dockerfile.next,
+# which it joins to the /docs base directory) if the vinext build regresses;
+# the site behaves the same on every route.
 
 FROM node:24-alpine AS deps
 WORKDIR /app

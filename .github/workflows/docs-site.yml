@@ -1,10 +1,12 @@
 name: Docs site
 
-# Builds the documentation site's container image (docs/Dockerfile, vinext),
-# runs it, and checks every route the site depends on. The site itself is
-# deployed by Coolify from the same Dockerfile; this workflow only proves that
-# the image builds and serves. It exists because a missing Vite plugin lets the
-# build pass while every MDX route answers 500 (see docs/README.md).
+# Builds the documentation site's container images (docs/Dockerfile with
+# vinext, and the docs/Dockerfile.next fallback with `next build`), runs each
+# one, and checks every route the site depends on. The site itself is deployed
+# by Coolify from the same Dockerfiles; this workflow only proves that both
+# images build and serve. It exists because a missing Vite plugin lets the
+# build pass while every MDX route answers 500 (see docs/README.md), and the
+# fallback is only useful if it is known to work before it is needed.
 
 on:
   push:
@@ -27,14 +29,22 @@ concurrency:
 
 jobs:
   container:
-    name: Build and smoke-test the image
+    name: Build and smoke-test the ${{ matrix.name }} image
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: vinext
+            dockerfile: docs/Dockerfile
+          - name: next
+            dockerfile: docs/Dockerfile.next
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Build the image
-        run: docker build --tag coolship-docs --build-arg SITE_URL=http://127.0.0.1:3000 docs
+        run: docker build --tag coolship-docs --file "${{ matrix.dockerfile }}" --build-arg SITE_URL=http://127.0.0.1:3000 docs
 
       - name: Run the container
         run: docker run --detach --name docs --publish 3000:3000 coolship-docs

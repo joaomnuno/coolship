@@ -53,4 +53,4 @@ Each event has a `type`; log events carry the chunk in `logs`, and warnings such
 
 ## Exit codes
 
-`0` when the snapshot was read, or when following ended by interruption after at least one snapshot; `1` when the logs cannot be read; `2` when the directory is not linked; `130` when interrupted before any snapshot.
+`0` when the snapshot was read; `1` when the logs cannot be read, or when following stops because a poll failed; `2` when the directory is not linked or `--lines` is not positive; `130` when `--follow` is interrupted, which is how following normally ends: `Interrupted` is printed on stderr, however many snapshots were read before it.

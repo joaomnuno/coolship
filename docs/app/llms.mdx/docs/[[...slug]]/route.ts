@@ -13,7 +13,14 @@ export async function GET(_req: Request, { params }: RouteContext<'/llms.mdx/doc
   if (!page) notFound();
 
   return new Response(await getLLMText(page), {
-    headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      // A page URL answers with this or with HTML depending on Accept. proxy.ts
+      // says so too, but a route handler's own headers are the ones that
+      // survive prerendering on the Next.js build, so the Markdown response
+      // carries the header itself.
+      Vary: 'Accept',
+    },
   });
 }
 

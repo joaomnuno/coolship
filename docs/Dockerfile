@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # The documentation site as a Node.js server, built by vinext (Vite) from the
 # Next.js app in this directory. Deploy on Coolify as a Dockerfile application
-# with docs/ as its base directory; the server listens on $PORT (3000).
+# with /docs as its base directory and /Dockerfile as its Dockerfile location;
+# the server listens on $PORT (3000).
 #
 # Dockerfile.next builds the same site with `next build` instead; see
 # README.md for when and how to switch.

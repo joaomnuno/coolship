@@ -46,4 +46,4 @@ The dashboard URL is `<instance>/project/<project uuid>/environment/<environment
 
 ## Exit codes
 
-`0` when the URL was resolved (whether or not a browser was launched); `1` when the application has no domain to open or the server cannot be reached; `2` when the directory is not linked.
+`0` when the URL was resolved (whether or not a browser was launched); `1` when the server cannot be reached, or when the browser cannot be launched (the URL is still printed); `2` when the directory is not linked, or when the application has no domain to open (the error suggests `--dashboard`).
