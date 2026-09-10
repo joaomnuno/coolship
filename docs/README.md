@@ -1,6 +1,6 @@
 # Coolship documentation site
 
-The site at [coolship.itrocas.com](https://coolship.itrocas.com) is built with [Fumadocs](https://fumadocs.dev) on Next.js, written in MDX, and served by a Node.js server in a Docker container on Coolify. Search runs on the server (Orama, `/api/search`), and every page is also served as Markdown for assistants, with an `llms.txt` index.
+The site at [coolship.itrocas.com](https://coolship.itrocas.com) is a product landing page at `/` and the documentation under `/docs`, built with [Fumadocs](https://fumadocs.dev) on Next.js, written in MDX, and served by a Node.js server in a Docker container on Coolify. Search runs on the server (Orama, `/api/search`), and every page is also served as Markdown for assistants, with an `llms.txt` index.
 
 ## Toolchain
 
@@ -55,7 +55,11 @@ Content is derived from the repository's `README.md`, `ARCHITECTURE.md`, `CHANGE
 | Path | Purpose |
 | --- | --- |
 | `content/docs/` | The pages, in sidebar order via `meta.json` files |
-| `app/(home)/page.tsx` | The home page |
+| `app/(home)/page.tsx` | The landing page: hero with the install one-liner, the walkthrough video frame, the terminal replay, feature grid, quickstart steps, the coolify-cli comparison, built-ins tabs, and the footer |
+| `components/landing/` | Its parts. `content.ts` holds every transcript and sample (real output only); `highlight.ts` is the small tokenizer behind the code blocks; `terminal-replay.tsx` and `video-slot.tsx` are the two animated pieces; `nav.tsx` reuses the docs' search and theme switch |
+| `lib/site.ts` | The site constants: `latestVersion` on the install buttons, `showcaseVideoUrl` (empty until the recording exists; a YouTube, Vimeo, or media URL turns the frame into a player), and the verified Coolify version |
+| `public/showcase-poster.svg` | The video frame's poster, a rendering of the README's `coolship deploy` transcript |
+| `screenshots/` | The landing and docs pages as captured for review; not part of the image |
 | `app/docs/[[...slug]]/page.tsx` | Renders a page with its table of contents and the page actions |
 | `app/api/search/route.ts` | Orama search on the server |
 | `app/llms.txt`, `app/llms-full.txt` | The index and the full text for assistants |
