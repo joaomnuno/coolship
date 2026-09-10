@@ -1,0 +1,411 @@
+#!/usr/bin/env bash
+# End-to-end checks of coolship against a live Coolify instance.
+#
+# Usage: scripts/e2e
+#
+# Credentials come from COOLSHIP_URL and COOLSHIP_TOKEN, which the CLI reads
+# natively; no Coolify CLI configuration file is needed. The binary is built
+# with scripts/build unless COOLSHIP_BIN names one already.
+#
+# The run touches exactly one remote application: project "coolship-example",
+# environment "production", application "coolship-example" (E2E_PROJECT,
+# E2E_ENVIRONMENT, and E2E_APPLICATION override the names). It links from a
+# fresh temporary directory, deploys that application once, and creates
+# variables whose keys start with E2E_, which it deletes again before exiting,
+# even when a step fails or the run is interrupted. Nothing else on the
+# instance is written to.
+set -euo pipefail
+
+# shellcheck disable=SC1007 # same idiom as scripts/build
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+project=${E2E_PROJECT:-coolship-example}
+environment=${E2E_ENVIRONMENT:-production}
+application=${E2E_APPLICATION:-coolship-example}
+follow_seconds=${E2E_FOLLOW_SECONDS:-15}
+deploy_timeout=${E2E_DEPLOY_TIMEOUT:-10m}
+
+# --- reporting ---------------------------------------------------------------
+
+passed=()
+failed=()
+skipped=()
+current=""
+
+log() { printf '%s\n' "$*" >&2; }
+
+# fail records the current step as failed and leaves the step's subshell.
+# Every message names the step, so a failure is attributable at a glance.
+fail() {
+  log "FAIL [$current]: $*"
+  exit 1
+}
+
+summary() {
+  log ""
+  log "==================== e2e summary ===================="
+  for name in "${passed[@]-}"; do [ -n "$name" ] && log "PASS  $name"; done
+  for name in "${failed[@]-}"; do [ -n "$name" ] && log "FAIL  $name"; done
+  for name in "${skipped[@]-}"; do [ -n "$name" ] && log "SKIP  $name (not run: an earlier required step failed)"; done
+  log "-----------------------------------------------------"
+  log "passed: ${#passed[@]}  failed: ${#failed[@]}  skipped: ${#skipped[@]}"
+  log "====================================================="
+}
+
+# --- temporary state and cleanup ----------------------------------------------
+
+tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/coolship-e2e.XXXXXX")
+workspace="$tmp_root/project"
+out="$tmp_root/stdout"
+err="$tmp_root/stderr"
+mkdir -p "$workspace/.git" # bounds discovery: without it the CLI would walk up
+
+# variables_pushed is set while E2E_ keys may exist remotely; cleanup prunes
+# them from both scopes. It is stored in a file because steps run in subshells.
+pushed_flag="$tmp_root/variables-pushed"
+
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [ -f "$pushed_flag" ] && [ -f "$workspace/coolship.toml" ]; then
+    log "cleanup: removing E2E_ variables left on the application"
+    current="cleanup"
+    (prune_e2e_variables "") || log "cleanup: regular-scope prune did not complete; check the application's variables for E2E_ keys"
+    (prune_e2e_variables --preview) || log "cleanup: preview-scope prune did not complete; check the application's preview variables for E2E_ keys"
+  fi
+  rm -rf "$tmp_root"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# --- helpers ------------------------------------------------------------------
+
+# coolship runs the binary against the temporary workspace with stdin closed, so
+# no command can prompt, and captures stdout and stderr for the assertions.
+# The captured files are checked for the token afterwards; a leak fails the step
+# without printing the output.
+coolship() {
+  local status=0
+  "$bin" --cwd "$workspace" "$@" </dev/null >"$out" 2>"$err" || status=$?
+  if grep -qF -- "$COOLSHIP_TOKEN" "$out" "$err"; then
+    fail "the token appeared in the output of: coolship $*"
+  fi
+  return "$status"
+}
+
+# run executes a coolship command and asserts its exit status.
+run() {
+  local expected=$1 status=0
+  shift
+  coolship "$@" || status=$?
+  if [ "$status" -ne "$expected" ]; then
+    show_output
+    fail "coolship $* exited $status, want $expected"
+  fi
+}
+
+show_output() {
+  log "--- stdout (last 20 lines) ---"
+  tail -n 20 "$out" >&2 || true
+  log "--- stderr (last 20 lines) ---"
+  tail -n 20 "$err" >&2 || true
+  log "------------------------------"
+}
+
+expect_out() { grep -qF -- "$1" "$out" || { show_output; fail "stdout lacks \"$1\""; }; }
+expect_err() { grep -qF -- "$1" "$err" || { show_output; fail "stderr lacks \"$1\""; }; }
+refuse_out() { grep -qF -- "$1" "$out" && { show_output; fail "stdout unexpectedly contains \"$1\""; }; return 0; }
+expect_out_lines() {
+  local lines
+  lines=$(grep -c '' "$out" || true)
+  [ "$lines" -ge "$1" ] || { show_output; fail "stdout has $lines line(s), want at least $1"; }
+}
+
+# diff_json_keys prints "<list> <key>" for every added, changed, and removed key
+# in an env diff JSON result, so guards can inspect what a push would do.
+diff_json_keys() {
+  python3 -c '
+import json, sys
+result = json.load(sys.stdin)
+for name in ("added", "changed", "removed"):
+    for change in result.get(name) or []:
+        print(name, change["key"])
+' <"$out"
+}
+
+# Only keys prefixed E2E_ may ever be created, updated, or deleted. guard_diff
+# fails when the local file would make push touch anything else.
+guard_diff() {
+  local scope=$1 line
+  while read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      *" E2E_"*) ;;
+      *) fail "refusing to push ${scope:-regular} scope: the diff would touch a non-E2E_ key ($line)" ;;
+    esac
+  done < <(diff_json_keys)
+}
+
+# prune_e2e_variables deletes the E2E_ keys of one scope: it pulls the scope
+# into a fresh file, drops the E2E_ lines, checks that only E2E_ keys would be
+# deleted, and pushes with --prune. It is idempotent, so cleanup can call it
+# regardless of how far the variable cycle got.
+prune_e2e_variables() {
+  local scope=$1 file="$tmp_root/prune${1:+-preview}.env" label=${1:+preview}
+  label=${label:-regular}
+  rm -f "$file"
+  # shellcheck disable=SC2086 # $scope is empty or a single flag
+  run 0 env pull --file "$file" $scope
+  grep -v '^E2E_' "$file" >"$file.kept" || true
+  mv "$file.kept" "$file"
+  # shellcheck disable=SC2086
+  run 0 env diff --file "$file" $scope --format json
+  if ! diff_json_keys | grep -q '^removed E2E_'; then
+    log "[$current] no E2E_ keys in the $label scope"
+    rm -f "$file"
+    return 0
+  fi
+  guard_diff "$label"
+  # shellcheck disable=SC2086
+  run 0 env push --file "$file" $scope --prune --yes
+  expect_out "Pushed"
+  log "[$current] deleted E2E_ keys from the $label scope: $(tr '\n' ' ' <"$out")"
+  rm -f "$file"
+}
+
+# step runs one check function in a subshell and records the outcome. A
+# required step that fails ends the run, because later steps depend on it.
+step() {
+  local mode=$1 name=$2 fn=$3
+  current=$name
+  log ""
+  log "==> $name"
+  if (current=$name; "$fn"); then
+    passed+=("$name")
+    log "ok  [$name]"
+  else
+    failed+=("$name")
+    if [ "$mode" = required ]; then
+      log "abort: required step [$name] failed; later steps are skipped"
+      return 1
+    fi
+  fi
+}
+
+# --- prerequisites --------------------------------------------------------------
+
+current="prerequisites"
+for variable in COOLSHIP_URL COOLSHIP_TOKEN; do
+  if [ -z "${!variable:-}" ]; then
+    log "FAIL [prerequisites]: $variable is not set"
+    exit 2
+  fi
+done
+for tool in timeout python3 grep; do
+  command -v "$tool" >/dev/null 2>&1 || { log "FAIL [prerequisites]: $tool is required"; exit 2; }
+done
+# The pair above is the only credential source the CLI will use; CI=1 keeps
+# every command noninteractive even when the script runs from a terminal.
+export CI=1
+
+if [ -n "${COOLSHIP_BIN:-}" ]; then
+  bin=$COOLSHIP_BIN
+else
+  bin="$tmp_root/coolship"
+  log "==> build"
+  "$repo_root/scripts/build" "$bin" || { log "FAIL [build]: scripts/build failed"; exit 1; }
+fi
+[ -x "$bin" ] || { log "FAIL [prerequisites]: $bin is not executable"; exit 2; }
+
+log "e2e: $bin against $COOLSHIP_URL"
+log "e2e: project=$project environment=$environment application=$application"
+
+# --- steps ------------------------------------------------------------------------
+
+check_version() {
+  run 0 --version
+  expect_out "coolship"
+}
+
+check_link() {
+  run 0 link --project "$project" --environment "$environment" --application "$application"
+  expect_out "Linked project in $workspace/coolship.toml"
+  expect_out "Application: $application"
+  [ -f "$workspace/coolship.toml" ] || fail "coolship.toml was not written"
+  if grep -qF -- "$COOLSHIP_URL" "$workspace/coolship.toml"; then
+    fail "coolship.toml contains the instance URL"
+  fi
+}
+
+check_doctor() {
+  run 0 doctor
+  expect_out "[ok]"
+  expect_out "Server:"
+  expect_out "Application: $application"
+  refuse_out "[FAIL]"
+}
+
+check_status() {
+  run 0 status
+  expect_out "Application: $application"
+  expect_out "Status:"
+  run 0 status --format json
+  expect_out '"application_uuid"'
+  expect_out "\"application\":\"$application\""
+}
+
+check_config() {
+  run 0 config
+  expect_out "Configuration:"
+  expect_out "Git root:"
+  expect_out "Application:"
+  expect_out "Credentials:"
+  refuse_out "$COOLSHIP_TOKEN"
+}
+
+check_open() {
+  run 0 open --print
+  expect_out "http"
+  expect_out_lines 1
+  run 0 open --dashboard --print
+  expect_out "$COOLSHIP_URL"
+  expect_out "/application/"
+}
+
+check_logs() {
+  run 0 logs -n 5
+  expect_out_lines 1
+}
+
+check_logs_follow() {
+  # timeout sends SIGINT after the interval and reports the CLI's own status.
+  local status=0
+  timeout --preserve-status -s INT "$follow_seconds" \
+    "$bin" --cwd "$workspace" logs --follow -n 5 </dev/null >"$out" 2>"$err" || status=$?
+  if grep -qF -- "$COOLSHIP_TOKEN" "$out" "$err"; then
+    fail "the token appeared in the output of logs --follow"
+  fi
+  [ "$status" -eq 130 ] || { show_output; fail "logs --follow exited $status after SIGINT, want 130"; }
+  expect_err "Interrupted"
+  expect_out_lines 1
+}
+
+envfile="$workspace/e2e.env"
+marker="e2e-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+check_env_diff() {
+  # A pulled file compared with the scope it came from shows no differences.
+  run 0 env pull --file "$envfile"
+  expect_out "Wrote"
+  run 0 env diff --file "$envfile" --exit-code
+  expect_out "Comparing"
+  refuse_out "+ "
+  refuse_out "~ "
+  refuse_out "- "
+}
+
+check_env_push() {
+  printf 'E2E_MARKER=%s\nE2E_RUN=%s\n' "$marker" "${GITHUB_RUN_ID:-local}" >>"$envfile"
+  run 0 env diff --file "$envfile"
+  expect_out "+ E2E_MARKER"
+  expect_out "+ E2E_RUN"
+  run 0 env diff --file "$envfile" --format json
+  guard_diff regular
+  touch "$pushed_flag"
+  run 0 env push --file "$envfile" --yes
+  expect_out "2 created, 0 updated, 0 deleted"
+  run 0 env diff --file "$envfile" --exit-code
+  refuse_out "+ E2E_"
+  refuse_out "~ E2E_"
+}
+
+check_dev() {
+  # The marker exists remotely, so a child process must see it injected.
+  # shellcheck disable=SC2016 # the child sh expands these, not this script
+  run 0 dev -- sh -c 'test "$E2E_MARKER" = "$1"' e2e "$marker"
+  # shellcheck disable=SC2016
+  run 1 dev -- sh -c 'test "$E2E_MARKER" = "not-the-marker"'
+}
+
+check_env_prune() {
+  grep -v '^E2E_' "$envfile" >"$envfile.kept" || true
+  mv "$envfile.kept" "$envfile"
+  run 0 env diff --file "$envfile"
+  expect_out "- E2E_MARKER"
+  expect_out "- E2E_RUN"
+  run 0 env diff --file "$envfile" --format json
+  guard_diff regular
+  run 0 env push --file "$envfile" --prune --yes
+  expect_out "0 created, 0 updated, 2 deleted"
+  run 0 env diff --file "$envfile" --exit-code
+  refuse_out "E2E_"
+  # Coolify creates a preview copy of every variable push creates; remove it
+  # too, so the preview scope is left exactly as it was found.
+  prune_e2e_variables --preview
+  run 0 env diff --file "$envfile" --preview --format json
+  if diff_json_keys | grep -q ' E2E_'; then
+    show_output
+    fail "E2E_ keys remain in the preview scope"
+  fi
+  rm -f "$pushed_flag"
+}
+
+check_preview_refusal() {
+  run 1 preview --pr 999999
+  expect_err "not found"
+}
+
+check_deploy() {
+  run 0 deploy --timeout "$deploy_timeout"
+  expect_out "Status: finished"
+  expect_out "Application: $application"
+  expect_err "finished"
+}
+
+check_unlink() {
+  run 0 unlink --yes
+  expect_out "Unlinked"
+  [ ! -e "$workspace/coolship.toml" ] || fail "coolship.toml still exists after unlink"
+  run 2 status
+  expect_err "not linked"
+}
+
+# --- run ----------------------------------------------------------------------------
+
+aborted=0
+run_all() {
+  step required "version" check_version || return 1
+  step required "link" check_link || return 1
+  step optional "doctor" check_doctor
+  step optional "status" check_status
+  step optional "config" check_config
+  step optional "open" check_open
+  step optional "logs" check_logs
+  step optional "logs --follow" check_logs_follow
+  step required "env pull + diff" check_env_diff || return 1
+  step required "env push" check_env_push || return 1
+  step optional "dev" check_dev
+  step required "env push --prune" check_env_prune || return 1
+  step optional "preview refusal" check_preview_refusal
+  step optional "deploy" check_deploy
+  step required "unlink" check_unlink || return 1
+}
+all_steps=("version" "link" "doctor" "status" "config" "open" "logs" "logs --follow" "env pull + diff" "env push" "dev" "env push --prune" "preview refusal" "deploy" "unlink")
+
+run_all || aborted=1
+
+if [ "$aborted" -eq 1 ]; then
+  for name in "${all_steps[@]}"; do
+    seen=0
+    for done_name in "${passed[@]-}" "${failed[@]-}"; do
+      [ "$done_name" = "$name" ] && seen=1
+    done
+    [ "$seen" -eq 1 ] || skipped+=("$name")
+  done
+fi
+
+summary
+if [ "${#failed[@]}" -gt 0 ] || [ "$aborted" -eq 1 ]; then
+  exit 1
+fi
+log "RESULT: PASS"
