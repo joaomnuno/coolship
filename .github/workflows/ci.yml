@@ -78,3 +78,21 @@ jobs:
           # SC1007 misreads the POSIX idiom `CDPATH= cd ...` used by the
           # scripts to neutralize CDPATH; it is not an assignment mistake.
           shellcheck --exclude=SC1007 "$@"
+
+  installer:
+    name: Installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run the installer tests
+        # scripts/install_test.sh exercises scripts/install.sh against a local
+        # fake of GitHub Releases (python3, curl, wget, tar). On ubuntu-latest
+        # sh is dash, so this is the strict POSIX run.
+        run: |
+          if [ ! -f scripts/install_test.sh ]; then
+            echo "No scripts/install_test.sh yet; nothing to run."
+            exit 0
+          fi
+          sh scripts/install_test.sh
