@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/service"
@@ -27,12 +26,15 @@ func ExitCode(err error) int {
 	return 1
 }
 
-// PrintError renders the single diagnostic owned by the executable boundary.
-// An interrupt is reported as such, keeping any recovery detail wrapped around it.
-func PrintError(w io.Writer, err error) error {
+// PrintError renders the single diagnostic owned by the executable boundary on
+// stderr. An interrupt is reported as such, keeping any recovery detail
+// wrapped around it.
+func PrintError(streams Streams, err error) error {
 	if err == nil {
 		return nil
 	}
+	streams = streams.Normalized()
+	w, style := streams.Err, streams.errPalette()
 	// A child process has already said what it had to say; only its status is kept.
 	var exit *service.ExitError
 	if errors.As(err, &exit) && !errors.Is(err, context.Canceled) {
@@ -40,16 +42,16 @@ func PrintError(w io.Writer, err error) error {
 	}
 	text := err.Error()
 	if errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled) {
-		_, writeErr := fmt.Fprintln(w, "Cancelled")
+		_, writeErr := fmt.Fprintln(w, style.apply(dim, "Cancelled"))
 		return writeErr
 	}
 	if errors.Is(err, context.Canceled) {
 		text = strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")
 		if text == "interrupted" {
-			_, writeErr := fmt.Fprintln(w, "Interrupted")
+			_, writeErr := fmt.Fprintln(w, style.apply(dim, "Interrupted"))
 			return writeErr
 		}
 	}
-	_, writeErr := fmt.Fprintf(w, "Error: %s\n", singleLine(text))
+	_, writeErr := fmt.Fprintf(w, "%s %s\n", style.apply(redBold, "Error:"), singleLine(text))
 	return writeErr
 }

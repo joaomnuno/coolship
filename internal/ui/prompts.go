@@ -16,11 +16,17 @@ import (
 type Prompter struct {
 	streams Streams
 	input   *bufio.Reader
+	style   palette
 }
 
 func NewPrompter(streams Streams) *Prompter {
 	streams = streams.Normalized()
-	return &Prompter{streams: streams, input: bufio.NewReader(streams.In)}
+	return &Prompter{streams: streams, input: bufio.NewReader(streams.In), style: streams.errPalette()}
+}
+
+// question styles the line that asks for input; answers and details stay plain.
+func (p *Prompter) question(text string) string {
+	return p.style.apply(bold, text)
 }
 
 // Select returns a chosen ID; noninteractive execution never guesses a choice.
@@ -34,7 +40,7 @@ func (p *Prompter) Select(ctx context.Context, kind string, choices []service.Ch
 	if len(choices) == 0 {
 		return "", &service.InputError{Err: fmt.Errorf("no %s choices are available", singleLine(kind))}
 	}
-	if _, err := fmt.Fprintf(p.streams.Err, "Select %s:\n", singleLine(kind)); err != nil {
+	if _, err := fmt.Fprintln(p.streams.Err, p.question("Select "+singleLine(kind)+":")); err != nil {
 		return "", err
 	}
 	for index, choice := range choices {
@@ -45,12 +51,12 @@ func (p *Prompter) Select(ctx context.Context, kind string, choices []service.Ch
 		if choice.Detail != "" && choice.Detail != choice.ID {
 			label += " — " + singleLine(choice.Detail)
 		}
-		if _, err := fmt.Fprintf(p.streams.Err, "  %d. %s\n", index+1, label); err != nil {
+		if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", p.style.apply(cyan, strconv.Itoa(index+1)+"."), label); err != nil {
 			return "", err
 		}
 	}
 	for {
-		if _, err := fmt.Fprintf(p.streams.Err, "Choice [1-%d, q to cancel]: ", len(choices)); err != nil {
+		if _, err := fmt.Fprint(p.streams.Err, p.question(fmt.Sprintf("Choice [1-%d, q to cancel]:", len(choices)))+" "); err != nil {
 			return "", err
 		}
 		answer, err := p.readLine(ctx)
@@ -83,9 +89,10 @@ func (p *Prompter) Confirm(ctx context.Context, plan service.LinkPlan) (bool, er
 		note = "The file changes form; bindings in the other form are dropped. " + note
 	}
 	if _, err := fmt.Fprintf(p.streams.Err,
-		"Replace configuration in %s?\nNew binding: %s / %s / %s on %s\n%s\nConfirm [y/N]: ",
-		singleLine(plan.Path), singleLine(plan.Target.Project), singleLine(plan.Target.Environment),
-		singleLine(plan.Target.Application), singleLine(plan.Target.Instance), note); err != nil {
+		"%s\nNew binding: %s / %s / %s on %s\n%s\n%s ",
+		p.question("Replace configuration in "+singleLine(plan.Path)+"?"),
+		singleLine(plan.Target.Project), singleLine(plan.Target.Environment),
+		singleLine(plan.Target.Application), singleLine(plan.Target.Instance), note, p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -152,8 +159,9 @@ func (p *Prompter) ConfirmUnlink(ctx context.Context, plan service.UnlinkPlan) (
 	}
 	b := plan.Binding
 	if _, err := fmt.Fprintf(p.streams.Err,
-		"Delete %s?\nCurrent binding: %s / %s / %s\nThe remote application is not affected.\nConfirm [y/N]: ",
-		singleLine(plan.Path), singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application)); err != nil {
+		"%s\nCurrent binding: %s / %s / %s\nThe remote application is not affected.\n%s ",
+		p.question("Delete "+singleLine(plan.Path)+"?"),
+		singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application), p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -171,7 +179,7 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 	if !p.streams.Interactive {
 		return false, &service.InputError{Err: errors.New("pushing variables requires --yes when input is noninteractive")}
 	}
-	if _, err := fmt.Fprintf(p.streams.Err, "Push %s variables of %s from %s?\n", plan.Scope, singleLine(plan.Target.Application), singleLine(plan.File)); err != nil {
+	if _, err := fmt.Fprintln(p.streams.Err, p.question(fmt.Sprintf("Push %s variables of %s from %s?", plan.Scope, singleLine(plan.Target.Application), singleLine(plan.File)))); err != nil {
 		return false, err
 	}
 	for label, changes := range map[string][]service.EnvChange{"create": plan.Create, "update": plan.Update, "delete": plan.Delete} {
@@ -181,7 +189,7 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 			}
 		}
 	}
-	if _, err := fmt.Fprint(p.streams.Err, "Confirm [y/N]: "); err != nil {
+	if _, err := fmt.Fprint(p.streams.Err, p.question("Confirm [y/N]:")+" "); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -203,8 +211,9 @@ func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (
 	if current == "" {
 		current = "(none)"
 	}
-	if _, err := fmt.Fprintf(p.streams.Err, "Change domains of %s?\n  from: %s\n  to:   %s\nConfirm [y/N]: ",
-		singleLine(plan.Target.Application), singleLine(current), singleLine(strings.Join(plan.Domains, ", "))); err != nil {
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  from: %s\n  to:   %s\n%s ",
+		p.question("Change domains of "+singleLine(plan.Target.Application)+"?"),
+		singleLine(current), singleLine(strings.Join(plan.Domains, ", ")), p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)

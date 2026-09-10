@@ -95,6 +95,10 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.PersistentFlags().StringVarP(&options.Environment, "environment", "e", "", "Remote environment name for this invocation")
 	root.PersistentFlags().StringVarP(&options.Target, "target", "t", "", "Named target in a monorepo configuration ([apps.<name>])")
 	root.PersistentFlags().StringVar(&options.format, "format", "human", "Output format: human or json (logs uses NDJSON)")
+	// The executable reads --no-color from the arguments before the command
+	// tree exists, because styling is a stream capability decided with the
+	// streams; the flag is declared here so parsing accepts and documents it.
+	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
 	root.AddCommand(newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
 		newDeployCommand(app, options, streams), newLogsCommand(app, options, streams),
 		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),

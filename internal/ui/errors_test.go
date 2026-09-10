@@ -28,7 +28,7 @@ func TestPrintErrorDistinguishesInterruptsAndCancellations(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var out bytes.Buffer
-			if err := PrintError(&out, test.err); err != nil {
+			if err := PrintError(Streams{Err: &out}, test.err); err != nil {
 				t.Fatal(err)
 			}
 			if out.String() != test.want || ExitCode(test.err) != test.code {

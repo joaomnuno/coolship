@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/joaomnuno/coolship/internal/service"
 )
@@ -14,10 +15,13 @@ import (
 type Renderer struct {
 	streams Streams
 	format  string
+	out     palette
+	err     palette
 }
 
 func NewRenderer(streams Streams, format string) *Renderer {
-	return &Renderer{streams: streams.Normalized(), format: format}
+	streams = streams.Normalized()
+	return &Renderer{streams: streams, format: format, out: streams.outPalette(), err: streams.errPalette()}
 }
 
 func (r *Renderer) Status(result service.StatusResult) error {
@@ -30,11 +34,11 @@ func (r *Renderer) Status(result service.StatusResult) error {
 	if err := r.target(result.Target); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "Status: %s\n", singleLine(result.Status)); err != nil {
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Status"), singleLine(result.Status)); err != nil {
 		return err
 	}
 	if result.URL != "" {
-		_, err := fmt.Fprintf(r.streams.Out, "URL: %s\n", singleLine(result.URL))
+		_, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("URL"), singleLine(result.URL))
 		return err
 	}
 	return nil
@@ -60,16 +64,18 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "Deployment: %s\n", singleLine(result.DeploymentUUID)); err != nil {
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Deployment"), singleLine(result.DeploymentUUID)); err != nil {
 		return err
 	}
 	if result.PullRequest > 0 {
-		if _, err := fmt.Fprintf(r.streams.Out, "Pull request: %d\n", result.PullRequest); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %d\n", r.out.key("Pull request"), result.PullRequest); err != nil {
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(r.streams.Out, "Application: %s (%s)\nStatus: %s\n",
-		singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID), singleLine(result.Status))
+	status := singleLine(result.Status)
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
+		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
+		r.out.key("Status"), r.out.apply(deploymentStatus(status), status))
 	return err
 }
 
@@ -81,14 +87,15 @@ func (r *Renderer) DeploymentEvent(event service.Event) error {
 	if event.Logs != "" {
 		return writeLogs(r.streams.Err, event.Logs)
 	}
-	message := event.Message
+	message := singleLine(event.Message)
 	if message == "" && event.Status != "" {
-		message = "Deployment " + event.DeploymentUUID + ": " + event.Status
+		status := singleLine(event.Status)
+		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status)
 	}
 	if message == "" {
 		return nil
 	}
-	_, err := fmt.Fprintln(r.streams.Err, singleLine(message))
+	_, err := fmt.Fprintln(r.streams.Err, message)
 	return err
 }
 
@@ -108,20 +115,22 @@ func (r *Renderer) LogEvent(event service.Event) error {
 
 func (r *Renderer) target(target service.TargetInfo) error {
 	if target.Target != "" && target.Target != "default" {
-		if _, err := fmt.Fprintf(r.streams.Out, "Target: %s\n", singleLine(target.Target)); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Target"), singleLine(target.Target)); err != nil {
 			return err
 		}
 	}
 	_, err := fmt.Fprintf(r.streams.Out,
-		"Application: %s (%s)\nEnvironment: %s\nProject: %s\nContext: %s\n",
-		singleLine(target.Application), singleLine(target.ApplicationUUID),
-		singleLine(target.Environment), singleLine(target.Project), singleLine(target.Instance))
+		"%s %s (%s)\n%s %s\n%s %s\n%s %s\n",
+		r.out.key("Application"), singleLine(target.Application), singleLine(target.ApplicationUUID),
+		r.out.key("Environment"), singleLine(target.Environment),
+		r.out.key("Project"), singleLine(target.Project),
+		r.out.key("Context"), singleLine(target.Instance))
 	return err
 }
 
 func (r *Renderer) warnings(warnings []string) error {
 	for _, warning := range warnings {
-		if _, err := fmt.Fprintf(r.streams.Err, "Warning: %s\n", singleLine(warning)); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Err, "%s %s\n", r.err.apply(yellow, "Warning:"), singleLine(warning)); err != nil {
 			return err
 		}
 	}
@@ -213,7 +222,9 @@ func (r *Renderer) Config(result service.ConfigResult) error {
 		if row[1] == "" {
 			continue
 		}
-		if _, err := fmt.Fprintf(r.streams.Out, "%-17s %s\n", row[0]+":", singleLine(row[1])); err != nil {
+		// Pad on the plain label so styling never shifts the value column.
+		padding := strings.Repeat(" ", max(0, 17-utf8.RuneCountInString(row[0]+":")))
+		if _, err := fmt.Fprintf(r.streams.Out, "%s%s %s\n", r.out.key(row[0]), padding, singleLine(row[1])); err != nil {
 			return err
 		}
 	}
@@ -246,18 +257,24 @@ func describeInstance(result service.ConfigResult) string {
 }
 
 // Doctor renders one line per check with an ASCII marker, so the output reads
-// the same in every terminal and in CI logs.
+// the same in every terminal and in CI logs; color only tints the marker.
 func (r *Renderer) Doctor(result service.DoctorResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	markers := map[string]string{"ok": "[ok]  ", "warning": "[warn]", "failed": "[FAIL]", "skipped": "[skip]"}
+	markers := map[string]struct{ marker, padding, style string }{
+		"ok":      {"[ok]", "  ", green},
+		"warning": {"[warn]", "", yellow},
+		"failed":  {"[FAIL]", "", redBold},
+		"skipped": {"[skip]", "", dim},
+	}
 	for _, check := range result.Checks {
-		marker, known := markers[check.Status]
-		if !known {
-			marker = "[" + check.Status + "]"
+		known, ok := markers[check.Status]
+		marker := "[" + singleLine(check.Status) + "]"
+		if ok {
+			marker = r.out.apply(known.style, known.marker) + known.padding
 		}
-		line := marker + " " + check.Name
+		line := marker + " " + singleLine(check.Name)
 		if check.Detail != "" {
 			line += ": " + singleLine(check.Detail)
 		}
@@ -297,22 +314,22 @@ func (r *Renderer) EnvDiff(result service.EnvDiffResult, reveal bool) error {
 		return err
 	}
 	for _, change := range result.Added {
-		if _, err := fmt.Fprintf(r.streams.Out, "+ %s=%s  (local only; push creates it)\n", change.Key, mask(change.Local, reveal)); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s=%s  (local only; push creates it)\n", r.out.apply(green, "+"), change.Key, mask(change.Local, reveal)); err != nil {
 			return err
 		}
 	}
 	for _, change := range result.Changed {
-		if _, err := fmt.Fprintf(r.streams.Out, "~ %s: local %s, remote %s\n", change.Key, mask(change.Local, reveal), mask(change.Remote, reveal)); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s: local %s, remote %s\n", r.out.apply(yellow, "~"), change.Key, mask(change.Local, reveal), mask(change.Remote, reveal)); err != nil {
 			return err
 		}
 	}
 	for _, change := range result.Removed {
-		if _, err := fmt.Fprintf(r.streams.Out, "- %s=%s  (remote only; push --prune deletes it)\n", change.Key, mask(change.Remote, reveal)); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s=%s  (remote only; push --prune deletes it)\n", r.out.apply(red, "-"), change.Key, mask(change.Remote, reveal)); err != nil {
 			return err
 		}
 	}
 	for _, key := range result.Withheld {
-		if _, err := fmt.Fprintf(r.streams.Out, "? %s  (remote value withheld; cannot compare)\n", key); err != nil {
+		if _, err := fmt.Fprintf(r.streams.Out, "%s %s  (remote value withheld; cannot compare)\n", r.out.apply(dim, "?"), key); err != nil {
 			return err
 		}
 	}

@@ -59,7 +59,9 @@ func resolveVersion(built string, info *debug.BuildInfo, ok bool) string {
 func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	streams := ui.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Interactive: interactive()}
+	streams := ui.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Interactive: interactive(),
+		ColorOut: colorEnabled(isTerminal(os.Stdout), os.Getenv, os.Args[1:]),
+		ColorErr: colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:])}
 	runner := process.New(os.Stdin, os.Stdout, os.Stderr)
 	app := service.New(service.Dependencies{
 		NewBackend:      newBackend,
@@ -74,7 +76,7 @@ func run() int {
 	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
-		_ = ui.PrintError(streams.Err, err)
+		_ = ui.PrintError(streams, err)
 	}
 	return ui.ExitCode(err)
 }
@@ -94,6 +96,25 @@ func interactive() bool {
 		return false
 	}
 	return isTerminal(os.Stdin) && isTerminal(os.Stderr)
+}
+
+// colorEnabled decides ANSI styling for one stream. Styling needs a terminal
+// on that stream, and is turned off by NO_COLOR (https://no-color.org), a dumb
+// terminal, CI, or --no-color. Only this function decides; ui receives the
+// result as a capability and never inspects the environment.
+func colorEnabled(terminal bool, env func(string) string, args []string) bool {
+	if !terminal || env("NO_COLOR") != "" || env("TERM") == "dumb" || env("CI") != "" {
+		return false
+	}
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--no-color" || arg == "--no-color=true" {
+			return false
+		}
+	}
+	return true
 }
 
 func isTerminal(file *os.File) bool {
