@@ -50,13 +50,33 @@ Ideas, feedback, and contributions are welcome.
 
 ## Install
 
+On Linux (glibc or musl) and macOS, amd64 or arm64:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+```
+
+The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
+
+Overrides, as environment variables or flags (`sh -s -- --version 0.2.0 --dir /opt/bin`):
+
+| Variable               | Flag        | Default           | Meaning                                                              |
+| ---------------------- | ----------- | ----------------- | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version` | latest            | Release to install; a pre-release such as `0.2.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`     | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run` |                   | Resolve the version and print what would happen                      |
+
+Binaries are published by the release workflow; until that has run for a tag (v0.1.0 was tagged before it existed), the script reports the archive as unpublished and building from source is the way to get that version.
+
+### Build from source
+
 Coolship needs Go 1.26 or newer, matching `coolify-cli` so code can move upstream. Newer toolchains build it unchanged.
 
 ```bash
 git clone https://github.com/joaomnuno/coolship.git
 cd coolship
 scripts/build            # bin/coolship, version stamped from the nearest tag
-coolship --version
+bin/coolship --version
 ```
 
 A plain `go build -o coolship .` also works and reports the Git revision it was built from. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).

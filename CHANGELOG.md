@@ -14,6 +14,7 @@ change command behavior; the changelog says when they do.
 - Tagged releases: pushing a `vX.Y.Z` tag publishes a GitHub Release with archives for Linux, macOS, and Windows on amd64 and arm64, a `checksums.txt`, and notes taken from this changelog. Tags with a pre-release suffix such as `v0.2.0-rc.1` are published as pre-releases, and `latest` always points at the newest full release.
 - A rolling `nightly` pre-release built from `main` on demand, replaced on every run and never marked `latest`.
 - Continuous integration on every push and pull request: `gofmt`, `go vet`, tests with and without the race detector, builds, `shellcheck` on the scripts, and a check that pull requests changing Go code also update this changelog unless labeled `skip-changelog`.
+- `scripts/install.sh`: a curl-able installer for Linux and macOS that downloads a release archive from GitHub Releases, verifies its SHA-256 against `checksums.txt`, installs into `$HOME/.local/bin` (or `COOLSHIP_INSTALL_DIR` / `--dir`), and prints a PATH hint for bash, zsh, or fish. `COOLSHIP_VERSION` / `--version` selects a release, including pre-releases; `--dry-run` shows what would happen. It never runs `sudo`.
 
 ## [0.1.0] - 2026-09-09
 
