@@ -87,7 +87,7 @@ check steps-markdown    /docs/get-started.md             200 text/markdown '^# G
 ^## Log in$
 ^```bash$
 ^```$
-^> \*\*init needs a public repository\*\*$
+^> \*\*Private repositories and build packs\*\*$
 ^- \[Monorepos\]\('
 check llms-full         /llms-full.txt                   200 text/markdown '^# deploy$
 ^## Log in$
