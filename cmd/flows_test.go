@@ -50,6 +50,8 @@ type server struct {
 	// application reads exited:unhealthy from then on.
 	stopAfter int
 	history   []map[string]any // deployment rows, newest first, as the list endpoint returns them
+	keys      []map[string]any // private keys Coolify holds, as GET /security/keys lists them
+	keyBodies []map[string]any // what POST /security/keys received
 }
 
 func (s *server) record(entry string) int {
@@ -151,36 +153,97 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	})
 	// Creation answers as Coolify 4.3.18 does: 201 with the uuid and the
 	// generated domain, or 422 with a message and field errors. The new
-	// application then appears in the environment like any other.
-	handle("POST /api/v1/applications/public", func(w http.ResponseWriter, r *http.Request, _ int) {
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("creation body: %v", err)
-		}
-		s.mu.Lock()
-		s.creations = append(s.creations, body)
-		s.mu.Unlock()
-		if body["git_repository"] == "https://github.com/joaomnuno/private" {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			write(w, map[string]any{"message": "Validation failed.", "errors": map[string]any{"git_repository": []string{"Repository is not accessible."}}})
-			return
-		}
-		if body["project_uuid"] != "project-1" || body["environment_name"] != "production" || body["server_uuid"] != "server-1" || body["instant_deploy"] != false {
-			t.Errorf("unexpected creation body %v", body)
-		}
-		name, _ := body["name"].(string)
-		created := map[string]any{"uuid": "app-" + name, "name": name, "status": "exited:unhealthy", "fqdn": "https://app-" + name + ".coolify.example.com"}
-		environment["applications"] = append(environment["applications"].([]map[string]any), created)
-		mux.HandleFunc("GET /api/v1/applications/app-"+name, func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer "+testToken {
-				w.WriteHeader(http.StatusUnauthorized)
+	// application then appears in the environment like any other. The three
+	// creation endpoints share the shape and differ in the source they take.
+	create := func(source string) func(http.ResponseWriter, *http.Request, int) {
+		return func(w http.ResponseWriter, r *http.Request, _ int) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("creation body: %v", err)
+			}
+			s.mu.Lock()
+			s.creations = append(s.creations, body)
+			s.mu.Unlock()
+			if body["git_repository"] == "https://github.com/joaomnuno/private" {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				write(w, map[string]any{"message": "Validation failed.", "errors": map[string]any{"git_repository": []string{"Repository is not accessible."}}})
 				return
 			}
-			s.record(r.Method + " " + r.URL.Path)
-			write(w, created)
+			if body["project_uuid"] != "project-1" || body["environment_name"] != "production" || body["server_uuid"] != "server-1" || body["instant_deploy"] != false {
+				t.Errorf("unexpected creation body %v", body)
+			}
+			switch source {
+			case "public":
+				if body["github_app_uuid"] != nil || body["private_key_uuid"] != nil {
+					t.Errorf("public creation names a private source: %v", body)
+				}
+			case "private-github-app":
+				if body["github_app_uuid"] != "gh-seven" || body["private_key_uuid"] != nil {
+					t.Errorf("github app creation body %v", body)
+				}
+			case "private-deploy-key":
+				if body["github_app_uuid"] != nil || body["private_key_uuid"] != "key-ci-key" || !strings.HasPrefix(body["git_repository"].(string), "git@") {
+					t.Errorf("deploy key creation body %v", body)
+				}
+			}
+			name, _ := body["name"].(string)
+			created := map[string]any{"uuid": "app-" + name, "name": name, "status": "exited:unhealthy", "fqdn": "https://app-" + name + ".coolify.example.com"}
+			environment["applications"] = append(environment["applications"].([]map[string]any), created)
+			mux.HandleFunc("GET /api/v1/applications/app-"+name, func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer "+testToken {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				s.record(r.Method + " " + r.URL.Path)
+				write(w, created)
+			})
+			w.WriteHeader(http.StatusCreated)
+			write(w, map[string]any{"uuid": created["uuid"], "domains": created["fqdn"]})
+		}
+	}
+	handle("POST /api/v1/applications/public", create("public"))
+	handle("POST /api/v1/applications/private-github-app", create("private-github-app"))
+	handle("POST /api/v1/applications/private-deploy-key", create("private-deploy-key"))
+	// GitHub Apps as 4.3.18 lists them: the built-in public source first,
+	// then installations; branches are keyed by row id, and a repository the
+	// app cannot see relays GitHub's 404.
+	handle("GET /api/v1/github-apps", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, []map[string]any{
+			{"id": 0, "uuid": "gh-public", "name": "Public GitHub", "html_url": "https://github.com", "is_public": true, "is_system_wide": false, "team_id": 0, "organization": nil},
+			{"id": 7, "uuid": "gh-seven", "name": "homelab-app", "html_url": "https://github.com", "is_public": false, "is_system_wide": false, "team_id": 0, "organization": nil, "installation_id": 42},
 		})
+	})
+	handle("GET /api/v1/github-apps/7/repositories/joaomnuno/private-app/branches", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, map[string]any{"branches": []map[string]any{{"name": "main", "protected": false}}})
+	})
+	handle("GET /api/v1/github-apps/7/repositories/joaomnuno/other-private/branches", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusNotFound)
+		write(w, map[string]any{"message": "Error loading branches from GitHub.", "error": "Not Found"})
+	})
+	handle("GET /api/v1/security/keys", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		write(w, s.keys)
+	})
+	// Key creation as 4.3.18 does it: the private key is supplied, the
+	// public half is derived, and only the uuid comes back.
+	handle("POST /api/v1/security/keys", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("key body: %v", err)
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.keyBodies = append(s.keyBodies, body)
+		name, _ := body["name"].(string)
+		private, _ := body["private_key"].(string)
+		if !strings.HasPrefix(private, "-----BEGIN OPENSSH PRIVATE KEY-----\n") || name == "" {
+			t.Errorf("key creation body %v", body)
+		}
+		s.keys = append(s.keys, map[string]any{"id": len(s.keys) + 10, "uuid": "key-" + name, "name": name, "description": body["description"],
+			"public_key": "ssh-ed25519 DERIVED " + name, "fingerprint": "fp-" + name, "is_git_related": false})
 		w.WriteHeader(http.StatusCreated)
-		write(w, map[string]any{"uuid": created["uuid"], "domains": created["fqdn"]})
+		write(w, map[string]any{"uuid": "key-" + name})
 	})
 	handle("POST /api/v1/deploy", func(w http.ResponseWriter, r *http.Request, calls int) {
 		var body struct {
@@ -350,6 +413,13 @@ func run(t *testing.T, url, dir string, in string, args ...string) (string, stri
 		InspectRepository: func(_ context.Context, dir string) (gitinfo.Repository, error) {
 			return gitinfo.Repository{Remote: "https://github.com/joaomnuno/" + filepath.Base(dir), Branch: "main"}, nil
 		},
+		// The anonymous probe: anything named private is not.
+		ProbeRemote: func(_ context.Context, remote string) ([]string, error) {
+			if strings.Contains(remote, "private") {
+				return nil, errors.New("git ls-remote: could not read Username for 'https://github.com': terminal prompts disabled")
+			}
+			return []string{"main"}, nil
+		},
 	})
 	streams := ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic, Interactive: in != ""}
 	root := cmd.NewRootCommand(app, streams, "test-version")
@@ -484,8 +554,9 @@ func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
 		t.Fatalf("declined init wrote configuration: %v", err)
 	}
-	// The server's refusal reaches the user with its explanation, and nothing is written.
-	_, _, err = run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/private", "--yes")
+	// The server's refusal reaches the user with its explanation, and nothing
+	// is written; --source public sends a remote the probe could not read.
+	_, _, err = run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/private", "--source", "public", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "Repository is not accessible") || ui.ExitCode(err) != 1 {
 		t.Fatalf("refusal: %v", err)
 	}
@@ -533,6 +604,112 @@ func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
 	}
 	// Nothing was deployed, and no request went to the unusable server.
 	if counts := s.counts(); counts["POST /api/v1/deploy"] != 0 || counts["POST /api/v1/applications/public"] != 2 {
+		t.Fatalf("requests %v", counts)
+	}
+}
+
+func TestInitPrivateSourcesAgainstTheServer(t *testing.T) {
+	s := &server{deployment: []string{"finished"}, keys: []map[string]any{
+		{"id": 0, "uuid": "key-0", "name": "localhost's key", "description": "The private key for the Coolify host machine (localhost).", "public_key": "ssh-ed25519 HOST", "fingerprint": "fp-0", "is_git_related": false, "private_key": "-----BEGIN SECRET-----"},
+	}}
+	instance := newServer(t, s)
+	private := "https://github.com/joaomnuno/private-app"
+
+	// A private remote with nobody to ask is refused before any request that creates.
+	dir := projectDirectory(t)
+	_, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", private, "--yes")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "not reachable anonymously") || !strings.Contains(err.Error(), "--source github-app or --source deploy-key") || len(s.creations) != 0 {
+		t.Fatalf("auto without a prompt: %v", err)
+	}
+	// A GitHub App that cannot see the repository, or a typo, fails before creation.
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", private, "--github-app", "nope", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "homelab-app") {
+		t.Fatalf("unknown app: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/other-private", "--github-app", "homelab-app", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "cannot access joaomnuno/other-private") {
+		t.Fatalf("inaccessible repository: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", private, "--branch", "gone", "--github-app", "homelab-app", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), `branch "gone"`) {
+		t.Fatalf("missing branch: %v", err)
+	}
+	if counts := s.counts(); counts["POST /api/v1/applications/private-github-app"] != 0 || counts["GET /api/v1/github-apps/7/repositories/joaomnuno/other-private/branches"] != 1 || counts["GET /api/v1/github-apps/7/repositories/joaomnuno/private-app/branches"] != 1 {
+		t.Fatalf("requests before any creation %v", counts)
+	}
+
+	// Interactively, the source is asked for, then the only app is checked and the plan shown.
+	_, diagnostic, err := run(t, instance.URL, dir, "1\nn\n", "init", "--project", "Personal", "--repo", private)
+	if !errors.Is(err, service.ErrCancelled) || !strings.Contains(diagnostic, "Select source:") || !strings.Contains(diagnostic, "GitHub App") || !strings.Contains(diagnostic, "Source:      GitHub App homelab-app") || len(s.creations) != 0 {
+		t.Fatalf("declined: err=%v stderr=%q", err, diagnostic)
+	}
+	// Accepted through the GitHub App: the private endpoint is used and the binding written.
+	out, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", private, "--github-app", "homelab-app", "--name", "gh-app", "--yes", "--format", "json")
+	if err != nil {
+		t.Fatalf("github app init: %v", err)
+	}
+	var result service.InitResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Plan.Source != "github-app" || result.Plan.GitHubApp != "homelab-app" || result.Plan.Repository != private || result.Target.ApplicationUUID != "app-gh-app" {
+		t.Fatalf("github app result %s: %v", out, err)
+	}
+	if len(s.creations) != 1 || s.creations[0]["github_app_uuid"] != "gh-seven" || s.creations[0]["git_repository"] != private {
+		t.Fatalf("creations %v", s.creations)
+	}
+	if out, _, err := run(t, instance.URL, dir, "", "status", "--format", "json"); err != nil || !strings.Contains(out, `"application_uuid":"app-gh-app"`) {
+		t.Fatalf("status after github app init: %q %v", out, err)
+	}
+
+	// A new deploy key: the key is created and printed, the application is not.
+	dir = projectDirectory(t)
+	sshRemote := "git@github.com:joaomnuno/private-app.git"
+	out, _, err = run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", sshRemote, "--create-deploy-key", "ci-key", "--yes")
+	if err != nil {
+		t.Fatalf("create key: %v", err)
+	}
+	for _, want := range []string{"Created deploy key ci-key (key-ci-key)", "Public key:", "ssh-ed25519 ", sshRemote + " as a read-only deploy key", "coolship init --source deploy-key --deploy-key ci-key"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("key output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, "Created application") {
+		t.Fatalf("key output leaks or overstates:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !os.IsNotExist(err) {
+		t.Fatalf("key creation wrote configuration: %v", err)
+	}
+	if len(s.keyBodies) != 1 || s.keyBodies[0]["name"] != "ci-key" || !strings.Contains(s.keyBodies[0]["description"].(string), "joaomnuno/private-app") || len(s.creations) != 1 {
+		t.Fatalf("key bodies %v creations %d", s.keyBodies, len(s.creations))
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", sshRemote, "--create-deploy-key", "ci-key", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "already holds") || len(s.keyBodies) != 1 {
+		t.Fatalf("duplicate key: %v", err)
+	}
+	// The key is then used: the SSH form is stored and the deploy key endpoint taken.
+	out, _, err = run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", sshRemote, "--deploy-key", "ci-key", "--name", "key-app", "--yes", "--format", "json")
+	if err != nil {
+		t.Fatalf("deploy key init: %v", err)
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Plan.Source != "deploy-key" || result.Plan.DeployKey != "ci-key" || result.Plan.Repository != sshRemote || result.Target.ApplicationUUID != "app-key-app" || result.DeployKey != nil {
+		t.Fatalf("deploy key result %s: %v", out, err)
+	}
+	if len(s.creations) != 2 || s.creations[1]["private_key_uuid"] != "key-ci-key" || s.creations[1]["git_repository"] != sshRemote || s.creations[1]["github_app_uuid"] != nil {
+		t.Fatalf("creations %v", s.creations)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, "coolship.toml"))
+	if err != nil || !strings.Contains(string(written), `application = 'key-app'`) {
+		t.Fatalf("binding %s: %v", written, err)
+	}
+	// Interactively, even the only usable key is asked for, then shown in the
+	// plan; the localhost key is never offered. Without a prompt, the source
+	// and the key must both be named, so nothing private is decided implicitly.
+	dir = projectDirectory(t)
+	_, diagnostic, err = run(t, instance.URL, dir, "1\nn\n", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/private-two", "--source", "deploy-key")
+	if !errors.Is(err, service.ErrCancelled) || !strings.Contains(diagnostic, "Select deploy key:") || !strings.Contains(diagnostic, "1. ci-key") || strings.Contains(diagnostic, "localhost") || !strings.Contains(diagnostic, "Source:      deploy key ci-key") || !strings.Contains(diagnostic, "git@github.com:joaomnuno/private-two.git (branch main)") {
+		t.Fatalf("interactive deploy key: err=%v stderr=%q", err, diagnostic)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://gitlab.com/joaomnuno/private-two", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--source deploy-key") || strings.Contains(err.Error(), "github-app") {
+		t.Fatalf("gitlab without a prompt: %v", err)
+	}
+	if _, _, err := run(t, instance.URL, dir, "", "init", "--project", "Personal", "--repo", "https://github.com/joaomnuno/private-two", "--source", "deploy-key", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--deploy-key") {
+		t.Fatalf("single key without a prompt: %v", err)
+	}
+	if counts := s.counts(); counts["POST /api/v1/applications/public"] != 0 || counts["POST /api/v1/applications/private-github-app"] != 1 || counts["POST /api/v1/applications/private-deploy-key"] != 1 || counts["POST /api/v1/security/keys"] != 1 || counts["POST /api/v1/deploy"] != 0 {
 		t.Fatalf("requests %v", counts)
 	}
 }

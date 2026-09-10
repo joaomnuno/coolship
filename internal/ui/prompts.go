@@ -146,6 +146,12 @@ func selectionFlags(kind string) string {
 		return "--application or --application-uuid"
 	case "server":
 		return "--server"
+	case "source":
+		return "--source"
+	case "github app":
+		return "--github-app"
+	case "deploy key":
+		return "--deploy-key or --create-deploy-key"
 	default:
 		return "the corresponding link flags"
 	}
@@ -230,7 +236,8 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
-// ConfirmInit shows everything init is about to create and write.
+// ConfirmInit shows everything init is about to create and write. With a new
+// deploy key, only the key is created at this point, and the plan says so.
 func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -250,18 +257,34 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	if plan.Target != "" && plan.Target != "default" {
 		binding += " [apps." + singleLine(plan.Target) + "]"
 	}
+	source := "public (cloned without credentials)"
+	switch plan.Source {
+	case service.SourceGitHubApp:
+		source = "GitHub App " + singleLine(plan.GitHubApp)
+	case service.SourceDeployKey:
+		source = "deploy key " + singleLine(plan.DeployKey)
+		if plan.NewDeployKey {
+			source += " (new; the application is created once the key is registered on the repository)"
+		}
+	}
 	rows := [][2]string{
 		{"Repository", singleLine(plan.Repository) + " (branch " + singleLine(plan.Branch) + ")"},
+		{"Source", source},
 		{"Build pack", buildPack},
 		{"Project", project},
 		{"Environment", singleLine(plan.Environment)},
 		{"Server", singleLine(plan.Server)},
 		{"Binding", binding},
 	}
-	if plan.Deploy {
+	if plan.Deploy && !plan.NewDeployKey {
 		rows = append(rows, [2]string{"Then", "deploy and wait for it"})
 	}
-	if _, err := fmt.Fprintln(p.streams.Err, p.question("Create application "+singleLine(plan.Name)+" on "+singleLine(plan.Instance)+"?")); err != nil {
+	question := "Create application " + singleLine(plan.Name) + " on " + singleLine(plan.Instance) + "?"
+	if plan.NewDeployKey {
+		question = "Create deploy key " + singleLine(plan.DeployKey) + " on " + singleLine(plan.Instance) + " for " + singleLine(plan.Repository) + "?"
+		rows = rows[:2]
+	}
+	if _, err := fmt.Fprintln(p.streams.Err, p.question(question)); err != nil {
 		return false, err
 	}
 	for _, row := range rows {

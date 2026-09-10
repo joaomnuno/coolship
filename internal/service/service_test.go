@@ -18,6 +18,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
+	"github.com/joaomnuno/coolship/internal/sshkey"
 )
 
 type fakeBackend struct {
@@ -63,6 +64,19 @@ type fakeBackend struct {
 	lastForce    bool
 	cancelled    []string
 	cancelError  error
+	// Private sources: what the anonymous probe answers per remote (absent
+	// means unreachable), the GitHub Apps with the branches each can list per
+	// repository (absent means the app cannot reach it), and the keys
+	// Coolify holds.
+	heads       map[string][]string
+	probed      []string
+	githubApps  []models.GitHubApp
+	branches    map[string][]models.GitHubBranch // "id owner/repo"
+	branchError error
+	sourceError error
+	keys        []models.PrivateKey
+	createdKeys []string // private keys as received, to prove they are never printed
+	keyError    error
 }
 
 func newBackend() *fakeBackend {
@@ -74,8 +88,19 @@ func newBackend() *fakeBackend {
 		receipts:     []models.DeploymentReceipt{{ResourceUUID: "app-1", DeploymentUUID: "deploy-1"}},
 		deployments:  []models.Deployment{{UUID: "deploy-1", Status: "finished"}},
 		snapshots:    []string{"2026-09-09T10:00:00Z hello\n"}, calls: map[string]int{},
-		servers:      []models.Server{{UUID: "server-1", Name: "Master", IP: "10.0.0.1", IsReachable: true, IsUsable: true}},
-		repository:   gitinfo.Repository{Remote: "https://github.com/owner/new-app", Branch: "main"},
+		servers:    []models.Server{{UUID: "server-1", Name: "Master", IP: "10.0.0.1", IsReachable: true, IsUsable: true}},
+		repository: gitinfo.Repository{Remote: "https://github.com/owner/new-app", SSH: "git@github.com:owner/new-app.git", Branch: "main"},
+		heads:      map[string][]string{"https://github.com/owner/new-app": {"main", "develop"}, "https://github.com/owner/flagged": {"release"}},
+		githubApps: []models.GitHubApp{
+			{ID: 0, UUID: "gh-public", Name: "Public GitHub", IsPublic: true},
+			{ID: 1, UUID: "gh-docs", Name: "docs-app", Organization: "Org"},
+		},
+		branches: map[string][]models.GitHubBranch{"1 owner/new-app": {{Name: "main"}, {Name: "develop"}}, "1 owner/secret": {{Name: "main"}}},
+		keys: []models.PrivateKey{
+			{ID: 0, UUID: "key-0", Name: "localhost's key", Fingerprint: "f0"},
+			{ID: 1, UUID: "key-app", Name: "github-app-docs", Fingerprint: "f1", IsGitRelated: true},
+			{ID: 2, UUID: "key-deploy", Name: "deploy", Fingerprint: "f2"},
+		},
 		stopStatuses: []string{"running:healthy", "exited:unhealthy"},
 		receipt:      models.ActionReceipt{Message: "Deployment request queued.", DeploymentUUID: "deploy-1"},
 	}
@@ -134,6 +159,45 @@ func (f *fakeBackend) CancelDeployment(_ context.Context, id string) (models.Can
 	}
 	f.cancelled = append(f.cancelled, id)
 	return models.CancelReceipt{Message: "Deployment cancelled successfully.", DeploymentUUID: id, Status: "cancelled-by-user"}, nil
+}
+
+func (f *fakeBackend) ListGitHubApps(context.Context) ([]models.GitHubApp, error) {
+	f.calls["github-apps"]++
+	if f.sourceError != nil {
+		return nil, f.sourceError
+	}
+	return f.githubApps, nil
+}
+
+func (f *fakeBackend) ListGitHubBranches(_ context.Context, appID int, owner, repo string) ([]models.GitHubBranch, error) {
+	f.calls["github-branches"]++
+	if f.branchError != nil {
+		return nil, f.branchError
+	}
+	branches, ok := f.branches[fmt.Sprintf("%d %s/%s", appID, strings.ToLower(owner), strings.ToLower(repo))]
+	if !ok {
+		return nil, statusError{code: 404}
+	}
+	return branches, nil
+}
+
+func (f *fakeBackend) ListPrivateKeys(context.Context) ([]models.PrivateKey, error) {
+	f.calls["keys"]++
+	if f.keyError != nil {
+		return nil, f.keyError
+	}
+	return f.keys, nil
+}
+
+func (f *fakeBackend) CreatePrivateKey(_ context.Context, name, description, privateKey string) (models.PrivateKey, error) {
+	f.calls["create-key"]++
+	if f.keyError != nil {
+		return models.PrivateKey{}, f.keyError
+	}
+	f.createdKeys = append(f.createdKeys, privateKey)
+	created := models.PrivateKey{ID: 100 + len(f.createdKeys), UUID: "key-" + name, Name: name, Description: description, PublicKey: "ssh-ed25519 PUBLIC " + name}
+	f.keys = append(f.keys, created)
+	return models.PrivateKey{UUID: created.UUID, Name: name, Description: description}, nil
 }
 
 func (f *fakeBackend) ListServers(context.Context) ([]models.Server, error) {
@@ -345,6 +409,17 @@ func testApp(f *fakeBackend) (*App, *int, *int) {
 				return gitinfo.Repository{}, f.repositoryError
 			}
 			return f.repository, nil
+		},
+		ProbeRemote: func(_ context.Context, remote string) ([]string, error) {
+			f.probed = append(f.probed, remote)
+			heads, ok := f.heads[remote]
+			if !ok {
+				return nil, errors.New("git ls-remote: could not read Username: terminal prompts disabled")
+			}
+			return heads, nil
+		},
+		GenerateKey: func(comment string) (sshkey.Pair, error) {
+			return sshkey.Pair{Private: "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRET-" + comment + "\n-----END OPENSSH PRIVATE KEY-----\n", Public: "ssh-ed25519 PUBLIC " + comment}, nil
 		},
 	})
 	return app, &credentials, &factories

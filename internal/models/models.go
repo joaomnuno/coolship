@@ -179,9 +179,13 @@ type Server struct {
 	IsUsable    bool   `json:"is_usable"`
 }
 
-// ApplicationSpec creates one application from a public Git repository. The
-// field names follow the server's request contract for POST
-// /applications/public; PortsExposes is a comma-separated port list.
+// ApplicationSpec creates one application from a Git repository. The field
+// names follow the server's request contract for the POST /applications/*
+// creation endpoints; PortsExposes is a comma-separated port list. Source
+// selects the endpoint and is not part of the body: empty or "public" clones
+// anonymously, "github-app" clones through the GitHub App named by
+// GitHubAppUUID, and "deploy-key" clones over SSH with the key named by
+// PrivateKeyUUID, in which case GitRepository must be an SSH remote.
 type ApplicationSpec struct {
 	ProjectUUID     string `json:"project_uuid"`
 	EnvironmentName string `json:"environment_name"`
@@ -195,6 +199,45 @@ type ApplicationSpec struct {
 	BaseDirectory   string `json:"base_directory,omitempty"`
 	IsStatic        bool   `json:"is_static,omitempty"`
 	InstantDeploy   bool   `json:"instant_deploy"`
+	Source          string `json:"-"`
+	GitHubAppUUID   string `json:"github_app_uuid,omitempty"`
+	PrivateKeyUUID  string `json:"private_key_uuid,omitempty"`
+}
+
+// GitHubApp is a GitHub App registered in Coolify. ID addresses the branch
+// listing, which the server keys by row id; UUID is what application
+// creation takes. The built-in "Public GitHub" source is listed with
+// IsPublic set and has no installation to read repositories through. A
+// system-wide app belongs to another team, which cannot list its branches
+// but may create applications with it.
+type GitHubApp struct {
+	ID           int    `json:"id"`
+	UUID         string `json:"uuid"`
+	Name         string `json:"name"`
+	Organization string `json:"organization"`
+	HTMLURL      string `json:"html_url"`
+	IsPublic     bool   `json:"is_public"`
+	IsSystemWide bool   `json:"is_system_wide"`
+	TeamID       int    `json:"team_id"`
+}
+
+// GitHubBranch is one branch of a repository as an installed GitHub App
+// sees it.
+type GitHubBranch struct {
+	Name string `json:"name"`
+}
+
+// PrivateKey is an SSH key Coolify holds. The private half is never decoded
+// into this type; PublicKey is what a Git host registers as a deploy key.
+// IsGitRelated marks keys that belong to a GitHub or GitLab App.
+type PrivateKey struct {
+	ID           int    `json:"id"`
+	UUID         string `json:"uuid"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	PublicKey    string `json:"public_key"`
+	Fingerprint  string `json:"fingerprint"`
+	IsGitRelated bool   `json:"is_git_related"`
 }
 
 // CreatedApplication is the server's answer to a creation: the new identity

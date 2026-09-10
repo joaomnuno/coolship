@@ -9,6 +9,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
+	"github.com/joaomnuno/coolship/internal/sshkey"
 )
 
 // App coordinates workflows with one authenticated backend per invocation.
@@ -32,6 +33,9 @@ func New(deps Dependencies) *App {
 	}
 	if deps.PollInterval <= 0 {
 		deps.PollInterval = 2 * time.Second
+	}
+	if deps.GenerateKey == nil {
+		deps.GenerateKey = sshkey.Generate
 	}
 	return &App{deps: deps}
 }

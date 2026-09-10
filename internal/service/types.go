@@ -12,6 +12,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/resolver"
+	"github.com/joaomnuno/coolship/internal/sshkey"
 )
 
 // Options identifies a local project and explicit invocation overrides.
@@ -37,40 +38,64 @@ type LinkOptions struct {
 
 // InitOptions creates an application for the current repository and binds it.
 // Repository and Branch are read from Git when empty; BuildPack is detected
-// from the application root when empty.
+// from the application root when empty. Source chooses how Coolify clones:
+// auto probes the remote anonymously and picks public when that works,
+// otherwise asks which private source to use.
 type InitOptions struct {
 	Options
-	Repository    string
-	Branch        string
-	BuildPack     string // nixpacks, dockerfile, or static
-	Port          int    // 0 means the build pack's default
-	Static        bool   // serve the build output as a static site
-	Name          string // defaults to the repository name
-	Project       string
-	CreateProject bool
-	Server        string
-	Yes           bool
-	Deploy        bool
-	Timeout       time.Duration // deployment observation, when Deploy is set
+	Repository      string
+	Branch          string
+	BuildPack       string // nixpacks, dockerfile, or static
+	Port            int    // 0 means the build pack's default
+	Static          bool   // serve the build output as a static site
+	Name            string // defaults to the repository name
+	Project         string
+	CreateProject   bool
+	Server          string
+	Source          string // auto, public, github-app, or deploy-key; empty means auto
+	GitHubApp       string // exact name of the GitHub App to clone through
+	DeployKey       string // exact name of an existing key to clone with
+	CreateDeployKey string // name of a key to create and print for the repository
+	Yes             bool
+	Deploy          bool
+	Timeout         time.Duration // deployment observation, when Deploy is set
 }
 
+// SourcePublic, SourceGitHubApp, and SourceDeployKey are the ways Coolify can
+// clone a repository; SourceAuto lets init choose from what the remote allows.
+const (
+	SourceAuto      = "auto"
+	SourcePublic    = "public"
+	SourceGitHubApp = "github-app"
+	SourceDeployKey = "deploy-key"
+)
+
 // InitPlan is everything init will create and write, shown before it does.
+// Repository is the remote as Coolify will store it: https for a public
+// clone or a GitHub App, the SSH form for a deploy key. Source names a
+// private source; it is empty for a public clone, which keeps the JSON of a
+// public plan as it was. NewDeployKey means only the key is created now: the
+// application follows once the key is registered on the repository.
 type InitPlan struct {
-	Path        string `json:"path"`
-	Target      string `json:"target"`
-	Root        string `json:"root"`
-	Repository  string `json:"repository"`
-	Branch      string `json:"branch"`
-	BuildPack   string `json:"build_pack"`
-	Port        int    `json:"port"`
-	Static      bool   `json:"static,omitempty"`
-	Name        string `json:"name"`
-	Instance    string `json:"instance"`
-	Project     string `json:"project"`
-	NewProject  bool   `json:"new_project,omitempty"`
-	Environment string `json:"environment"`
-	Server      string `json:"server"`
-	Deploy      bool   `json:"deploy,omitempty"`
+	Path         string `json:"path"`
+	Target       string `json:"target"`
+	Root         string `json:"root"`
+	Repository   string `json:"repository"`
+	Branch       string `json:"branch"`
+	BuildPack    string `json:"build_pack"`
+	Port         int    `json:"port"`
+	Static       bool   `json:"static,omitempty"`
+	Name         string `json:"name"`
+	Instance     string `json:"instance"`
+	Project      string `json:"project"`
+	NewProject   bool   `json:"new_project,omitempty"`
+	Environment  string `json:"environment"`
+	Server       string `json:"server"`
+	Deploy       bool   `json:"deploy,omitempty"`
+	Source       string `json:"source,omitempty"`
+	GitHubApp    string `json:"github_app,omitempty"`
+	DeployKey    string `json:"deploy_key,omitempty"`
+	NewDeployKey bool   `json:"new_deploy_key,omitempty"`
 }
 
 type ConfirmInit func(context.Context, InitPlan) (bool, error)
@@ -79,9 +104,23 @@ type InitResult struct {
 	Plan   InitPlan   `json:"plan"`
 	Target TargetInfo `json:"target"`
 	// URL is the domain Coolify assigned at creation.
-	URL        string        `json:"url,omitempty"`
-	Deployment *DeployResult `json:"deployment,omitempty"`
-	Warnings   []string      `json:"warnings,omitempty"`
+	URL string `json:"url,omitempty"`
+	// DeployKey is the key init created. Its public half must be registered
+	// on the repository before Coolify can clone; when it is set, no
+	// application was created and Target is empty.
+	DeployKey  *DeployKeyResult `json:"deploy_key,omitempty"`
+	Deployment *DeployResult    `json:"deployment,omitempty"`
+	Warnings   []string         `json:"warnings,omitempty"`
+}
+
+// DeployKeyResult describes a key init created in Coolify. PublicKey is the
+// authorized_keys line to add to the repository; the private half stays in
+// Coolify and is never part of a result.
+type DeployKeyResult struct {
+	Name       string `json:"name"`
+	UUID       string `json:"uuid"`
+	PublicKey  string `json:"public_key"`
+	Repository string `json:"repository"`
 }
 
 type DeployOptions struct {
@@ -447,6 +486,10 @@ type Backend interface {
 	ListServers(context.Context) ([]models.Server, error)
 	CreateProject(ctx context.Context, name, description string) (models.Project, error)
 	CreateApplication(context.Context, models.ApplicationSpec) (models.CreatedApplication, error)
+	ListGitHubApps(context.Context) ([]models.GitHubApp, error)
+	ListGitHubBranches(ctx context.Context, appID int, owner, repo string) ([]models.GitHubBranch, error)
+	ListPrivateKeys(context.Context) ([]models.PrivateKey, error)
+	CreatePrivateKey(ctx context.Context, name, description, privateKey string) (models.PrivateKey, error)
 }
 
 type Dependencies struct {
@@ -464,6 +507,13 @@ type Dependencies struct {
 	// containing a directory; init asks it only for what --repo and --branch
 	// did not supply. Without it, both flags are required.
 	InspectRepository func(context.Context, string) (gitinfo.Repository, error)
+	// ProbeRemote lists the branches of a remote as an anonymous client sees
+	// them, or fails when credentials would be needed; init uses it to tell a
+	// public repository from a private one. Without it, --source is required.
+	ProbeRemote func(context.Context, string) ([]string, error)
+	// GenerateKey creates the pair a new deploy key is made of; the default
+	// is an Ed25519 pair in OpenSSH format.
+	GenerateKey func(comment string) (sshkey.Pair, error)
 }
 
 var ErrInput = errors.New("invalid command input")

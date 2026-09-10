@@ -77,6 +77,7 @@ func run() int {
 			return runner.Run(ctx, process.Spec{Dir: spec.Dir, Args: spec.Args, Shell: spec.Shell, Env: spec.Env})
 		},
 		InspectRepository: gitinfo.Inspect,
+		ProbeRemote:       gitinfo.Heads,
 	})
 	info, ok := debug.ReadBuildInfo()
 	resolved := resolveVersion(version, info, ok)

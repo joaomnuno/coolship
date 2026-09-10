@@ -113,7 +113,7 @@ Saved to /home/you/.config/coolify/config.json
 
 Create the token in Coolify under your profile's **Keys & Tokens** page with the *read*, *write*, and *deploy* abilities; build logs and secret values are also withheld unless the token has *sensitive read*. The URL must be the full `https://…` address — a bare host is asked again — and the token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin` (`--context ci` names it too, and without a terminal a missing `--url` or `--name` is an error rather than a prompt). `coolship logout NAME` removes a context.
 
-Then link a repository. If it is already an application on Coolify, `link` binds it; if it is not on Coolify yet, `init` creates the application from the repository's public remote and binds it in one step:
+Then link a repository. If it is already an application on Coolify, `link` binds it; if it is not on Coolify yet, `init` creates the application from the repository's remote — public, or private through a GitHub App or a deploy key — and binds it in one step:
 
 ```bash
 cd my-app
@@ -148,12 +148,13 @@ coolship logs --follow
 
 ### `coolship init`
 
-Create a Coolify application for the current repository, then link it — the first step for a repository that is not on Coolify yet. `init` reads the `origin` remote (SSH forms become `https://github.com/owner/repo`) and the checked-out branch, detects the build pack from the application root (a `Dockerfile` builds itself, anything else goes to Nixpacks), shows the plan, and creates the application only after you confirm:
+Create a Coolify application for the current repository, then link it — the first step for a repository that is not on Coolify yet. `init` reads the `origin` remote and the checked-out branch, checks whether the repository can be read without credentials, detects the build pack from the application root (a `Dockerfile` builds itself, anything else goes to Nixpacks), shows the plan, and creates the application only after you confirm:
 
 ```text
 $ coolship init
 Create application my-app on home?
   Repository:  https://github.com/you/my-app (branch main)
+  Source:      public (cloned without credentials)
   Build pack:  dockerfile, port 80
   Project:     Personal
   Environment: production
@@ -174,7 +175,30 @@ coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
 
 Nothing is deployed unless you pass `--deploy`, which then submits and observes the first deployment exactly like `deploy`. A directory that is already linked is refused rather than re-pointed; use `link` to change a binding.
 
-Two limits, both from the server side. The repository must be **public**: Coolify clones it without credentials (`POST /applications/public`), and a private repository needs a GitHub App or deploy key registered in Coolify first, which the API requires by UUID — create those applications in Coolify and run `link`. And **Docker Compose** projects are refused before any request, because their domains and variables are per service, which no other Coolship command models yet.
+**Private repositories.** How Coolify clones is decided by `--source`, whose default `auto` runs an anonymous `git ls-remote` against the remote (run in an empty temporary home with credential helpers, the user's Git configuration, and Git's own environment variables disabled, so no stored login — a credential helper, `~/.netrc`, an `http.extraHeader` — can make a private repository look public; a host that never answers is given up on after 45 s). A repository that answers is public and is cloned without credentials (`POST /applications/public`). One that does not is private, and `init` asks which of Coolify's two private sources to use, or needs `--source github-app` or `--source deploy-key` when input is noninteractive. Both are chosen by name from what Coolify already holds, the choice is shown in the plan, and neither is ever taken implicitly:
+
+* **GitHub App** (`--github-app NAME`, or pick from the list): a GitHub App installed on the repository and registered in Coolify under *Sources*. Before anything is created, `init` lists the repository's branches through Coolify as the app sees them, so a missing installation fails with a clear message rather than a half-configured application, and so does a branch that a complete listing lacks. GitHub answers 30 branches at a time and Coolify relays the first page only, so a branch beyond it cannot be checked and is left for the first deployment to find; `init` says so. Created with `POST /applications/private-github-app`.
+* **Deploy key** (`--deploy-key NAME`, or pick from the list): an SSH key Coolify holds, registered on the repository as a read-only deploy key. A deploy key clones over SSH, so the repository is stored in its SSH form — `git@github.com:owner/repo.git`, or `git@host:2222/owner/repo.git` with a port; an `origin` that already is an SSH remote keeps its user and port. Created with `POST /applications/private-deploy-key`. The list also holds keys Coolify made for its servers, which is why a key is asked for even when there is only one.
+
+  When no suitable key exists, `--create-deploy-key NAME` generates an Ed25519 pair, registers the private half in Coolify (`POST /security/keys`), prints the public half once on stdout, and stops without creating the application:
+
+  ```text
+  $ coolship init --create-deploy-key my-app-deploy
+  Create deploy key my-app-deploy on home for git@github.com:you/my-app.git?
+    Repository:  git@github.com:you/my-app.git (branch main)
+    Source:      deploy key my-app-deploy (new; the application is created once the key is registered on the repository)
+  Confirm [y/N]: y
+  Created deploy key my-app-deploy (k1l2m3n4) on home
+  Public key:
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… my-app-deploy
+
+  Add it to git@github.com:you/my-app.git as a read-only deploy key, then create the application with:
+    coolship init --source deploy-key --deploy-key my-app-deploy
+  ```
+
+  Add that line under the repository's *Settings → Deploy keys* (or `gh repo deploy-key add key.pub`), then run the printed command. The private half never leaves Coolify: it is not written to disk, not printed, and not part of `--format json`.
+
+`--github-app`, `--deploy-key`, and `--create-deploy-key` each imply their source; `--source public` skips the probe and lets Coolify clone anonymously, which fails at deployment if the repository is private. **Docker Compose** projects are refused before any request, because their domains and variables are per service, which no other Coolship command models yet.
 
 ### `coolship link`
 
@@ -502,7 +526,7 @@ Two commands answer with a status and no message, like `git diff --exit-code`: `
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, listing its deployments, stopping it, starting it again, cancelling a deployment while it was in progress, restarting it, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating Dockerfile applications with `init` from a public repository, through a GitHub App, and through a deploy key `init` generated (deployed once to prove the key clones) and deleting them again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
 
 Limits worth knowing:
 
@@ -530,7 +554,7 @@ scripts/e2e
 
 ## Planned
 
-Every command from the original brief is implemented, and `init` creates applications from public repositories. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for private repositories and Compose projects, and sharing packages with `coolify-cli` once their interfaces settle.
+Every command from the original brief is implemented, and `init` creates applications from public and private repositories. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for Compose projects, and sharing packages with `coolify-cli` once their interfaces settle.
 
 ## What Coolship is not
 
