@@ -173,3 +173,31 @@ func TestDefaultPathMirrorsCoolifyCLI(t *testing.T) {
 		t.Fatalf("home failure must use XDG fallback: %q (%v)", path, err)
 	}
 }
+
+func TestMissingCredentialsSayHowToGetThem(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "config.json")
+	want := "No Coolify credentials at " + path + "; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN"
+	if _, err := auth.Resolve(auth.Options{ConfigPath: path}); err == nil || err.Error() != want {
+		t.Fatalf("resolve: %v", err)
+	}
+	if _, err := auth.List(auth.Options{ConfigPath: path}); err == nil || err.Error() != want {
+		t.Fatalf("list: %v", err)
+	}
+	if err := auth.MissingCredentials(path); err.Error() != want {
+		t.Fatalf("MissingCredentials: %v", err)
+	}
+	// A file with no default names both ways out.
+	path = credentialsFile(t, strings.Replace(compatible, `"default":true`, `"default":false`, 1))
+	_, err := auth.Resolve(auth.Options{ConfigPath: path})
+	if !errors.Is(err, auth.ErrInvalid) || !strings.HasSuffix(err.Error(), "no default instance; pass --context NAME or run coolship login --default") {
+		t.Fatalf("no default: %v", err)
+	}
+	// Other read failures still name the file.
+	unreadable := filepath.Join(t.TempDir(), "dir")
+	if err := os.Mkdir(unreadable, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Resolve(auth.Options{ConfigPath: unreadable}); err == nil || !strings.Contains(err.Error(), unreadable) || strings.Contains(err.Error(), "run coolship login") {
+		t.Fatalf("directory as file: %v", err)
+	}
+}

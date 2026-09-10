@@ -81,7 +81,17 @@ scripts/build            # bin/coolship, version stamped from the nearest tag
 bin/coolship --version
 ```
 
-A plain `go build -o coolship .` also works and reports the Git revision it was built from. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).
+A plain `go build -o coolship .` also works and reports the Git revision it was built from, and `go install github.com/joaomnuno/coolship@latest` reports the module version it installed. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).
+
+### Shell completion
+
+`coolship completion bash|zsh|fish|powershell` prints a completion script for your shell; `coolship completion zsh --help` shows where each shell loads it from. For example:
+
+```bash
+source <(coolship completion bash)                       # bash, in ~/.bashrc
+coolship completion zsh > "${fpath[1]}/_coolship"        # zsh, then start a new shell
+coolship completion fish > ~/.config/fish/completions/coolship.fish
+```
 
 ### Releases
 
@@ -95,12 +105,13 @@ Log in once. Coolship verifies the URL and token against the server, then stores
 $ coolship login
 Coolify URL: https://coolify.example.com
 Context name [coolify]: home
+Create a token in Coolify under Keys & Tokens with read, write, and deploy; add sensitive read to see build logs and secret values.
 API token:
 Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
 Saved to /home/you/.config/coolify/config.json
 ```
 
-The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. `coolship logout NAME` removes a context.
+Create the token in Coolify under your profile's **Keys & Tokens** page with the *read*, *write*, and *deploy* abilities; build logs and secret values are also withheld unless the token has *sensitive read*. The URL must be the full `https://…` address — a bare host is asked again — and the token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin` (`--context ci` names it too, and without a terminal a missing `--url` or `--name` is an error rather than a prompt). `coolship logout NAME` removes a context.
 
 Then link a repository. If it is already an application on Coolify, `link` binds it; if it is not on Coolify yet, `init` creates the application from the repository's public remote and binds it in one step:
 
@@ -216,6 +227,8 @@ Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
 Status: finished
 ```
 
+When `--timeout` elapses the error names the flag (`--timeout 10m0s elapsed before the deployment finished; it continues on the server`), and when the deployment fails or times out, `--format json` still prints the result with the deployment UUID and its last observed status before exiting 1, so a script can pick the deployment up. If Coolify already holds a queued or running deployment for the same commit it declines a new one with `Deployment already queued for this commit.`, which Coolship reports with the suggestion to pass `--force`; a second submission within a couple of seconds can instead be accepted and then dropped by the server, which observation reports as `the server no longer holds this deployment (HTTP 404)`. When the server's deployment queue is full it answers 429, reported as `server deployment queue is full`.
+
 ### `coolship logs`
 
 Read runtime logs from the linked application.
@@ -226,9 +239,11 @@ coolship logs --lines 500
 coolship logs --follow
 ```
 
+The server reads the application's first container and returns at most 10000 lines per snapshot; `--lines` is checked against that range before any request is made. Pull request preview containers cannot be tailed. An application with no running container has no logs, so instead of the server's bare HTTP 400 Coolship reports `application is not running (status exited:unhealthy)`, and `--follow` stops with the same message if the container goes away.
+
 ### `coolship open`
 
-Open the application's public URL — or, with `--dashboard`, its page in Coolify — in your default browser. The URL is always printed on stdout, and nothing is launched when stdin is not a terminal or with `--print`, so it composes with other tools.
+Open the application's public URL — or, with `--dashboard`, its page in Coolify — in your default browser. The URL is always printed on stdout, and nothing is launched when stdin is not a terminal (a redirect from `/dev/null` included) or with `--print`, so it composes with other tools.
 
 ```bash
 coolship open
@@ -257,7 +272,7 @@ Show the effective configuration for this directory after overrides: the discove
 
 ### `coolship unlink`
 
-Delete `coolship.toml`. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
+Delete `coolship.toml` — in a monorepo, that removes every `[apps.<name>]` target in it, and the confirmation lists them. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
 
 ### `coolship preview`
 
@@ -265,6 +280,7 @@ Deploy the preview Coolify holds for a pull request, and observe it exactly like
 
 ```bash
 coolship preview --pr 42
+coolship preview api --pr 42   # a named monorepo target, like deploy
 coolship preview               # in a GitHub Actions pull_request job, reads GITHUB_REF
 ```
 
@@ -297,7 +313,7 @@ coolship dev                       # runs the binding's dev setting
 dev = "npm run dev"
 ```
 
-A command after `--` runs directly; the configured `dev` string runs through your shell. Unlike `env pull`, `dev` injects shared references as the values they resolve to. Withheld values are reported and left to your own environment. The command's exit status becomes Coolship's, and Ctrl-C is forwarded to it.
+A command after `--` runs directly; the configured `dev` string runs through your shell. Before `--` only a target name is accepted, so `coolship dev npm run dev` is refused with the form to use. Unlike `env pull`, `dev` injects shared references as the values they resolve to. Withheld values are reported and left to your own environment. The command's exit status becomes Coolship's, and Ctrl-C is forwarded to it.
 
 ### `coolship env`
 
@@ -307,6 +323,7 @@ Synchronize a local dotenv file with the linked application's variables. The fil
 coolship env pull                 # remote → .env, keeping local-only keys and comments
 coolship env diff                 # what push would change, values masked
 coolship env diff --show-values
+coolship env diff --exit-code     # status 1 when push would change anything, like git diff
 coolship env push                 # create and update; asks first
 coolship env push --prune --yes   # also delete remote-only keys, without asking
 ```
@@ -317,7 +334,9 @@ Three rules keep this safe:
 * **Withheld values are never invented.** A value Coolify hides (shown-once secrets) is noted in the file as a comment rather than written empty, is reported as `?` in a diff, and is overwritten by `push` only with `--force`.
 * **References stay references.** A shared variable such as `{{team.API_KEY}}` is pulled and compared as that reference, never as the value it resolves to, so a push cannot replace the reference with the secret.
 
-`push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Changes take effect on the next deployment.
+`push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Its confirmation lists what it creates, updates, and deletes, and also the withheld keys it skips (`--force` overwrites them) and the remote-only keys it keeps (`--prune` deletes them), so nothing is a surprise afterwards. Changes take effect on the next deployment.
+
+`env diff --exit-code` exits with status 1 when there are added, changed, or removed keys — withheld keys do not count — and prints the diff with no further message, like `git diff --exit-code`, so CI can fail when `.env` drifts. A repeated `pull` leaves one comment per withheld key, not one per run.
 
 ### Shared options
 
@@ -325,7 +344,7 @@ Three rules keep this safe:
 | --- | --- |
 | `--cwd` | Act on this directory without changing the process directory. |
 | `--config` | Use an explicit project configuration path. |
-| `--context` | Use this Coolify CLI instance for this invocation. |
+| `--context` | Use this Coolify CLI instance for this invocation; `login` saves under this name when `--name` is absent. |
 | `--coolify-config` | Read credentials from an explicit Coolify CLI configuration file. |
 | `-e`, `--environment` | Override the remote environment for this invocation. |
 | `-t`, `--target` | Select a named target in a monorepo configuration. |
@@ -394,7 +413,9 @@ Coolship never asks you to authenticate twice. `coolship login` writes, and ever
 * Unix and macOS: `~/.config/coolify/config.json`
 * Windows: `%APPDATA%\coolify\config.json`
 
-The instance is selected by `--context`, then the committed `project.context`, then the single default instance. A missing or ambiguous choice is an error rather than a guess.
+The instance is selected by `--context`, then the committed `project.context`, then the single default instance; `link` and `init`, which have no committed context yet, use the default the same way and ask which instance only when the file has no default. A missing or ambiguous choice is an error rather than a guess: with no credentials at all every command says `No Coolify credentials at ~/.config/coolify/config.json; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN`, and with several instances and no default it says to pass `--context NAME` or run `coolship login --default`.
+
+Tokens are created in Coolify under **Keys & Tokens** with the *read*, *write*, and *deploy* abilities; build logs and secret values additionally need *sensitive read*, and without it they are reported as withheld rather than empty.
 
 For CI, where Coolify CLI may not be installed, supply the pair:
 
@@ -412,10 +433,14 @@ Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping
 
 Human output is colored only when the stream it goes to is a terminal, and each stream is decided on its own, so `coolship status | cat` prints plain text while a prompt on the terminal is still styled. Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
 
+A failure is one `Error:` line on stderr. Three server answers get the same explanation on every command, appended once: a rejected token (`HTTP 401 Unauthorized; the server rejected the token; run coolship login …`), a token missing an ability (`HTTP 403 Forbidden; the token lacks a required ability …`), and an `http://` URL the server redirects (`HTTP 301 Moved Permanently; use the https URL; redirects are not followed`). Transport failures are named in fixed words — the host name could not be resolved, the connection was refused, the TLS certificate could not be verified, the server did not answer with TLS, the request timed out — and never repeat the transport's own text, which can carry a URL.
+
+Two commands answer with a status and no message, like `git diff --exit-code`: `env diff --exit-code` when there are differences (the diff is the message), and `dev`, which exits with its child's status after the child has printed what it had to say. `deploy` and `preview` with `--format json` print the result, with the deployment UUID and its last observed status, before exiting 1 when a deployment fails or `--timeout` elapses.
+
 | Code | Meaning |
 | --- | --- |
 | `0` | Success. |
-| `1` | The operation failed. |
+| `1` | The operation failed; also `env diff --exit-code` with differences. |
 | `2` | Invalid input, configuration, or selection. |
 | `130` | Interrupted. |
 

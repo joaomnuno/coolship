@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"runtime/debug"
 	"testing"
 )
@@ -15,6 +16,11 @@ func TestResolveVersionPrefersBuildFlagThenRevision(t *testing.T) {
 	}{
 		{"v0.1.0", info, true, "v0.1.0"},
 		{"", info, true, "dev (0123456789ab-dirty)"},
+		// go install …@vX.Y.Z records the module version and no VCS revision.
+		{"", &debug.BuildInfo{Main: debug.Module{Version: "v0.3.0"}}, true, "v0.3.0"},
+		{"v0.3.1", &debug.BuildInfo{Main: debug.Module{Version: "v0.3.0"}}, true, "v0.3.1"},
+		// A local build records "(devel)", which says nothing; the revision does.
+		{"", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: info.Settings}, true, "dev (0123456789ab-dirty)"},
 		{"", &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}}}, true, "dev (abc)"},
 		{"", &debug.BuildInfo{}, true, "dev"},
 		{"", nil, false, "dev"},
@@ -50,5 +56,28 @@ func TestColorEnabledNeedsTerminalAndNoOptOut(t *testing.T) {
 				t.Errorf("colorEnabled(%v, %v, %v) = %v, want %v", test.terminal, test.env, test.args, got, test.want)
 			}
 		})
+	}
+}
+
+func TestIsTerminalRejectsDevNullAndPipes(t *testing.T) {
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	if isTerminal(null) {
+		t.Fatalf("%s counts as a terminal", os.DevNull)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	if isTerminal(reader) || isTerminal(writer) {
+		t.Fatal("a pipe counts as a terminal")
+	}
+	if isTerminal(nil) {
+		t.Fatal("no file counts as a terminal")
 	}
 }

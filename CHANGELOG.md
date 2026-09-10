@@ -11,6 +11,34 @@ change command behavior; the changelog says when they do.
 
 - `init`: create a Coolify application for the current repository from its public Git remote, then link it exactly as `link` would. The remote and branch come from Git (SSH forms are normalized to https), the build pack from the application root (`Dockerfile` or Nixpacks; Docker Compose is refused), and the plan — repository, branch, build pack, port, project, environment, server, name — is confirmed before anything is created, or requires `--yes`. `--project` with `--create-project` creates a missing project; `--server` names the server, otherwise the only usable one is used; `--deploy` submits and observes the first deployment. A directory that is already linked is refused. Private repositories are not supported: the API needs a GitHub App or deploy key registered in Coolify.
 - Refusals of creation and other mutations now carry the server's explanation (its `message` and field errors) in the error, so a repository Coolify cannot reach or a rejected value is reported as such rather than as a bare status code. Reads and server faults still report the status alone.
+- Shell completion: `coolship completion bash|zsh|fish|powershell` prints a script for the shell, and the README says where each shell loads it from.
+- `preview` takes the target positionally, like `deploy`: `coolship preview api --pr 42`.
+- `login`: the global `--context` names the instance being saved when `--name` is absent, and a line before the token prompt says where to create the token (Keys & Tokens; read, write, deploy; sensitive read for build logs and secret values).
+- `help` reaches nested commands: `coolship help env pull`, `coolship help domain set`.
+
+### Changed
+
+- `env diff --exit-code` now exits 1 with no further message when there are differences, like `git diff --exit-code`; the diff itself is still printed. It used to add an `Error: variables differ` line.
+- `link` and `init` use the instance marked default in the Coolify CLI configuration without asking, exactly as every later command does; `--context` overrides it, and only a file with no default prompts for a choice (or, noninteractively, requires `--context`).
+- A rejected token (HTTP 401), a token missing an ability (403), and an `http://` URL the server redirects (3xx) are explained on every command, not only by `doctor` and `login`: the status is kept and a hint follows it once — run `coolship login` or check `COOLSHIP_TOKEN`; the token needs read, write, and deploy; use the https URL.
+- Transport failures name their cause in fixed words — the host name could not be resolved, the connection was refused, the TLS certificate could not be verified, the server did not answer with TLS or refused the handshake, the request timed out — instead of `request failed`, and never repeat the transport's own text.
+- Missing credentials are reported as `No Coolify credentials at PATH; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN` by every command, `doctor` included (it used to say `run coolify login`); a file with no default instance says to pass `--context NAME` or run `coolship login --default`.
+- `logs --lines` is checked against the server's range (1 to 10000) before any request, and the help says preview containers cannot be tailed.
+- A deployment that outlives `--timeout` says so by name (`--timeout 10m0s elapsed before the deployment finished; it continues on the server`) instead of `context deadline exceeded`. A 429 from `POST /deploy` is reported as `server deployment queue is full`; a receipt saying a deployment of this commit is already queued is treated as a refusal even when it carries a UUID (Coolify never queues that one) and suggests `--force`; and a deployment the server no longer holds while it is being observed (HTTP 404) is reported as dropped, with the same suggestion, instead of as `may still be running`.
+- `unlink` in a monorepo lists every target the file holds in its confirmation, instead of an empty binding; the README says unlink removes every target.
+- `env push` shows the withheld keys it skips and the remote-only keys it keeps in the confirmation, before the push rather than only after it. The order of the listed changes is fixed (create, update, delete), and `config` lists overrides in a fixed order.
+- `dev` with more than one argument and no `--` says to put the command after `--`, with the corrected invocation.
+- `link`'s own selection failures name the flags to use (`link: no project named "x" in …; pass an exact name with --project, or a UUID with --project-uuid`) instead of advising to run `coolship link` or to link a UUID, which only applies to later commands.
+- `login` validates the URL before asking for the token: a bare host is asked again interactively, and noninteractively the error names `--url` or `--name`.
+
+### Fixed
+
+- `env pull` appended the same "withheld by Coolify" comment on every run; the note is now written once per withheld key, and a key already present locally still gets none.
+- `logs` on an application with no running container reported a bare `HTTP 400 Bad Request`; it now says `application is not running (status exited:unhealthy)`, and `--follow` stops with the same message if the container goes away.
+- `deploy` and `preview` with `--format json` printed nothing when the deployment failed or timed out; the result, with the deployment UUID and its last observed status, is now printed before the failing exit status. Human output is unchanged.
+- `/dev/null` counted as a terminal, so `coolship open </dev/null` tried to launch a browser and `unlink </dev/null` reported a cancelled prompt (exit 130); both now treat that input as noninteractive (`open` prints the URL only; `unlink` requires `--yes`, exit 2).
+- A binary installed with `go install …@vX.Y.Z` reported `coolship dev`; it now reports the module version.
+- `doctor`'s server check and `login`'s failure keep the `HTTP 401`/`403` status text alongside the explanation.
 
 ## [0.2.0] - 2026-09-10
 

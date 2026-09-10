@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -23,6 +24,12 @@ func (a *App) Deploy(ctx context.Context, options DeployOptions, emit Emitter) (
 		return DeployResult{}, err
 	}
 	return a.deploy(ctx, s, options, emit)
+}
+
+// alreadyQueued recognizes the server's refusal of a commit it already holds
+// a queued or running deployment for, loosely, since only the words are known.
+func alreadyQueued(message string) bool {
+	return strings.Contains(strings.ToLower(message), "already queued")
 }
 
 // deployTimeout bounds one submission and its observation.
@@ -53,6 +60,10 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 	}
 	receipts, err := s.backend.Deploy(ctx, models.DeployRequest{ApplicationUUID: s.project.Application.UUID, Force: options.Force, PullRequest: options.PullRequest})
 	if err != nil {
+		var status interface{ HTTPStatusCode() int }
+		if errors.As(err, &status) && status.HTTPStatusCode() == http.StatusTooManyRequests {
+			return result, fmt.Errorf("server deployment queue is full; wait for a running deployment to finish, then retry: %w", err)
+		}
 		return result, err
 	}
 	var messages []string
@@ -60,7 +71,10 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 		if receipt.ResourceUUID != s.project.Application.UUID {
 			continue
 		}
-		if receipt.DeploymentUUID == "" {
+		// Coolify 4.3.18 answers a commit that is already queued with that
+		// message and a fresh UUID it never queued (DeployController keeps
+		// the id it generated), so the message decides, not the UUID.
+		if receipt.DeploymentUUID == "" || alreadyQueued(receipt.Message) {
 			if receipt.Message != "" {
 				messages = append(messages, receipt.Message)
 			}
@@ -76,13 +90,31 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 		detail := "inspect Coolify before retrying"
 		if len(messages) > 0 {
 			detail = strings.Join(messages, "; ")
-			if options.PullRequest > 0 {
+			switch {
+			case options.PullRequest > 0:
 				detail += " (Coolify must already know the pull request: enable preview deployments and add it through its webhook or the UI)"
+			case alreadyQueued(detail):
+				detail += " (a deployment of this commit is already queued or running; wait for it, or pass --force to queue another)"
 			}
 		}
 		return result, fmt.Errorf("server did not confirm a deployment for application %s: %s", s.project.Application.UUID, detail)
 	}
 	result.Status = "queued"
+	timeout, _ := deployTimeout(options.Timeout)
+	// The deadline is this command's --timeout; naming the flag says what to
+	// change. A deployment the server no longer holds was dropped, not lost:
+	// Coolify 4.3.18 answers a duplicate submission with a UUID and then
+	// discards it. Any other stop keeps its own cause.
+	stopped := func(err error) error {
+		var status interface{ HTTPStatusCode() int }
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return &TimeoutError{Timeout: timeout, Err: err}
+		case errors.As(err, &status) && status.HTTPStatusCode() == http.StatusNotFound:
+			return restate(err, "the server no longer holds this deployment (HTTP 404); Coolify drops a queued deployment that duplicates one already queued or running for the same commit; check Coolify, or pass --force to queue a rebuild")
+		}
+		return fmt.Errorf("observation stopped; remote deployment may still be running: %w", err)
+	}
 	fail := func(err error) (DeployResult, error) {
 		return result, &DeploymentError{DeploymentUUID: result.DeploymentUUID, Err: err}
 	}
@@ -96,11 +128,14 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 	logs := buildLogCursor{}
 	for {
 		if err := ctx.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fail(stopped(err))
+			}
 			return fail(err)
 		}
 		deployment, err := s.backend.GetDeployment(ctx, result.DeploymentUUID)
 		if err != nil {
-			return fail(fmt.Errorf("observation stopped; remote deployment may still be running: %w", err))
+			return fail(stopped(err))
 		}
 		if deployment.UUID != result.DeploymentUUID {
 			return fail(errors.New("server returned a different deployment identity; observation stopped"))
@@ -125,7 +160,7 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 			return fail(fmt.Errorf("ended with status %s", result.Status))
 		}
 		if err := wait(ctx, a.deps.PollInterval); err != nil {
-			return fail(fmt.Errorf("observation stopped; remote deployment may still be running: %w", err))
+			return fail(stopped(err))
 		}
 	}
 }

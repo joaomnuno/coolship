@@ -113,7 +113,14 @@ func (c *Client) endpoint(parts ...string) (*url.URL, string, error) {
 }
 
 func (c *Client) request(ctx context.Context, method string, parts []string, query url.Values, body any, out any) error {
-	data, endpoint, err := c.fetch(ctx, method, parts, query, body)
+	return c.requestExplaining(ctx, method, parts, query, body, out, nil)
+}
+
+// requestExplaining is request with one more refusal whose body is read:
+// explain names a status on which the server's explanation is kept, on top of
+// the mutation rule fetch applies by itself.
+func (c *Client) requestExplaining(ctx context.Context, method string, parts []string, query url.Values, body any, out any, explain func(int) bool) error {
+	data, endpoint, err := c.fetchExplaining(ctx, method, parts, query, body, explain)
 	if err != nil {
 		return err
 	}
@@ -125,6 +132,14 @@ func (c *Client) request(ctx context.Context, method string, parts []string, que
 
 // fetch performs one bounded request and returns the raw successful body.
 func (c *Client) fetch(ctx context.Context, method string, parts []string, query url.Values, body any) ([]byte, string, error) {
+	return c.fetchExplaining(ctx, method, parts, query, body, nil)
+}
+
+// fetchExplaining is fetch with an optional extra status whose refusal body
+// is read. The explanation of a refused mutation (4xx) is always kept; a read
+// keeps the status alone unless explain says otherwise for that status, so a
+// body that is not an explanation is never repeated.
+func (c *Client) fetchExplaining(ctx context.Context, method string, parts []string, query url.Values, body any, explain func(int) bool) ([]byte, string, error) {
 	u, endpoint, err := c.endpoint(parts...)
 	if err != nil {
 		return nil, "", err
@@ -169,7 +184,8 @@ func (c *Client) fetch(ctx context.Context, method string, parts []string, query
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			message := ""
-			if method != http.MethodGet && resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			refused := resp.StatusCode >= 400 && resp.StatusCode < 500
+			if (method != http.MethodGet && refused) || (explain != nil && explain(resp.StatusCode)) {
 				message = serverMessage(resp.Body)
 			}
 			resp.Body.Close()

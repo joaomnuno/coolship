@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joaomnuno/coolship/cmd"
+	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -113,14 +114,9 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 		})
 	}
 	out, _, _ := execute(t, nil, "--help")
-	for _, command := range []string{"init", "link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout"} {
+	for _, command := range []string{"init", "link", "status", "deploy", "logs", "open", "unlink", "config", "doctor", "env", "preview", "dev", "domain", "login", "logout", "completion"} {
 		if !strings.Contains(out, "\n  "+command+" ") {
 			t.Errorf("help omits %s", command)
-		}
-	}
-	for _, command := range []string{"completion"} {
-		if strings.Contains(out, "\n  "+command+" ") {
-			t.Errorf("help advertises unimplemented command %s", command)
 		}
 	}
 	out, _, _ = execute(t, nil, "--version")
@@ -135,10 +131,13 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 
 func TestInvalidInputReturnsOneUnprintedError(t *testing.T) {
 	for _, args := range [][]string{
-		{"unknown"}, {"help", "unknown"}, {"help", "status", "extra"}, {"status", "a", "b"},
+		{"unknown"}, {"help", "unknown"}, {"help", "status", "extra"}, {"help", "env", "nope"}, {"status", "a", "b"},
 		{"status", "--unknown"}, {"status", "--config"}, {"status", "--format", "yaml"},
-		{"logs", "-n", "0"}, {"logs", "-n", "-1"}, {"logs", "-n", "many"},
+		{"logs", "-n", "0"}, {"logs", "-n", "-1"}, {"logs", "-n", "many"}, {"logs", "-n", "10001"},
 		{"deploy", "--timeout", "0s"}, {"deploy", "--timeout=-1s"}, {"deploy", "--timeout", "eventually"},
+		{"dev", "npm", "run", "dev"}, {"preview", "a", "b", "--pr", "1"},
+		{"login", "--url", "coolify.example.com", "--name", "home", "--token-stdin"},
+		{"login", "--token-stdin"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, diagnostic, err := execute(t, nil, args...)
@@ -447,9 +446,21 @@ func TestEnvDiffMasksValuesUnlessRevealedAndHonorsExitCode(t *testing.T) {
 	if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, `"key":"TOKEN"`) {
 		t.Fatalf("json diff must mask by default: out=%q err=%v", out, err)
 	}
-	_, _, err = execute(t, app, "env", "diff", "--exit-code")
-	if !errors.Is(err, cmd.ErrDifferences) || ui.ExitCode(err) != 1 {
-		t.Fatalf("--exit-code: err=%v code=%d", err, ui.ExitCode(err))
+	// --exit-code answers with the status alone, like git diff: the diff is
+	// printed, and the boundary adds no diagnostic.
+	out, _, err = execute(t, app, "env", "diff", "--exit-code")
+	if !errors.Is(err, cmd.ErrDifferences) || ui.ExitCode(err) != 1 || !strings.Contains(out, "~ TOKEN") {
+		t.Fatalf("--exit-code: out=%q err=%v code=%d", out, err, ui.ExitCode(err))
+	}
+	var diagnostic bytes.Buffer
+	if err := ui.PrintError(ui.Streams{Err: &diagnostic}, err); err != nil || diagnostic.Len() != 0 {
+		t.Fatalf("--exit-code printed a diagnostic: %q (%v)", diagnostic.String(), err)
+	}
+	app.diff = func(context.Context, service.EnvOptions) (service.EnvDiffResult, error) {
+		return service.EnvDiffResult{Scope: "regular", File: ".env", Unchanged: 2}, nil
+	}
+	if out, _, err := execute(t, app, "env", "diff", "--exit-code"); err != nil || !strings.Contains(out, "No differences") {
+		t.Fatalf("clean --exit-code: out=%q err=%v", out, err)
 	}
 }
 
@@ -664,5 +675,209 @@ func TestColorCapabilityStylesHumanOutputOnly(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "\x1b") || !strings.HasPrefix(out.String(), `{"checks":`) {
 		t.Fatalf("json output must never carry escapes: %q", out.String())
+	}
+}
+
+func TestHelpReachesNestedCommandsAndCompletionIsOffline(t *testing.T) {
+	for _, args := range [][]string{{"help", "env", "pull"}, {"help", "domain", "set"}, {"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			out, diagnostic, err := execute(t, nil, args...)
+			if err != nil || out == "" || diagnostic != "" {
+				t.Fatalf("out=%q stderr=%q err=%v", out, diagnostic, err)
+			}
+		})
+	}
+	out, _, _ := execute(t, nil, "help", "env", "pull")
+	if !strings.Contains(out, "coolship env pull") {
+		t.Fatalf("help env pull = %q", out)
+	}
+}
+
+func TestLogsLinesAreBoundedAtTheCommand(t *testing.T) {
+	var seen []int
+	app := fakeApplication{logs: func(_ context.Context, options service.LogsOptions, _ service.Emitter) error {
+		seen = append(seen, options.Lines)
+		return nil
+	}}
+	for _, lines := range []string{"1", "10000"} {
+		if _, _, err := execute(t, app, "logs", "-n", lines); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Out of range never reaches the workflow, so no request is made first.
+	_, _, err := execute(t, app, "logs", "--lines", "10001")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "between 1 and 10000") {
+		t.Fatalf("10001 lines: %v", err)
+	}
+	if !reflect.DeepEqual(seen, []int{1, 10000}) {
+		t.Fatalf("lines seen %v", seen)
+	}
+}
+
+func TestDevWithoutDashSaysWhereTheCommandGoes(t *testing.T) {
+	_, _, err := execute(t, nil, "dev", "npm", "run", "dev")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "coolship dev -- npm run dev") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPreviewTakesThePositionalTargetLikeDeploy(t *testing.T) {
+	var seen []string
+	app := fakeApplication{deploy: func(_ context.Context, options service.DeployOptions, _ service.Emitter) (service.DeployResult, error) {
+		seen = append(seen, options.Target)
+		return service.DeployResult{DeploymentUUID: "d1", PullRequest: options.PullRequest, Status: "finished"}, nil
+	}}
+	if _, _, err := execute(t, app, "preview", "api", "--pr", "3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "preview", "--target", "web", "--pr", "3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, app, "preview", "api", "--target", "web", "--pr", "3"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("conflicting targets: %v", err)
+	}
+	if !reflect.DeepEqual(seen, []string{"api", "web"}) {
+		t.Fatalf("targets %v", seen)
+	}
+}
+
+func TestFailedDeploymentStillPrintsItsJSONResult(t *testing.T) {
+	failure := &service.DeploymentError{DeploymentUUID: "d1", Err: errors.New("ended with status failed")}
+	app := fakeApplication{deploy: func(_ context.Context, options service.DeployOptions, _ service.Emitter) (service.DeployResult, error) {
+		return service.DeployResult{DeploymentUUID: "d1", Status: "failed", PullRequest: options.PullRequest}, failure
+	}}
+	for _, args := range [][]string{{"deploy"}, {"preview", "--pr", "4"}} {
+		t.Run(args[0], func(t *testing.T) {
+			// JSON: the result a caller needs to follow up, then the failure's exit status.
+			out, diagnostic, err := execute(t, app, append(args, "--format", "json")...)
+			if !errors.Is(err, failure) || ui.ExitCode(err) != 1 || diagnostic != "" {
+				t.Fatalf("stderr=%q err=%v code=%d", diagnostic, err, ui.ExitCode(err))
+			}
+			var result service.DeployResult
+			if err := json.Unmarshal([]byte(out), &result); err != nil || result.DeploymentUUID != "d1" || result.Status != "failed" {
+				t.Fatalf("result=%q err=%v", out, err)
+			}
+			if args[0] == "preview" && result.PullRequest != 4 {
+				t.Fatalf("pull request lost: %q", out)
+			}
+			// Human output keeps the diagnostic alone.
+			out, _, err = execute(t, app, args...)
+			if !errors.Is(err, failure) || out != "" {
+				t.Fatalf("human: out=%q err=%v", out, err)
+			}
+		})
+	}
+	// Without a deployment UUID there is nothing to follow up on.
+	refused := errors.New("server did not confirm a deployment")
+	app.deploy = func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error) {
+		return service.DeployResult{}, refused
+	}
+	if out, _, err := execute(t, app, "deploy", "--format", "json"); !errors.Is(err, refused) || out != "" {
+		t.Fatalf("no uuid: out=%q err=%v", out, err)
+	}
+}
+
+func TestLoginChecksTheURLBeforeTheTokenAndNamesTheFlags(t *testing.T) {
+	var seen service.LoginOptions
+	app := fakeApplication{login: func(_ context.Context, options service.LoginOptions) (service.LoginResult, error) {
+		seen = options
+		return service.LoginResult{Name: options.Name, URL: options.URL, Path: "/c.json"}, nil
+	}}
+	// Noninteractive: a bare host is refused by flag name before stdin is read.
+	_, _, err := execute(t, app, "login", "--url", "coolify.example.com", "--name", "home", "--token-stdin")
+	if !errors.Is(err, service.ErrInput) || !strings.HasPrefix(err.Error(), "--url:") {
+		t.Fatalf("bare host: %v", err)
+	}
+	// Without --url nothing can be asked, so the flags are named.
+	_, _, err = execute(t, app, "login", "--token-stdin")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--url") || !strings.Contains(err.Error(), "--name") {
+		t.Fatalf("no url: %v", err)
+	}
+	run := func(in string, interactive bool, args ...string) (string, error) {
+		var out, diagnostic bytes.Buffer
+		root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic, Interactive: interactive}, "test")
+		root.SetArgs(args)
+		err := root.ExecuteContext(context.Background())
+		return diagnostic.String(), err
+	}
+	if _, err := run("tok\n", false, "login", "--url", "https://coolify.example.com", "--token-stdin"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--name") || !strings.Contains(err.Error(), "--context") {
+		t.Fatalf("no name: %v", err)
+	}
+	// The global --context names the instance being saved when --name is absent.
+	if _, err := run("tok\n", false, "login", "--url", "https://coolify.example.com/", "--context", "lab", "--token-stdin"); err != nil || seen.Name != "lab" || seen.URL != "https://coolify.example.com" || seen.Token != "tok" {
+		t.Fatalf("--context as name: seen=%+v err=%v", seen, err)
+	}
+	if _, err := run("tok\n", false, "login", "--url", "https://coolify.example.com", "--context", "lab", "--name", "home", "--token-stdin"); err != nil || seen.Name != "home" {
+		t.Fatalf("--name wins: seen=%+v err=%v", seen, err)
+	}
+	// Interactive: a bare host is asked again, and the token prompt is preceded by where to get one.
+	diagnostic, err := run("coolify.example.com\nhttps://Coolify.example.com/\n\ntyped\n", true, "login")
+	if err != nil || seen.URL != "https://coolify.example.com" || seen.Name != "coolify" || seen.Token != "typed" {
+		t.Fatalf("interactive: seen=%+v err=%v stderr=%q", seen, err, diagnostic)
+	}
+	if strings.Count(diagnostic, "Coolify URL:") != 2 || !strings.Contains(diagnostic, "full URL") || !strings.Contains(diagnostic, "Keys & Tokens") || strings.Contains(diagnostic, "typed") {
+		t.Fatalf("interactive stderr=%q", diagnostic)
+	}
+	if strings.Index(diagnostic, "Keys & Tokens") < strings.Index(diagnostic, "Context name") {
+		t.Fatalf("token hint must come with the token prompt: %q", diagnostic)
+	}
+}
+
+func TestUnlinkPromptListsEveryTargetItRemoves(t *testing.T) {
+	app := fakeApplication{unlink: func(ctx context.Context, _ service.UnlinkOptions, confirm service.ConfirmUnlink) (service.UnlinkResult, error) {
+		plan := service.UnlinkPlan{Path: "/p/coolship.toml", Targets: []service.UnlinkTarget{
+			{Name: "api", Binding: config.Binding{Project: "Personal", Environment: "production", Application: "backend"}},
+			{Name: "web", Binding: config.Binding{Project: "Personal", Environment: "production", Application: "frontend"}},
+		}}
+		accepted, err := confirm(ctx, plan)
+		if err != nil || !accepted {
+			t.Fatalf("accepted=%v err=%v", accepted, err)
+		}
+		return service.UnlinkResult{Path: plan.Path}, nil
+	}}
+	var out, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader("y\n"), Out: &out, Err: &diagnostic, Interactive: true}, "test")
+	root.SetArgs([]string{"unlink"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	text := diagnostic.String()
+	for _, want := range []string{"Delete /p/coolship.toml?", "Every target in it is removed (2):", "  api: Personal / production / backend\n", "  web: Personal / production / frontend\n", "The remote application is not affected."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("prompt lacks %q: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "Current binding") {
+		t.Errorf("monorepo prompt shows the empty [project] binding: %q", text)
+	}
+}
+
+func TestEnvPushPromptShowsWhatItLeavesAlone(t *testing.T) {
+	app := fakeApplication{push: func(ctx context.Context, _ service.EnvPushOptions, confirm service.ConfirmPush) (service.EnvPushResult, error) {
+		plan := service.EnvPushPlan{Scope: "regular", File: ".env",
+			Create: []service.EnvChange{{Key: "NEW", Local: "secret"}}, Update: []service.EnvChange{{Key: "CHANGED", Local: "secret"}}, Delete: []service.EnvChange{{Key: "OLD"}},
+			Skipped: []string{"SECRET"}, Untouched: []string{"REMOTE_ONLY"}}
+		if _, err := confirm(ctx, plan); err != nil {
+			return service.EnvPushResult{}, err
+		}
+		return service.EnvPushResult{Plan: plan}, nil
+	}}
+	var out, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader("y\n"), Out: &out, Err: &diagnostic, Interactive: true}, "test")
+	root.SetArgs([]string{"env", "push"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	text := diagnostic.String()
+	last := -1
+	for _, want := range []string{"  create NEW\n", "  update CHANGED\n", "  delete OLD\n", "  skip   SECRET (remote value withheld; --force overwrites it)\n", "  keep   REMOTE_ONLY (remote only; --prune deletes it)\n", "Confirm [y/N]:"} {
+		index := strings.Index(text, want)
+		if index < 0 || index < last {
+			t.Fatalf("prompt lacks %q in order: %q", want, text)
+		}
+		last = index
+	}
+	if strings.Contains(text, "secret") {
+		t.Fatalf("prompt shows a value: %q", text)
 	}
 }

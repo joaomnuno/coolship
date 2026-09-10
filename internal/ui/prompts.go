@@ -159,11 +159,26 @@ func (p *Prompter) ConfirmUnlink(ctx context.Context, plan service.UnlinkPlan) (
 	if !p.streams.Interactive {
 		return false, &service.InputError{Err: errors.New("unlinking requires --yes when input is noninteractive")}
 	}
-	b := plan.Binding
-	if _, err := fmt.Fprintf(p.streams.Err,
-		"%s\nCurrent binding: %s / %s / %s\nThe remote application is not affected.\n%s ",
-		p.question("Delete "+singleLine(plan.Path)+"?"),
-		singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application), p.question("Confirm [y/N]:")); err != nil {
+	if _, err := fmt.Fprintln(p.streams.Err, p.question("Delete "+singleLine(plan.Path)+"?")); err != nil {
+		return false, err
+	}
+	if len(plan.Targets) == 0 {
+		b := plan.Binding
+		if _, err := fmt.Fprintf(p.streams.Err, "Current binding: %s / %s / %s\n", singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application)); err != nil {
+			return false, err
+		}
+	} else {
+		if _, err := fmt.Fprintf(p.streams.Err, "Every target in it is removed (%d):\n", len(plan.Targets)); err != nil {
+			return false, err
+		}
+		for _, target := range plan.Targets {
+			b := target.Binding
+			if _, err := fmt.Fprintf(p.streams.Err, "  %s: %s / %s / %s\n", singleLine(target.Name), singleLine(b.Project), singleLine(b.Environment), singleLine(b.Application)); err != nil {
+				return false, err
+			}
+		}
+	}
+	if _, err := fmt.Fprint(p.streams.Err, "The remote application is not affected.\n"+p.question("Confirm [y/N]:")+" "); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -184,11 +199,25 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 	if _, err := fmt.Fprintln(p.streams.Err, p.question(fmt.Sprintf("Push %s variables of %s from %s?", plan.Scope, singleLine(plan.Target.Application), singleLine(plan.File)))); err != nil {
 		return false, err
 	}
-	for label, changes := range map[string][]service.EnvChange{"create": plan.Create, "update": plan.Update, "delete": plan.Delete} {
-		for _, change := range changes {
-			if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", label, singleLine(change.Key)); err != nil {
+	// Fixed order: what the push does, then what it leaves alone and why.
+	for _, group := range []struct {
+		label   string
+		changes []service.EnvChange
+	}{{"create", plan.Create}, {"update", plan.Update}, {"delete", plan.Delete}} {
+		for _, change := range group.changes {
+			if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", group.label, singleLine(change.Key)); err != nil {
 				return false, err
 			}
+		}
+	}
+	for _, key := range plan.Skipped {
+		if _, err := fmt.Fprintf(p.streams.Err, "  skip   %s (remote value withheld; --force overwrites it)\n", singleLine(key)); err != nil {
+			return false, err
+		}
+	}
+	for _, key := range plan.Untouched {
+		if _, err := fmt.Fprintf(p.streams.Err, "  keep   %s (remote only; --prune deletes it)\n", singleLine(key)); err != nil {
+			return false, err
 		}
 	}
 	if _, err := fmt.Fprint(p.streams.Err, p.question("Confirm [y/N]:")+" "); err != nil {

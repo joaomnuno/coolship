@@ -9,6 +9,8 @@ import (
 )
 
 // ErrDifferences reports a diff with changes when --exit-code is requested.
+// Like git diff --exit-code, the status is the whole answer: the diff is
+// already printed, so the boundary adds no diagnostic for it.
 var ErrDifferences = errors.New("variables differ")
 
 func newEnvCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
@@ -45,13 +47,13 @@ references, never as the values they resolve to.`,
 				return err
 			}
 			if exitCode && !result.Clean() {
-				return ErrDifferences
+				return &service.ExitError{Code: 1, Err: ErrDifferences}
 			}
 			return nil
 		},
 	}
 	diff.Flags().BoolVar(&reveal, "show-values", false, "Print values instead of masking them")
-	diff.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when there are differences")
+	diff.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1, and no further message, when there are differences")
 
 	pull := &cobra.Command{
 		Use:   "pull",

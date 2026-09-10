@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
@@ -27,6 +30,9 @@ status becomes coolship's.`,
 		Args: func(command *cobra.Command, args []string) error {
 			dash := command.ArgsLenAtDash()
 			if dash < 0 {
+				if len(args) > 1 {
+					return inputError(fmt.Errorf("dev accepts at most one target argument; put the command after --, as in: coolship dev -- %s", strings.Join(args, " ")))
+				}
 				dash = len(args)
 			}
 			dev.Command = args[dash:]

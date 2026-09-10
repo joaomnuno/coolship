@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -248,8 +250,8 @@ func (r *Renderer) Config(result service.ConfigResult) error {
 		{"Credentials", describeCredentials(result)},
 		{"Instance", describeInstance(result)},
 	}
-	for key, value := range result.Overrides {
-		rows = append(rows, [2]string{"Override " + key, value})
+	for _, key := range slices.Sorted(maps.Keys(result.Overrides)) {
+		rows = append(rows, [2]string{"Override " + key, result.Overrides[key]})
 	}
 	for _, row := range rows {
 		if row[1] == "" {

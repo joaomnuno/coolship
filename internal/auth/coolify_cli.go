@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,12 @@ func DefaultPath() (string, error) {
 	return filepath.Join(home, ".config", "coolify", "config.json"), nil
 }
 
+// MissingCredentials is the failure every command reports when no Coolify CLI
+// configuration exists: it names the file and both ways to get credentials.
+func MissingCredentials(path string) error {
+	return fmt.Errorf("No Coolify credentials at %s; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN", path)
+}
+
 func load(path string) ([]storedInstance, error) {
 	if path == "" {
 		var err error
@@ -43,8 +50,11 @@ func load(path string) ([]storedInstance, error) {
 		}
 	}
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, MissingCredentials(path)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("read Coolify CLI configuration (use --coolify-config or COOLSHIP_URL/COOLSHIP_TOKEN): %w", err)
+		return nil, fmt.Errorf("read Coolify CLI configuration %s (use --coolify-config or COOLSHIP_URL/COOLSHIP_TOKEN): %w", path, err)
 	}
 	var document struct {
 		Instances []storedInstance `json:"instances"`

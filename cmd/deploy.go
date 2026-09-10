@@ -29,7 +29,7 @@ the queued deployment UUID immediately.`,
 			renderer := ui.NewRenderer(streams, options.format)
 			result, err := app.Deploy(command.Context(), deploy, renderer.DeploymentEvent)
 			if err != nil {
-				return err
+				return deploymentFailure(renderer, options.format, result, err)
 			}
 			return renderer.Deploy(result)
 		},
@@ -38,4 +38,17 @@ the queued deployment UUID immediately.`,
 	command.Flags().BoolVar(&deploy.NoWait, "no-wait", false, "Return after submission without observing completion")
 	command.Flags().DurationVar(&deploy.Timeout, "timeout", 10*time.Minute, "Maximum time to wait for deployment completion")
 	return command
+}
+
+// deploymentFailure returns the failure after writing the result a machine
+// reader needs to follow up: once a deployment has a UUID, --format json
+// prints the result with its last observed status even though the command
+// fails. Human output keeps the diagnostic alone, and the exit status is the
+// failure's either way.
+func deploymentFailure(renderer *ui.Renderer, format string, result service.DeployResult, err error) error {
+	if format == "json" && result.DeploymentUUID != "" {
+		// The failure is what the caller must learn; a lost write cannot displace it.
+		_ = renderer.Deploy(result)
+	}
+	return err
 }

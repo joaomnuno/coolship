@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -20,22 +21,49 @@ func newLoginCommand(app Application, options *commandOptions, streams ui.Stream
 which coolify-cli shares, after verifying them against the server.
 
 Interactively, login asks for the URL, a context name, and the token, which
-is not echoed. Noninteractively, pass --url and --name and pipe the token on
-stdin with --token-stdin; the token is never accepted as a flag, so it stays
-out of shell history and process listings.
+is not echoed. Noninteractively, pass --url and --name (or --context) and
+pipe the token on stdin with --token-stdin; the token is never accepted as a
+flag, so it stays out of shell history and process listings.
 
-Create a token in Coolify under Keys & Tokens with read, write, and deploy.`,
+Create a token in Coolify under Keys & Tokens with read, write, and deploy;
+build logs and secret values also need sensitive read.`,
 		Args: noArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			ctx := command.Context()
 			prompter := ui.NewPrompter(streams)
 			login.ConfigPath = options.CoolifyConfig
-			if login.URL == "" {
+			if login.URL == "" && !streams.Interactive {
+				return inputError(errors.New("pass --url URL (and --name NAME) when input is noninteractive"))
+			}
+			if login.URL != "" {
+				// A bare host is refused here, before the token is asked for.
+				address, err := service.NormalizeInstanceURL(login.URL)
+				if err != nil {
+					return inputError(fmt.Errorf("--url: %w", err))
+				}
+				login.URL = address
+			}
+			for login.URL == "" {
 				value, err := prompter.Ask(ctx, "Coolify URL", "")
 				if err != nil {
 					return inputError(err)
 				}
-				login.URL = value
+				address, err := service.NormalizeInstanceURL(value)
+				if err != nil {
+					if _, err := fmt.Fprintln(streams.Err, "Enter the instance's full URL, such as https://coolify.example.com"); err != nil {
+						return err
+					}
+					continue
+				}
+				login.URL = address
+			}
+			if login.Name == "" {
+				// The global --context names the instance for every other
+				// command; here it names the one being saved.
+				login.Name = options.Context
+			}
+			if login.Name == "" && !streams.Interactive {
+				return inputError(errors.New("pass --name NAME (or --context NAME) when input is noninteractive"))
 			}
 			if login.Name == "" {
 				value, err := prompter.Ask(ctx, "Context name", suggestName(login.URL))
@@ -52,6 +80,9 @@ Create a token in Coolify under Keys & Tokens with read, write, and deploy.`,
 				}
 				login.Token = token
 			case streams.Interactive:
+				if _, err := fmt.Fprintln(streams.Err, "Create a token in Coolify under Keys & Tokens with read, write, and deploy; add sensitive read to see build logs and secret values."); err != nil {
+					return err
+				}
 				token, err := prompter.AskSecret(ctx, "API token")
 				if err != nil {
 					return err
@@ -68,7 +99,7 @@ Create a token in Coolify under Keys & Tokens with read, write, and deploy.`,
 		},
 	}
 	command.Flags().StringVar(&login.URL, "url", "", "Coolify instance URL, e.g. https://coolify.example.com")
-	command.Flags().StringVar(&login.Name, "name", "", "Context name (default: derived from the URL's host)")
+	command.Flags().StringVar(&login.Name, "name", "", "Context name (default: --context, or derived from the URL's host)")
 	command.Flags().BoolVar(&login.Default, "default", false, "Make this the default context")
 	command.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read the API token from stdin")
 	return command

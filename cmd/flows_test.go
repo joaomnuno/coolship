@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,6 +40,11 @@ type server struct {
 	logs       []string
 	variables  []map[string]any
 	creations  []map[string]any
+	// status replaces the application's running:healthy when set, and
+	// notRunning makes the logs endpoint refuse as Coolify 4.3.18 does for
+	// an application without a container.
+	status     string
+	notRunning bool
 }
 
 func (s *server) record(entry string) int {
@@ -68,6 +74,9 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	t.Helper()
 	application := map[string]any{
 		"uuid": "app-1", "name": "fenix-bot", "status": "running:healthy", "fqdn": "https://fenix.example.com",
+	}
+	if s.status != "" {
+		application["status"] = s.status
 	}
 	second := map[string]any{"uuid": "app-2", "name": "fenix-api", "status": "running:healthy", "fqdn": "https://api.example.com"}
 	mux := http.NewServeMux()
@@ -193,6 +202,11 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	handle("GET /api/v1/applications/app-1/logs", func(w http.ResponseWriter, r *http.Request, calls int) {
 		if r.URL.Query().Get("show_timestamps") != "true" {
 			t.Errorf("logs requested without timestamps: %s", r.URL.RawQuery)
+		}
+		if s.notRunning {
+			w.WriteHeader(http.StatusBadRequest)
+			write(w, map[string]any{"message": "Application is not running."})
+			return
 		}
 		write(w, map[string]any{"logs": s.logs[min(calls-1, len(s.logs)-1)]})
 	})
@@ -759,5 +773,137 @@ func TestLoginWritesAFileEveryCommandCanUse(t *testing.T) {
 	}
 	if _, _, err := runWithFile(t, configPath, dir, "", "status"); !errors.Is(err, service.ErrInput) {
 		t.Fatalf("status after logout should fail on credentials: %v", err)
+	}
+}
+
+// linkedDirectory writes a binding directly, so a flow can start from a
+// linked project without a server that answers link.
+func linkedDirectory(t *testing.T) string {
+	t.Helper()
+	dir := projectDirectory(t)
+	data, err := config.Marshal(config.Config{Version: 1, Project: config.Binding{Project: "Personal", Environment: "production", Application: "fenix-bot", Root: "."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "coolship.toml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestRejectedTokensAndRedirectsExplainThemselvesOnEveryCommand(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		hint   string
+	}{
+		{http.StatusUnauthorized, "run coolship login"},
+		{http.StatusForbidden, "lacks a required ability"},
+		{http.StatusMovedPermanently, "redirects are not followed"},
+	} {
+		t.Run(fmt.Sprint(test.status), func(t *testing.T) {
+			refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if test.status/100 == 3 {
+					w.Header().Set("Location", "https://elsewhere.example.com/")
+				}
+				w.WriteHeader(test.status)
+				fmt.Fprint(w, `{"message":"private-detail"}`)
+			}))
+			defer refusing.Close()
+			dir := linkedDirectory(t)
+			for _, args := range [][]string{{"status"}, {"deploy"}, {"env", "pull"}, {"link", "--project", "Personal", "--application", "fenix-bot", "--replace"}} {
+				out, _, err := run(t, refusing.URL, dir, "", args...)
+				if err == nil || ui.ExitCode(err) != 1 || out != "" {
+					t.Fatalf("%v: out=%q err=%v code=%d", args, out, err, ui.ExitCode(err))
+				}
+				var diagnostic bytes.Buffer
+				if err := ui.PrintError(ui.Streams{Err: &diagnostic}, err); err != nil {
+					t.Fatal(err)
+				}
+				text := diagnostic.String()
+				if !strings.Contains(text, fmt.Sprintf("HTTP %d", test.status)) || !strings.Contains(text, test.hint) || strings.Count(text, test.hint) != 1 {
+					t.Fatalf("%v: %q", args, text)
+				}
+				if strings.Contains(text, "private-detail") || strings.Contains(text, testToken) || strings.Count(text, "\n") != 1 {
+					t.Fatalf("%v leaks or spans lines: %q", args, text)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".env")); !os.IsNotExist(err) {
+				t.Errorf("failed pull wrote a file: %v", err)
+			}
+		})
+	}
+}
+
+func TestLogsOfAStoppedApplicationSayWhy(t *testing.T) {
+	s := &server{status: "exited:unhealthy", notRunning: true}
+	instance := newServer(t, s)
+	dir := linkedDirectory(t)
+	for _, args := range [][]string{{"logs"}, {"logs", "--follow"}, {"logs", "--format", "json"}} {
+		out, _, err := run(t, instance.URL, dir, "", args...)
+		if err == nil || ui.ExitCode(err) != 1 || strings.Contains(out, `"type":"logs"`) || strings.Contains(out, "\n\n") {
+			t.Fatalf("%v: out=%q err=%v", args, out, err)
+		}
+		if !strings.Contains(err.Error(), "application is not running (status exited:unhealthy)") || strings.Contains(err.Error(), "400") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	// Out-of-range --lines fails before any request.
+	before := s.counts()["GET /api/v1/applications/app-1/logs"]
+	if _, _, err := run(t, instance.URL, dir, "", "logs", "-n", "10001"); !errors.Is(err, service.ErrInput) {
+		t.Fatalf("10001 lines: %v", err)
+	}
+	if after := s.counts()["GET /api/v1/applications/app-1/logs"]; after != before {
+		t.Fatalf("out-of-range lines reached the server: %d -> %d", before, after)
+	}
+}
+
+func TestLinkUsesTheSavedDefaultInstanceWithoutAsking(t *testing.T) {
+	s := &server{}
+	instance := newServer(t, s)
+	// A closed port for the other instance: reaching it is the failure to detect.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "http://" + listener.Addr().String()
+	listener.Close()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	write := func(defaultName string) {
+		t.Helper()
+		var instances []map[string]any
+		for name, url := range map[string]string{"other": closed, "lab": instance.URL} {
+			token := "synthetic-other-token"
+			if name == "lab" {
+				token = testToken
+			}
+			instances = append(instances, map[string]any{"name": name, "fqdn": url, "token": token, "default": name == defaultName})
+		}
+		data, err := json.Marshal(map[string]any{"instances": instances})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("lab")
+	dir := projectDirectory(t)
+	out, _, err := runWithFile(t, configPath, dir, "", "link", "--project", "Personal", "--application", "fenix-bot", "--format", "json")
+	if err != nil {
+		t.Fatalf("link with a default: %v", err)
+	}
+	var result service.LinkResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Target.Instance != "lab" {
+		t.Fatalf("link result %s: %v", out, err)
+	}
+	// --context still overrides the default.
+	_, _, err = runWithFile(t, configPath, dir, "", "link", "--context", "other", "--project", "Personal", "--application", "fenix-bot", "--replace")
+	if err == nil || !strings.Contains(err.Error(), "connection was refused") || strings.Contains(err.Error(), closed) {
+		t.Fatalf("--context other: %v", err)
+	}
+	// Without a default, a noninteractive link must be told which instance.
+	write("")
+	if _, _, err := runWithFile(t, configPath, projectDirectory(t), "", "link", "--project", "Personal", "--application", "fenix-bot"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "--context") {
+		t.Fatalf("no default: %v", err)
 	}
 }

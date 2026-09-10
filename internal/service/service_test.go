@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
+	"github.com/joaomnuno/coolship/internal/resolver"
 )
 
 type fakeBackend struct {
@@ -40,6 +42,8 @@ type fakeBackend struct {
 	servers      []models.Server
 	created      []models.ApplicationSpec
 	createError  error
+	deployError  error
+	logsErrors   []error // per Logs call; nil entries answer normally
 	// The fake Git inspector lives here too, so one fixture drives a test.
 	repository      gitinfo.Repository
 	repositoryError error
@@ -186,6 +190,9 @@ func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Appli
 func (f *fakeBackend) Deploy(_ context.Context, request models.DeployRequest) ([]models.DeploymentReceipt, error) {
 	f.calls["deploy"]++
 	f.lastDeploy = request
+	if f.deployError != nil {
+		return nil, f.deployError
+	}
 	if _, created := f.more[request.ApplicationUUID]; request.ApplicationUUID != "app-1" && !created {
 		return nil, errors.New("wrong deployment target")
 	}
@@ -207,6 +214,9 @@ func (f *fakeBackend) Logs(_ context.Context, id string, _ int) (models.LogSnaps
 	f.calls["logs"]++
 	if id != "app-1" {
 		return models.LogSnapshot{}, errors.New("wrong log target")
+	}
+	if index < len(f.logsErrors) && f.logsErrors[index] != nil {
+		return models.LogSnapshot{}, f.logsErrors[index]
 	}
 	return models.LogSnapshot{Logs: f.snapshots[min(index, len(f.snapshots)-1)]}, nil
 }
@@ -374,9 +384,195 @@ func TestUnknownDeploymentStateTimesOut(t *testing.T) {
 	f := newBackend()
 	f.deployments[0].Status = "future-state"
 	app, _, _ := testApp(f)
-	_, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), Timeout: 20 * time.Millisecond}, nil)
+	result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), Timeout: 20 * time.Millisecond}, nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected timeout, got %v", err)
+	}
+	// The flag is named, the deployment identity is kept for a follow-up,
+	// and the context's own words are not repeated.
+	var timeout *TimeoutError
+	if !errors.As(err, &timeout) || !strings.Contains(err.Error(), "deploy-1: --timeout 20ms elapsed") || strings.Contains(err.Error(), "deadline exceeded") || result.DeploymentUUID != "deploy-1" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestDeploymentRefusalsNameTheRemedy(t *testing.T) {
+	f := newBackend()
+	f.deployError = statusError{code: 429}
+	app, _, _ := testApp(f)
+	_, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	var status interface{ HTTPStatusCode() int }
+	if err == nil || !strings.Contains(err.Error(), "server deployment queue is full") || !errors.As(err, &status) || status.HTTPStatusCode() != 429 {
+		t.Fatalf("queue full: %v", err)
+	}
+	f = newBackend()
+	f.receipts = []models.DeploymentReceipt{{ResourceUUID: "app-1", Message: "Deployment already queued for this commit."}}
+	app, _, _ = testApp(f)
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err == nil || !strings.Contains(err.Error(), "already queued") || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("already queued: %v", err)
+	}
+	// The server sends that message with a UUID it generated but never queued;
+	// the message decides, and nothing is observed.
+	f.receipts[0].DeploymentUUID = "never-queued"
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err == nil || !strings.Contains(err.Error(), "already queued") || !strings.Contains(err.Error(), "--force") || f.calls["deployment"] != 0 {
+		t.Fatalf("already queued with a uuid: err=%v calls=%v", err, f.calls)
+	}
+	// A deployment the server answered with and then dropped is reported as
+	// dropped, with the identity kept, not as "may still be running".
+	f = newBackend()
+	f.readError = statusError{code: 404}
+	app, _, _ = testApp(f)
+	result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	var dropped *DeploymentError
+	if !errors.As(err, &dropped) || dropped.DeploymentUUID != "deploy-1" || result.DeploymentUUID != "deploy-1" {
+		t.Fatalf("dropped: result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(err.Error(), "no longer holds this deployment (HTTP 404)") || !strings.Contains(err.Error(), "--force") || strings.Contains(err.Error(), "may still be running") || !errors.As(err, &status) {
+		t.Fatalf("dropped: %v", err)
+	}
+	// Any other message-only receipt is reported as the server put it.
+	f = newBackend()
+	f.receipts = []models.DeploymentReceipt{{ResourceUUID: "app-1", Message: "Something else."}}
+	app, _, _ = testApp(f)
+	_, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Something else.") || strings.Contains(err.Error(), "--force") {
+		t.Fatalf("other refusal: %v", err)
+	}
+}
+
+type notRunningRefusal struct{}
+
+func (notRunningRefusal) Error() string    { return "application is not running" }
+func (notRunningRefusal) NotRunning() bool { return true }
+
+func TestLogsNameTheStatusWhenTheApplicationIsNotRunning(t *testing.T) {
+	f := newBackend()
+	f.application.Status = "exited:unhealthy"
+	f.environments[0].Applications[0].Status = "exited:unhealthy"
+	f.logsErrors = []error{notRunningRefusal{}}
+	app, _, _ := testApp(f)
+	var events []Event
+	collect := func(e Event) error { events = append(events, e); return nil }
+	err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect)
+	want := "application is not running (status exited:unhealthy)"
+	var refusal notRunningRefusal
+	if err == nil || !strings.HasPrefix(err.Error(), want) || !errors.As(err, &refusal) || len(events) != 0 {
+		t.Fatalf("err=%v events=%v", err, events)
+	}
+	// Following stops with the same words once the container goes away.
+	f.logsErrors = []error{nil, notRunningRefusal{}}
+	f.calls["logs"] = 0
+	err = app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Follow: true}, collect)
+	if err == nil || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "log follow stopped") || len(events) != 1 {
+		t.Fatalf("follow: err=%v events=%v", err, events)
+	}
+	// Other failures keep their own words.
+	f.logsErrors = []error{errors.New("network unavailable")}
+	f.calls["logs"] = 0
+	if err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect); err == nil || err.Error() != "network unavailable" {
+		t.Fatalf("other failure: %v", err)
+	}
+}
+
+func TestLinkSelectionFailuresNameTheFlags(t *testing.T) {
+	f := newBackend()
+	f.projects = append(f.projects, models.Project{UUID: "project-2", Name: "Personal"})
+	app, _, _ := testApp(f)
+	options := Options{CWD: unlinkedDirectory(t)}
+	_, err := app.Link(context.Background(), LinkOptions{Options: options, Project: "Personal", Application: "api"}, nil, nil)
+	var ambiguous *resolver.AmbiguousError
+	if !errors.Is(err, ErrInput) || !errors.As(err, &ambiguous) || !strings.HasPrefix(err.Error(), "link: 2 projects match \"Personal\"") || !strings.Contains(err.Error(), "--project-uuid") {
+		t.Fatalf("ambiguous: %v", err)
+	}
+	if strings.Contains(err.Error(), "run coolship link") || strings.Contains(err.Error(), "link an explicit UUID") {
+		t.Fatalf("advice for a linked command leaked into link: %v", err)
+	}
+	_, err = app.Link(context.Background(), LinkOptions{Options: options, Project: "Missing", Application: "api"}, nil, nil)
+	var missing *resolver.MissingError
+	if !errors.Is(err, ErrInput) || !errors.As(err, &missing) || !strings.HasPrefix(err.Error(), "link: no project named \"Missing\"") || !strings.Contains(err.Error(), "--project") || strings.Contains(err.Error(), "check the binding") {
+		t.Fatalf("missing: %v", err)
+	}
+	// Later commands keep the resolver's advice, which applies to them.
+	f = newBackend()
+	f.projects = append(f.projects, models.Project{UUID: "project-2", Name: "Personal"})
+	app, _, _ = testApp(f)
+	if _, err := app.Status(context.Background(), linkedOptions(t)); err == nil || !strings.Contains(err.Error(), "link an explicit UUID") {
+		t.Fatalf("status: %v", err)
+	}
+}
+
+func TestLinkUsesTheSingleDefaultInstanceWithoutAsking(t *testing.T) {
+	f := newBackend()
+	app, _, _ := testApp(f)
+	instances := []auth.Instance{{Name: "work", URL: "https://work.example.com"}, {Name: "home", URL: "https://coolify.example.com", Default: true}}
+	app.deps.ListInstances = func(auth.Options) ([]auth.Instance, error) { return instances, nil }
+	var resolved []string
+	app.deps.ResolveCredentials = func(options auth.Options) (auth.Credentials, error) {
+		resolved = append(resolved, options.Context)
+		return auth.Credentials{Name: options.Context, URL: "https://" + options.Context + ".example.com", Token: "private-token"}, nil
+	}
+	asked := 0
+	selector := func(_ context.Context, kind string, choices []Choice) (string, error) {
+		asked++
+		if kind != "context" {
+			return "", errors.New("unexpected " + kind + " choice")
+		}
+		return "work", nil
+	}
+	link := LinkOptions{Options: Options{CWD: unlinkedDirectory(t)}, Project: "Personal", Application: "api"}
+	result, err := app.Link(context.Background(), link, selector, nil)
+	if err != nil || asked != 0 || result.Target.Instance != "home" || !reflect.DeepEqual(resolved, []string{"home"}) {
+		t.Fatalf("default: result=%+v err=%v asked=%d resolved=%v", result, err, asked, resolved)
+	}
+	// --context overrides the default without asking either.
+	link.Options.Context, link.Replace = "work", true
+	result, err = app.Link(context.Background(), link, selector, nil)
+	if err != nil || asked != 0 || result.Target.Instance != "work" {
+		t.Fatalf("--context: result=%+v err=%v asked=%d", result, err, asked)
+	}
+	// With no default the choice is asked, and a noninteractive link must be
+	// told. A fresh directory: the one above now commits a context.
+	instances[1].Default = false
+	link.Options = Options{CWD: unlinkedDirectory(t)}
+	if _, err := app.Link(context.Background(), link, nil, nil); !errors.Is(err, ErrInput) {
+		t.Fatalf("noninteractive without a default: %v", err)
+	}
+	if _, err := app.Link(context.Background(), link, selector, nil); err != nil || asked != 1 {
+		t.Fatalf("no default: err=%v asked=%d", err, asked)
+	}
+	// Several defaults are nobody's default; the choice is asked as well.
+	instances[0].Default, instances[1].Default = true, true
+	link.Options = Options{CWD: unlinkedDirectory(t)}
+	if _, err := app.Link(context.Background(), link, selector, nil); err != nil || asked != 2 {
+		t.Fatalf("two defaults: err=%v asked=%d", err, asked)
+	}
+}
+
+func TestUnlinkPlanListsEveryNamedTarget(t *testing.T) {
+	dir := unlinkedDirectory(t)
+	data, err := config.Marshal(config.Config{Version: 1, Apps: map[string]config.Binding{
+		"web": {Context: "home", Project: "Personal", Environment: "production", Application: "frontend", Root: "apps/web"},
+		"api": {Context: "home", Project: "Personal", Environment: "production", Application: "backend", Root: "apps/api"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "coolship.toml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, _, _ := testApp(newBackend())
+	var plan UnlinkPlan
+	accepted := func(_ context.Context, p UnlinkPlan) (bool, error) { plan = p; return true, nil }
+	if _, err := app.Unlink(context.Background(), UnlinkOptions{Options: Options{CWD: dir}}, accepted); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Targets) != 2 || plan.Targets[0].Name != "api" || plan.Targets[0].Binding.Application != "backend" || plan.Targets[1].Name != "web" || plan.Binding.Application != "" {
+		t.Fatalf("plan %+v", plan)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "coolship.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("file still exists after unlink")
 	}
 }
 
@@ -745,6 +941,22 @@ func TestDoctorReportsEveryStep(t *testing.T) {
 		if got["Credentials"] != "failed" || got["Context"] != "failed" || got["Server"] != "" {
 			t.Fatalf("unexpected statuses %v", got)
 		}
+		for _, check := range result.Checks {
+			if check.Name == "Credentials" && check.Detail != "No Coolify credentials at /nowhere/config.json; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN" {
+				t.Fatalf("credentials detail: %q", check.Detail)
+			}
+		}
+	})
+	t.Run("rejected token explains itself in the server check", func(t *testing.T) {
+		f := newBackend()
+		f.versionError = statusError{code: 403}
+		app, _, _ := testApp(f)
+		result, _ := app.Doctor(context.Background(), linkedOptions(t))
+		for _, check := range result.Checks {
+			if check.Name == "Server" && (!strings.HasPrefix(check.Detail, "HTTP 403 Forbidden; ") || !strings.Contains(check.Detail, "lacks a required ability")) {
+				t.Fatalf("server detail: %q", check.Detail)
+			}
+		}
 	})
 }
 
@@ -812,6 +1024,13 @@ func TestEnvPullKeepsLocalKeysAndNeverInventsWithheldValues(t *testing.T) {
 	if strings.Contains(string(data), "resolved-secret") {
 		t.Fatal("pull wrote a resolved shared value instead of the reference")
 	}
+	// Pulling again leaves the note about the withheld key in place, once.
+	if _, err := app.EnvPull(context.Background(), EnvOptions{Options: options}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != want {
+		t.Fatalf("second pull changed the file:\n%s\nwant:\n%s", data, want)
+	}
 	// A withheld key the developer already has locally is left alone.
 	if err := os.WriteFile(path, []byte("SECRET=mine\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -854,8 +1073,11 @@ func TestEnvPushPlansConfirmsAndAppliesWithinScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(plan.Create, []EnvChange{{Key: "NEW", Local: "n"}}) || !reflect.DeepEqual(plan.Update, []EnvChange{{Key: "CHANGED", Local: "local", Remote: "remote"}}) ||
-		len(plan.Delete) != 0 || !reflect.DeepEqual(plan.Skipped, []string{"SECRET"}) {
+		len(plan.Delete) != 0 || !reflect.DeepEqual(plan.Skipped, []string{"SECRET"}) || !reflect.DeepEqual(plan.Untouched, []string{"REMOTE_ONLY"}) {
 		t.Fatalf("plan %+v", plan)
+	}
+	if encoded, err := json.Marshal(plan); err != nil || strings.Contains(string(encoded), "REMOTE_ONLY") || !strings.Contains(string(encoded), `"skipped":["SECRET"]`) {
+		t.Fatalf("plan JSON changed shape: %s (%v)", encoded, err)
 	}
 	no := false
 	if len(f.upserts) != 1 || !reflect.DeepEqual(f.upserts[0], []models.EnvironmentVariableInput{
