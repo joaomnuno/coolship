@@ -568,7 +568,7 @@ func TestDevSplitsTargetFromCommandAndPropagatesExitStatus(t *testing.T) {
 		t.Fatalf("exit status: err=%v code=%d out=%q diag=%q", err, ui.ExitCode(err), out, diagnostic)
 	}
 	var buffer bytes.Buffer
-	if err := ui.PrintError(&buffer, err); err != nil || buffer.Len() != 0 {
+	if err := ui.PrintError(ui.Streams{Err: &buffer}, err); err != nil || buffer.Len() != 0 {
 		t.Fatalf("child exit printed a diagnostic: %q", buffer.String())
 	}
 	if _, _, err := execute(t, app, "dev", "a", "b", "--", "x"); !errors.Is(err, service.ErrInput) {
@@ -637,5 +637,28 @@ func TestLoginNeverTakesTheTokenAsAFlagAndReadsStdin(t *testing.T) {
 	}
 	if seen.URL != "https://coolify.example.com" || seen.Name != "coolify" || seen.Token != "typed-token" || !strings.Contains(diagnostic.String(), "Context name [coolify]:") {
 		t.Fatalf("interactive: seen=%+v diag=%q", seen, diagnostic.String())
+	}
+}
+
+func TestColorCapabilityStylesHumanOutputOnly(t *testing.T) {
+	app := fakeApplication{doctor: func(context.Context, service.Options) (service.DoctorResult, error) {
+		return service.DoctorResult{Checks: []service.Check{{Name: "Server", Status: "ok", Detail: "Coolify 4.3.18"}}}, nil
+	}}
+	var out, diagnostic bytes.Buffer
+	root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, ColorOut: true, ColorErr: true}, "test")
+	root.SetArgs([]string{"doctor"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "\x1b[32m[ok]\x1b[0m   Server: Coolify 4.3.18\n" || diagnostic.Len() != 0 {
+		t.Fatalf("styled doctor: out=%q diag=%q", out.String(), diagnostic.String())
+	}
+	out.Reset()
+	root.SetArgs([]string{"doctor", "--format", "json", "--no-color"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "\x1b") || !strings.HasPrefix(out.String(), `{"checks":`) {
+		t.Fatalf("json output must never carry escapes: %q", out.String())
 	}
 }

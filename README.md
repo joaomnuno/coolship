@@ -377,6 +377,8 @@ Both are required together, and the pair cannot be combined with `--context` or 
 
 Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping stdout stays useful. `--format json` prints one result object, and `logs --format json` prints newline-delimited events.
 
+Human output is colored only when the stream it goes to is a terminal, and each stream is decided on its own, so `coolship status | cat` prints plain text while a prompt on the terminal is still styled. Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
+
 | Code | Meaning |
 | --- | --- |
 | `0` | Success. |
