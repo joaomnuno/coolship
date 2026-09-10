@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-labelledby="t d">
+  <title id="t">coolship deploy</title>
+  <desc id="d">A terminal window showing a real coolship deploy transcript: the deployment is queued, the build log streams, the rolling update passes its health check, and the deployment finishes.</desc>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="0%" r="70%">
+      <stop offset="0" stop-color="#fb9a40" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#fb9a40" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#8a8078" fill-opacity="0.25"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <mask id="fadeMask">
+      <rect width="1280" height="720" fill="url(#fade)"/>
+    </mask>
+  </defs>
+  <rect width="1280" height="720" fill="#0b0908"/>
+  <rect width="1280" height="720" fill="url(#dots)" mask="url(#fadeMask)"/>
+  <rect width="1280" height="720" fill="url(#glow)"/>
+  <g transform="translate(120 84)">
+    <rect x="0" y="0" width="1040" height="560" rx="16" fill="#0f0d0b" stroke="#3a332d" stroke-opacity="0.6"/>
+    <rect x="0" y="0" width="1040" height="44" rx="16" fill="#171310"/>
+    <rect x="0" y="28" width="1040" height="16" fill="#171310"/>
+    <line x1="0" y1="44" x2="1040" y2="44" stroke="#2a2420"/>
+    <circle cx="26" cy="22" r="6" fill="#2a2420"/>
+    <circle cx="46" cy="22" r="6" fill="#2a2420"/>
+    <circle cx="66" cy="22" r="6" fill="#2a2420"/>
+    <text x="520" y="27" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8a8078">my-app — coolship deploy</text>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#e6e0da">
+      <text x="32" y="88"><tspan fill="#8a8078">$ </tspan><tspan fill="#fb9a40" font-weight="700">coolship deploy</tspan></text>
+      <text x="32" y="122">Deployment 03dusayin5rleswixblvdqba: queued</text>
+      <text x="32" y="156">Deployment 03dusayin5rleswixblvdqba: in_progress</text>
+      <text x="32" y="190" fill="#8f877f">Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.</text>
+      <text x="32" y="224" fill="#8f877f">Building docker image started.</text>
+      <text x="32" y="258" fill="#8f877f">Building docker image completed.</text>
+      <text x="32" y="292" fill="#8f877f">Rolling update started.</text>
+      <text x="32" y="326" fill="#8f877f">Attempt 2 of 10 | Healthcheck status: <tspan fill="#6fd39a">"healthy"</tspan></text>
+      <text x="32" y="360" fill="#8f877f">Rolling update completed.</text>
+      <text x="32" y="394">Deployment 03dusayin5rleswixblvdqba: <tspan fill="#6fd39a">finished</tspan></text>
+      <text x="32" y="428">Deployment: 03dusayin5rleswixblvdqba</text>
+      <text x="32" y="462">Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)</text>
+      <text x="32" y="496">Status: <tspan fill="#6fd39a">finished</tspan></text>
+      <text x="32" y="530"><tspan fill="#8a8078">$ </tspan><tspan fill="#fb9a40">▍</tspan></text>
+    </g>
+  </g>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+    <text x="1160" y="688" text-anchor="end" font-size="18" font-weight="700" fill="#e6e0da">Coolship</text>
+    <text x="1160" y="708" text-anchor="end" font-size="13" fill="#8a8078">Link once, then ship.</text>
+  </g>
+</svg>

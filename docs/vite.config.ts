@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import { fumadocsMdx } from 'fumadocs-mdx/vite';
 import { defineConfig } from 'vite';
 import vinext from 'vinext';
@@ -8,6 +9,16 @@ import vinext from 'vinext';
 // the `defineDocs` macro in lib/source.ts. Without `fumadocsMdx()` the build
 // still passes and every MDX-backed route answers 500 at runtime.
 export default defineConfig({
+  // Tailwind compiles app/global.css here, before Vite's own CSS pipeline.
+  // The PostCSS plugin in postcss.config.mjs serves the Next.js build only:
+  // under Vite it would run after Vite's bundled postcss-import, which stops
+  // inlining at the `@plugin` line inside fumadocs-ui/css/preset.css (the
+  // "@import statements must precede all other statements" notice) and leaves
+  // the imports of Fumadocs' generated candidate lists after it unresolved, so
+  // the docs layout utilities were never generated and the sidebar and page
+  // grid rendered unstyled. An inline `css.postcss` keeps Vite from loading
+  // that file.
+  css: { postcss: { plugins: [] } },
   // Copied from vinext's fumadocs example: keep the Fumadocs packages out of
   // dependency pre-bundling in dev so React contexts are not duplicated.
   optimizeDeps: {
@@ -21,5 +32,5 @@ export default defineConfig({
       '@unpic/react',
     ],
   },
-  plugins: [fumadocsMdx(), vinext()],
+  plugins: [tailwindcss(), fumadocsMdx(), vinext()],
 });

@@ -92,6 +92,7 @@ check steps-markdown    /docs/get-started.md             200 text/markdown '^# G
 check llms-full         /llms-full.txt                   200 text/markdown '^# deploy$
 ^## Log in$
 ^- \[Concepts\]\('
+check poster            /showcase-poster.svg             200 image/svg     '<svg'
 check robots            /robots.txt                      200 text/plain    'User-agent'
 check not-found         /docs/no-such-page               404 text/html     'Page not found'
 
