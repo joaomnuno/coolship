@@ -398,6 +398,20 @@ Limits worth knowing:
 
 [ARCHITECTURE.md](ARCHITECTURE.md) records the verification and the server behaviors it uncovered.
 
+## End-to-end tests
+
+`scripts/e2e` runs every command against a live Coolify instance and prints a PASS/FAIL line per step. It touches exactly one application — project `coolship-example`, environment `production`, application `coolship-example`, a Dockerfile app built from [joaomnuno/example-coolify-project](https://github.com/joaomnuno/example-coolify-project) — and nothing else on the instance is written to. In order it links from a fresh temporary directory, runs `doctor`, `status`, `config`, `open --print`, `logs` and `logs --follow`, pulls and diffs the variables, creates two `E2E_`-prefixed variables and verifies `dev` injects them, deletes them again with `env push --prune` (in both scopes; a trap does the same if the run dies mid-way), checks that `preview --pr 999999` is refused, deploys once (about 30 s), and unlinks. Pulled variables only ever land in the temporary directory, which is removed on exit, and the token is never printed.
+
+`.github/workflows/e2e.yml` runs it on `workflow_dispatch`, weekly, and on every published release. Add two repository secrets under *Settings → Secrets and variables → Actions*: `COOLSHIP_URL` and `COOLSHIP_TOKEN`, where the token needs read, write, and deploy abilities. Without them the job is skipped, so forks and pull requests never fail on it. Runs are serialized so two never overlap on the shared application.
+
+Locally, export the same pair and run the script; it builds the binary itself unless `COOLSHIP_BIN` points at one. GNU `timeout` and `python3` are required.
+
+```bash
+export COOLSHIP_URL=https://coolify.example.com
+export COOLSHIP_TOKEN=…
+scripts/e2e
+```
+
 ## Planned
 
 Every command from the original brief is implemented. Remaining directions are tracked in [ROADMAP.md](ROADMAP.md): `init` for scaffolding new applications, and sharing packages with `coolify-cli` once their interfaces settle.

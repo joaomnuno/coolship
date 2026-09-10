@@ -1,0 +1,59 @@
+# End-to-end run of scripts/e2e against a live Coolify instance.
+#
+# The job needs the repository secrets COOLSHIP_URL and COOLSHIP_TOKEN
+# (Settings -> Secrets and variables -> Actions). When they are absent, as on
+# forks, the job is skipped rather than failed. The run touches exactly one
+# application, so runs are serialized and never cancelled mid-way.
+name: e2e
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-coolship-example
+  cancel-in-progress: false
+
+jobs:
+  # A job-level `if` cannot read secrets, so a step decides first.
+  configured:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          URL_SET: ${{ secrets.COOLSHIP_URL != '' }}
+          TOKEN_SET: ${{ secrets.COOLSHIP_TOKEN != '' }}
+        run: |
+          if [ "$URL_SET" = true ] && [ "$TOKEN_SET" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "COOLSHIP_URL and COOLSHIP_TOKEN are not both set; the e2e run was skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  e2e:
+    needs: configured
+    if: needs.configured.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scripts/build stamps the version from the nearest tag
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false # scripts/go keeps its caches inside the checkout
+      - name: Run end-to-end checks
+        env:
+          COOLSHIP_URL: ${{ secrets.COOLSHIP_URL }}
+          COOLSHIP_TOKEN: ${{ secrets.COOLSHIP_TOKEN }}
+        run: scripts/e2e
