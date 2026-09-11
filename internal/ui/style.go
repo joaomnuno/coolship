@@ -1,33 +1,75 @@
 package ui
 
-// palette applies ANSI SGR styling to sanitized text, or nothing at all. Each
-// stream carries its own palette because stdout may be piped while stderr is
-// still a terminal. Callers pass text through singleLine before styling, so a
-// style never wraps raw input.
-type palette struct {
-	enabled bool
-}
+import (
+	"strings"
 
-// SGR parameter lists. Compound styles keep to one sequence per wrapped text.
-const (
-	bold      = "1"
-	dim       = "2"
-	red       = "31"
-	green     = "32"
-	yellow    = "33"
-	cyan      = "36"
-	redBold   = "1;31"
-	greenBold = "1;32"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
-// apply wraps text in the given SGR style. Empty text and disabled palettes
-// return text unchanged, so styled output equals plain output byte for byte
-// whenever color is off.
-func (p palette) apply(style, text string) string {
-	if !p.enabled || style == "" || text == "" {
+// look names one of the styles a palette can apply. plain applies nothing.
+type look int
+
+const (
+	plain look = iota
+	bold
+	dim
+	red
+	green
+	yellow
+	cyan
+	redBold
+	greenBold
+	looks
+)
+
+// palette renders looks with Lip Gloss for one stream. Each stream carries its
+// own palette because stdout may be piped while stderr is still a terminal.
+// The stream decides whether colour is on; the palette turns that decision
+// into an explicit colour profile — ANSI when on, NoTTY when off — and passes
+// everything Lip Gloss renders through a colorprofile.Writer with that
+// profile, so nothing here inspects the environment or the terminal, and with
+// colour off every look renders its text unchanged, byte for byte. Callers
+// pass text through singleLine before styling, so a style never wraps raw
+// input.
+type palette struct {
+	profile colorprofile.Profile
+	styles  [looks]lipgloss.Style
+}
+
+// newPalette builds the looks for the given colour decision.
+func newPalette(color bool) palette {
+	p := palette{profile: colorprofile.NoTTY}
+	if color {
+		p.profile = colorprofile.ANSI
+	}
+	// Every look keeps tabs as they are; Lip Gloss would otherwise expand
+	// them, and text is the caller's to shape.
+	base := lipgloss.NewStyle().TabWidth(lipgloss.NoTabConversion)
+	p.styles[plain] = base
+	p.styles[bold] = base.Bold(true)
+	p.styles[dim] = base.Faint(true)
+	p.styles[red] = base.Foreground(lipgloss.Red)
+	p.styles[green] = base.Foreground(lipgloss.Green)
+	p.styles[yellow] = base.Foreground(lipgloss.Yellow)
+	p.styles[cyan] = base.Foreground(lipgloss.Cyan)
+	p.styles[redBold] = base.Bold(true).Foreground(lipgloss.Red)
+	p.styles[greenBold] = base.Bold(true).Foreground(lipgloss.Green)
+	return p
+}
+
+// apply renders text in the given look and downsamples the result to the
+// stream's profile. Empty text and the plain look return text unchanged, so
+// nothing is ever wrapped for nothing.
+func (p palette) apply(l look, text string) string {
+	if l == plain || text == "" {
 		return text
 	}
-	return "\x1b[" + style + "m" + text + "\x1b[0m"
+	var rendered strings.Builder
+	writer := colorprofile.Writer{Forward: &rendered, Profile: p.profile}
+	// A strings.Builder never fails to write.
+	_, _ = writer.WriteString(p.styles[l].Render(text))
+	return rendered.String()
 }
 
 // key styles a "Label:" prefix of a key/value line; values stay plain.
@@ -35,9 +77,19 @@ func (p palette) key(label string) string {
 	return p.apply(dim, label+":")
 }
 
+// colorProfile is the profile a Bubble Tea program on this stream renders
+// with, so the program never detects one. A terminal without colour is still
+// a terminal, hence ASCII rather than NoTTY there.
+func (p palette) colorProfile() colorprofile.Profile {
+	if p.profile == colorprofile.ANSI {
+		return colorprofile.ANSI
+	}
+	return colorprofile.ASCII
+}
+
 // deploymentStatus styles the server's deployment status words. Unknown
 // statuses stay plain rather than guessing at their meaning.
-func deploymentStatus(status string) string {
+func deploymentStatus(status string) look {
 	switch status {
 	case "queued":
 		return dim
@@ -48,5 +100,5 @@ func deploymentStatus(status string) string {
 	case "failed", "cancelled-by-user":
 		return redBold
 	}
-	return ""
+	return plain
 }

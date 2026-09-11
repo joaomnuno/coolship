@@ -129,6 +129,8 @@ coolship/
 │       ├── streams.go              # Injected stdin/stdout/stderr, terminal capability
 │       ├── prompts.go
 │       ├── render.go               # Human and JSON output
+│       ├── style.go                # Lip Gloss looks per stream, profile fixed by the stream's colour decision
+│       ├── wait.go                 # Bubble Tea spinner on an interactive stderr, nothing when piped
 │       └── errors.go               # Error presentation and exit classification
 ├── AGENTS.md
 ├── ARCHITECTURE.md
@@ -191,7 +193,7 @@ flowchart TD
 | `service` | Implements project workflows and the one shared preparation path. Owns link planning, deployment observation, log following, and later variable synchronization. Takes ordinary values and `context.Context`; returns results/events/errors. | `project`, `auth`, `resolver`, `models`, `gitinfo` (types and URL forms only; `git` runs through injected functions), `sshkey` (the default key generator; tests substitute a function) |
 | `gitinfo` | Answers where Coolify should clone from: the origin remote in its https and SSH forms, the checked-out branch, and whether a remote can be read anonymously (`Heads`, a `git ls-remote` run in an empty temporary home with credential helpers, the user's Git configuration, and Git's own environment variables disabled, and, on Unix, in its own process group that a cancellation kills whole, with `WaitDelay` set so a cancelled probe returns instead of waiting for `git-remote-https`). Runs `git` through `os/exec` and nothing else; `main` injects `Inspect` and `Heads` into `service.Dependencies` so tests substitute functions. | None |
 | `sshkey` | Generates the Ed25519 pair a new deploy key is made of: the private half in OpenSSH's file format, which Coolify's helper container hands to `ssh -i`, and the public half as the line a Git host registers. Standard library only; the private half lives in memory until it is sent to Coolify and is never written or printed. | None |
-| `ui` | Owns prompts, terminal capability checks, colors, progress rendering, JSON, and error presentation. May consume service result/event types; never fetches data or selects a remote target by business rules. | `service` |
+| `ui` | Owns prompts, terminal capability checks, colors, progress rendering, JSON, and error presentation. The only package that imports the Charm stack (Bubble Tea, Huh, Lip Gloss v2 at `charm.land`; ADR 0001), enforced by a test; the stack receives each stream's colour decision as an explicit profile and never asks the environment or the terminal. May consume service result/event types; never fetches data or selects a remote target by business rules. | `service` |
 
 The UI dependency on service types is intentional: presentation knows what it renders, while workflows know nothing about presentation. Service event callbacks provide backpressure and return output errors; no global event bus or unbounded background channels are needed.
 

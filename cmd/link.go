@@ -1,11 +1,22 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// linkWaits names what link reads from the server after each choice, keyed
+// by the kind of choice just made; "context" is also what it reads first.
+var linkWaits = map[string]string{
+	"context":     "Listing projects",
+	"project":     "Listing environments",
+	"environment": "Listing applications",
+	"application": "Reading the application",
+}
 
 func newLinkCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
 	var link service.LinkOptions
@@ -31,7 +42,27 @@ changing one, or converting between the two forms, requires review.`,
 				}
 			}
 			prompter := ui.NewPrompter(streams)
-			result, err := app.Link(command.Context(), link, prompter.Select, prompter.Confirm)
+			// The listings happen between the prompts, so the spinner runs
+			// from the start and between each answer and the next question.
+			spinner := ui.NewSpinner(streams)
+			defer spinner.Stop()
+			spinner.Start(linkWaits["context"])
+			selectChoice := func(ctx context.Context, kind string, choices []service.Choice) (string, error) {
+				spinner.Stop()
+				id, err := prompter.Select(ctx, kind, choices)
+				if err == nil {
+					if label := linkWaits[kind]; label != "" {
+						spinner.Start(label)
+					}
+				}
+				return id, err
+			}
+			confirm := func(ctx context.Context, plan service.LinkPlan) (bool, error) {
+				spinner.Stop()
+				return prompter.Confirm(ctx, plan)
+			}
+			result, err := app.Link(command.Context(), link, selectChoice, confirm)
+			spinner.Stop()
 			if err != nil {
 				return err
 			}

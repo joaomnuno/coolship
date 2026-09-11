@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -26,7 +27,12 @@ The full UUID is in --format json and can be passed to cancel.`,
 				return inputError(errors.New("--limit must be greater than zero"))
 			}
 			deployments.Options = options.Options
-			result, err := app.Deployments(command.Context(), deployments)
+			var result service.DeploymentsResult
+			err := ui.Wait(command.Context(), streams, "Listing deployments", func(ctx context.Context) error {
+				var err error
+				result, err = app.Deployments(ctx, deployments)
+				return err
+			})
 			if err != nil {
 				return err
 			}

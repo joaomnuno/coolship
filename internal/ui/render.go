@@ -312,7 +312,7 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 	if result.URL == "" {
 		return nil
 	}
-	style := ""
+	style := plain
 	if result.URLKind == "application" {
 		style = green
 	}
@@ -549,7 +549,10 @@ func (r *Renderer) Doctor(result service.DoctorResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	markers := map[string]struct{ marker, padding, style string }{
+	markers := map[string]struct {
+		marker, padding string
+		style           look
+	}{
 		"ok":      {"[ok]", "  ", green},
 		"warning": {"[warn]", "", yellow},
 		"failed":  {"[FAIL]", "", redBold},
