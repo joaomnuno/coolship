@@ -62,7 +62,7 @@ Use --no-wait to return the queued deployment UUID immediately.`,
 			renderer := ui.NewRenderer(streams, options.format)
 			result, err := app.Start(command.Context(), start, renderer.DeploymentEvent)
 			if err != nil {
-				return err
+				return deploymentFailure(renderer, options.format, result, err)
 			}
 			return renderer.Deploy(result)
 		},
@@ -94,7 +94,7 @@ return the queued deployment UUID immediately.`,
 			renderer := ui.NewRenderer(streams, options.format)
 			result, err := app.Restart(command.Context(), restart, ui.NewPrompter(streams).ConfirmRestart, renderer.DeploymentEvent)
 			if err != nil {
-				return err
+				return deploymentFailure(renderer, options.format, result, err)
 			}
 			return renderer.Deploy(result)
 		},

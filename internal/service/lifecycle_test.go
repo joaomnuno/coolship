@@ -135,6 +135,9 @@ func TestStartQueuesThroughTheActionAndObservesLikeDeploy(t *testing.T) {
 	if result.Action != "start" || result.DeploymentUUID != "deploy-1" || result.Status != "finished" || !reflect.DeepEqual(states, []string{"queued", "in_progress", "finished"}) {
 		t.Fatalf("result=%+v states=%v", result, states)
 	}
+	if result.URL != "https://app.example.com" || result.URLKind != "application" {
+		t.Fatalf("url=%q kind=%q", result.URL, result.URLKind)
+	}
 	if f.calls["start"] != 1 || !f.lastForce || f.calls["deploy"] != 0 || f.calls["projects"] != 1 {
 		t.Fatalf("calls=%v force=%t", f.calls, f.lastForce)
 	}
@@ -143,6 +146,9 @@ func TestStartQueuesThroughTheActionAndObservesLikeDeploy(t *testing.T) {
 	result, err = app.Start(context.Background(), StartOptions{Options: linkedOptions(t), NoWait: true}, nil)
 	if err != nil || result.Status != "queued" || f.calls["deployment"] != 0 || f.lastForce {
 		t.Fatalf("no-wait: result=%+v err=%v calls=%v", result, err, f.calls)
+	}
+	if result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("no-wait url=%q kind=%q", result.URL, result.URLKind)
 	}
 	// A message-only answer is the server declining, e.g. a deployment already queued.
 	f.receipt = models.ActionReceipt{Message: "Deployment already queued for this commit."}
@@ -153,10 +159,13 @@ func TestStartQueuesThroughTheActionAndObservesLikeDeploy(t *testing.T) {
 	// A failed deployment is reported with its identity, as deploy does.
 	f.receipt = models.ActionReceipt{DeploymentUUID: "deploy-1"}
 	f.deployments = []models.Deployment{{UUID: "deploy-1", Status: "failed"}}
-	_, err = app.Start(context.Background(), StartOptions{Options: linkedOptions(t)}, nil)
+	result, err = app.Start(context.Background(), StartOptions{Options: linkedOptions(t)}, nil)
 	var deploymentError *DeploymentError
 	if !errors.As(err, &deploymentError) || deploymentError.DeploymentUUID != "deploy-1" {
 		t.Fatalf("failed: %v", err)
+	}
+	if result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("failed url=%q kind=%q", result.URL, result.URLKind)
 	}
 	if _, err := app.Start(context.Background(), StartOptions{Options: linkedOptions(t), Timeout: -1}, nil); !errors.Is(err, ErrInput) {
 		t.Fatalf("negative timeout: %v", err)
@@ -179,6 +188,9 @@ func TestRestartRequiresConfirmationThenObserves(t *testing.T) {
 	result, err := app.Restart(context.Background(), options, accepted, nil)
 	if err != nil || result.Action != "restart" || result.Status != "finished" || plan.Status != "running:healthy" || f.calls["restart"] != 1 || f.calls["start"] != 0 {
 		t.Fatalf("result=%+v plan=%+v err=%v calls=%v", result, plan, err, f.calls)
+	}
+	if result.URL != "https://app.example.com" || result.URLKind != "application" {
+		t.Fatalf("url=%q kind=%q", result.URL, result.URLKind)
 	}
 	if _, err := app.Restart(context.Background(), StartOptions{Options: options.Options, Yes: true, NoWait: true}, nil, nil); err != nil || f.calls["restart"] != 2 {
 		t.Fatalf("--yes: err=%v calls=%v", err, f.calls)

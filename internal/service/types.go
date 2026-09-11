@@ -339,8 +339,14 @@ type DeployResult struct {
 	PullRequest    int        `json:"pull_request,omitempty"`
 	// Action names the server action that queued the deployment, start or
 	// restart; a plain deploy leaves it empty.
-	Action   string   `json:"action,omitempty"`
-	Status   string   `json:"status"`
+	Action string `json:"action,omitempty"`
+	Status string `json:"status"`
+	// URL is where the deployment can be seen once it has an identity: the
+	// application when the deployment finished and the application has a
+	// domain (URLKind "application"), otherwise its page in Coolify
+	// (URLKind "deployment"). Both are empty when nothing was queued.
+	URL      string   `json:"url,omitempty"`
+	URLKind  string   `json:"url_kind,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
 

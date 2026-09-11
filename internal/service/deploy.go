@@ -81,6 +81,8 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 			continue
 		}
 		if result.DeploymentUUID != "" {
+			// The first identity is kept, and its page is where to inspect.
+			result.URL, result.URLKind = resultURL(s.project, result)
 			return result, fmt.Errorf("server returned multiple deployments for application %s; inspect Coolify before retrying", s.project.Application.UUID)
 		}
 		result.DeploymentUUID = receipt.DeploymentUUID
@@ -113,6 +115,16 @@ func (a *App) deploy(ctx context.Context, s session, options DeployOptions, emit
 // each status change. Every workflow that queues a deployment — deploy,
 // preview, init --deploy, start, restart — ends here, so they cannot drift.
 func (a *App) observeDeployment(ctx context.Context, s session, result DeployResult, timeout time.Duration, noWait bool, emit Emitter) (DeployResult, error) {
+	result, err := a.observe(ctx, s, result, timeout, noWait, emit)
+	// The result is final here whatever the outcome, so this is the one place
+	// its URL is decided: the deployment has an identity, and the application
+	// record the session already holds says whether it has a domain, so no
+	// request is added.
+	result.URL, result.URLKind = resultURL(s.project, result)
+	return result, err
+}
+
+func (a *App) observe(ctx context.Context, s session, result DeployResult, timeout time.Duration, noWait bool, emit Emitter) (DeployResult, error) {
 	result.Status = "queued"
 	// The deadline is this command's --timeout; naming the flag says what to
 	// change. The context decides, not the poll's error: a single request

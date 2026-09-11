@@ -302,9 +302,28 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 		}
 	}
 	status := singleLine(result.Status)
-	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
 		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
-		r.out.key("Status"), r.out.apply(deploymentStatus(status), status))
+		r.out.key("Status"), r.out.apply(deploymentStatus(status), status)); err != nil {
+		return err
+	}
+	// The URL is the last line, so it is what the eye lands on: the
+	// application in green when it is live, its Coolify page plain otherwise.
+	if result.URL == "" {
+		return nil
+	}
+	style := ""
+	if result.URLKind == "application" {
+		style = green
+	}
+	_, err := fmt.Fprintln(r.streams.Out, r.out.apply(style, singleLine(result.URL)))
+	return err
+}
+
+// DeploymentPage names, on stderr, the Coolify page of a deployment that did
+// not finish, so the diagnostic that follows has somewhere to point.
+func (r *Renderer) DeploymentPage(url string) error {
+	_, err := fmt.Fprintf(r.streams.Err, "%s %s\n", r.err.key("Deployment page"), singleLine(url))
 	return err
 }
 

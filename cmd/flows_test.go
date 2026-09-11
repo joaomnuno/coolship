@@ -495,7 +495,7 @@ func TestLinkedProjectDrivesEveryWorkflow(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &deploy); err != nil {
 		t.Fatalf("deploy output %q: %v", out, err)
 	}
-	if deploy.DeploymentUUID != "deploy-1" || deploy.Status != "finished" {
+	if deploy.DeploymentUUID != "deploy-1" || deploy.Status != "finished" || deploy.URL != "https://fenix.example.com" || deploy.URLKind != "application" {
 		t.Fatalf("unexpected deploy result %+v", deploy)
 	}
 	if !strings.Contains(diagnostic, "in_progress") || !strings.Contains(diagnostic, "finished") {
@@ -921,9 +921,54 @@ func TestPreviewDeploymentAgainstTheServer(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &result); err != nil || result.PullRequest != 7 || result.Status != "finished" {
 		t.Fatalf("preview result %s: %v", out, err)
 	}
+	// The application's FQDN is the production one, so a preview ends with
+	// its deployment page even when it finished.
+	page := instance.URL + "/project/project-1/environment/env-1/application/app-1/deployment/deploy-1"
+	if result.URL != page || result.URLKind != "deployment" {
+		t.Fatalf("preview url=%q kind=%q", result.URL, result.URLKind)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "preview", "--pr", "7")
+	if err != nil || !strings.HasSuffix(out, "Status: finished\n"+page+"\n") {
+		t.Fatalf("preview: out=%q err=%v", out, err)
+	}
 	_, _, err = run(t, instance.URL, dir, "", "preview", "--pr", "9")
 	if err == nil || !strings.Contains(err.Error(), "Pull request 9 not found") || ui.ExitCode(err) != 1 {
 		t.Fatalf("unknown pull request: %v", err)
+	}
+}
+
+// TestDeploymentEndsWithTheURLAgainstTheServer reads the URL line from a
+// real response: the application's domain when the deployment finished, its
+// Coolify page when it was only queued or failed.
+func TestDeploymentEndsWithTheURLAgainstTheServer(t *testing.T) {
+	s := &server{deployment: []string{"in_progress", "finished"}}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	page := instance.URL + "/project/project-1/environment/env-1/application/app-1/deployment/deploy-1"
+	out, _, err := run(t, instance.URL, dir, "", "deploy")
+	if err != nil || out != "Deployment: deploy-1\nApplication: fenix-bot (app-1)\nStatus: finished\nhttps://fenix.example.com\n" {
+		t.Fatalf("deploy: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "start", "--no-wait")
+	if err != nil || out != "Deployment: deploy-1\nApplication: fenix-bot (app-1)\nStatus: queued\n"+page+"\n" {
+		t.Fatalf("start --no-wait: out=%q err=%v", out, err)
+	}
+	if requests := s.counts()["GET /api/v1/applications/app-1"]; requests != 3 {
+		t.Fatalf("the application was read %d times for link, deploy, and start; the URL must not add a request", requests)
+	}
+
+	s.deployment = []string{"failed"}
+	out, diagnostic, err := run(t, instance.URL, dir, "", "deploy")
+	var failure *service.DeploymentError
+	if !errors.As(err, &failure) || out != "" || !strings.HasSuffix(diagnostic, "Deployment deploy-1: failed\nDeployment page: "+page+"\n") {
+		t.Fatalf("failed deploy: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	out, diagnostic, err = run(t, instance.URL, dir, "", "restart", "--yes")
+	if !errors.As(err, &failure) || out != "" || !strings.HasSuffix(diagnostic, "Deployment page: "+page+"\n") {
+		t.Fatalf("failed restart: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
 }
 
@@ -1084,7 +1129,7 @@ func TestLifecycleAgainstTheServer(t *testing.T) {
 		t.Fatalf("noninteractive restart without --yes: %v", err)
 	}
 	out, _, err = run(t, instance.URL, dir, "", "restart", "--yes", "--no-wait", "--format", "json")
-	if err != nil || !strings.Contains(out, `"action":"restart"`) || !strings.Contains(out, `"status":"queued"`) {
+	if err != nil || !strings.Contains(out, `"action":"restart"`) || !strings.Contains(out, `"status":"queued"`) || !strings.Contains(out, `"url":"`+instance.URL+`/project/project-1/environment/env-1/application/app-1/deployment/deploy-1","url_kind":"deployment"`) {
 		t.Fatalf("restart: out=%q err=%v", out, err)
 	}
 
