@@ -7,18 +7,49 @@ description: Deploy the linked application using the source and branch already c
 coolship deploy [target] [flags]
 ```
 
-`deploy` submits one deployment of the linked application and, by default, waits for it to finish while streaming the server's build log. It does not upload your worktree or push local commits; Coolify deploys from its configured source and branch. [Deployments](/docs/concepts/deployments) explains the model.
+`deploy` submits one deployment of the linked application and, by default, waits for it to finish. It does not upload your worktree or push local commits; Coolify deploys from its configured source and branch. [Deployments](/docs/concepts/deployments) explains the model.
+
+In a terminal, the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, container, cleanup — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. The build log stays collapsed; it is printed in full if the deployment fails.
 
 ```text
 $ coolship deploy
+→ coolship-example
+→ production
+
+✓ Deployed                      0:52
+  ✓ build                       0:41
+  ✓ rolling update              0:08
+  ✓ container                   0:06
+  ✓ cleanup                     0:00
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+https://coolship.example.com
+```
+
+Piped, in CI, or with `--format json`, the same run prints status lines, the build log, and one line per stage transition on stderr as they arrive:
+
+```text
+$ coolship deploy 2>&1 | cat
 Deployment 03dusayin5rleswixblvdqba: queued
 Deployment 03dusayin5rleswixblvdqba: in_progress
 Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
 Building docker image started.
+Stage build: started
 Building docker image completed.
+Stage build: done
 Rolling update started.
+Stage rolling update: started
+New container started.
+Stage container: started
 Attempt 2 of 10 | Healthcheck status: "healthy"
+New container is healthy.
+Stage container: done
+Removing old containers.
+Stage cleanup: started
+Stage cleanup: done
 Rolling update completed.
+Stage rolling update: done
 Deployment 03dusayin5rleswixblvdqba: finished
 Deployment: 03dusayin5rleswixblvdqba
 Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
@@ -26,20 +57,25 @@ Status: finished
 https://coolship.example.com
 ```
 
-Status lines and the build log go to stderr as progress; the final result goes to stdout. The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment names its page on stderr, where the build log and the retry live.
+Progress goes to stderr; the final result goes to stdout. The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log gathered so far after the checklist, then names its page on stderr, where the retry lives.
 
 ## Flags
 
-| Flag                 | Purpose                                                        |
-| -------------------- | -------------------------------------------------------------- |
-| `--no-wait`          | Return after submission without observing completion.          |
-| `--force`            | Force Coolify to rebuild without cache.                        |
-| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`). |
+| Flag                 | Purpose                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `--no-wait`          | Return after submission without observing completion.                                   |
+| `--force`            | Force Coolify to rebuild without cache.                                                 |
+| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`).                       |
+| `--logs`             | Stream the build log live above the checklist (terminal only).                          |
+| `--no-logs`          | Keep the build log collapsed; it prints in full if the deployment fails (terminal only). |
+
+`--logs` and `--no-logs` cannot be combined. Without either, the `build_logs` key of the [preferences file](/docs/commands/config) decides; without that, the log stays collapsed. Piped output and `--format json` always stream the log.
 
 ## Examples
 
 ```bash
 coolship deploy                  # wait for the deployment to finish
+coolship deploy --logs           # and stream the build log above the checklist
 coolship deploy --no-wait        # return the queued deployment UUID
 coolship deploy --force          # rebuild without cache
 coolship deploy --timeout 20m
@@ -50,7 +86,8 @@ coolship deploy api              # named target in a monorepo
 
 - Coolship observes exactly the UUID the submission returned, never "the latest deployment", which could belong to someone else.
 - States are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed.
-- The build log streams when your token may read it; otherwise progress continues without it, and the command says so.
+- Stages come from fixed lines in Coolify's build log (`Building docker image started.`, `Rolling update started.`, `New container is healthy.`, `Removing old containers.`, and their completions and failures), so they need a token that may read the build log. Without one, progress continues without stages or log, and the command says so.
+- An observation that stops before the server's verdict — `--timeout` elapsing, an interrupt, a lost connection — ends the checklist with `✗ Observation stopped`, not `Deployment failed`; the deployment continues on the server.
 - Interrupting the command stops local waiting only. The remote deployment continues, and the UUID is reported so you can pick it back up.
 - An uncertain submission — the request was sent but no answer arrived — is never replayed automatically, because the API defines no idempotency key. Coolship reports what it knows.
 

@@ -83,6 +83,8 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		}
 	}
 	options := &commandOptions{format: "human"}
+	// A file that could not be read left the zero value: no preference.
+	prefs := config.preferences.Preferences
 	root := &cobra.Command{
 		Use:           "coolship",
 		Short:         "Project-local deployment workflows for Coolify",
@@ -142,11 +144,11 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 			newLoginCommand(app, options, streams), newInitCommand(app, options, streams), newLinkCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: "ship", Title: "Ship"}, []*cobra.Command{
-			newDeployCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment),
+			newDeployCommand(app, options, streams, prefs), newPreviewCommand(app, options, streams, config.environment, prefs),
 			newCancelCommand(app, options, streams), newDeploymentsCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: "run", Title: "Run"}, []*cobra.Command{
-			newStartCommand(app, options, streams), newStopCommand(app, options, streams), newRestartCommand(app, options, streams),
+			newStartCommand(app, options, streams, prefs), newStopCommand(app, options, streams), newRestartCommand(app, options, streams, prefs),
 			newStatusCommand(app, options, streams), newLogsCommand(app, options, streams),
 			newOpenCommand(app, options, streams, config.openBrowser),
 		}},

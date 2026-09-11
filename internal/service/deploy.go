@@ -147,7 +147,9 @@ func (a *App) observe(ctx context.Context, s session, result DeployResult, timeo
 	fail := func(err error) (DeployResult, error) {
 		return result, &DeploymentError{DeploymentUUID: result.DeploymentUUID, Err: err}
 	}
-	if err := emitEvent(emit, Event{Type: "deployment", DeploymentUUID: result.DeploymentUUID, Status: result.Status}); err != nil {
+	// The first event of the deployment carries the target it belongs to, so
+	// a view can name the application before any status arrives.
+	if err := emitEvent(emit, Event{Type: "deployment", DeploymentUUID: result.DeploymentUUID, Status: result.Status, Target: &result.Target}); err != nil {
 		return fail(err)
 	}
 	if noWait {
@@ -170,7 +172,7 @@ func (a *App) observe(ctx context.Context, s session, result DeployResult, timeo
 			return fail(errors.New("server returned a different deployment identity; observation stopped"))
 		}
 		// Build output precedes the status it led to, so a terminal status line is last.
-		if event, ok := logs.advance(deployment, result.DeploymentUUID); ok {
+		for _, event := range logs.advance(deployment, result.DeploymentUUID) {
 			if err := emitEvent(emit, event); err != nil {
 				return fail(err)
 			}
@@ -194,38 +196,58 @@ func (a *App) observe(ctx context.Context, s session, result DeployResult, timeo
 	}
 }
 
-// buildLogCursor emits each visible build log line once. Build logs are
-// progress, so an unreadable document produces one warning and observation
-// continues without them; a withheld document produces nothing.
+// buildLogCursor emits each visible build log line once, and the stage
+// events the marker lines among them imply. Build logs are progress, so an
+// unreadable document produces one warning and observation continues without
+// them; a withheld document produces nothing.
 type buildLogCursor struct {
 	shown  int
 	broken bool
+	stages stageTracker
 }
 
-func (c *buildLogCursor) advance(deployment models.Deployment, uuid string) (Event, bool) {
+// advance returns the events the deployment's log document adds since the
+// last poll: build events carrying the new visible lines, each followed by
+// the stage events its last line implies, so a marker line is in the log
+// before the stage it announces.
+func (c *buildLogCursor) advance(deployment models.Deployment, uuid string) []Event {
 	if c.broken || deployment.Logs == nil {
-		return Event{}, false
+		return nil
 	}
 	entries, err := models.ParseDeploymentLogs(*deployment.Logs)
 	if err != nil {
 		c.broken = true
-		return Event{Type: "warning", Message: "Build logs are unreadable; continuing without them: " + err.Error()}, true
+		return []Event{{Type: "warning", Message: "Build logs are unreadable; continuing without them: " + err.Error()}}
 	}
 	if c.shown > len(entries) {
 		c.shown = 0
 	}
+	var events []Event
 	var lines []string
+	flush := func() {
+		if len(lines) > 0 {
+			events = append(events, Event{Type: "build", DeploymentUUID: uuid, Logs: strings.Join(lines, "\n") + "\n"})
+			lines = nil
+		}
+	}
 	for _, entry := range entries[c.shown:] {
 		if entry.Hidden {
 			continue
 		}
-		if output := strings.TrimRight(entry.Output, "\r\n"); output != "" {
-			lines = append(lines, output)
+		output := strings.TrimRight(entry.Output, "\r\n")
+		if output == "" {
+			continue
+		}
+		lines = append(lines, output)
+		if stages := c.stages.observe(output); len(stages) > 0 {
+			flush()
+			for _, stage := range stages {
+				stage.DeploymentUUID = uuid
+				events = append(events, stage)
+			}
 		}
 	}
 	c.shown = len(entries)
-	if len(lines) == 0 {
-		return Event{}, false
-	}
-	return Event{Type: "build", DeploymentUUID: uuid, Logs: strings.Join(lines, "\n") + "\n"}, true
+	flush()
+	return events
 }

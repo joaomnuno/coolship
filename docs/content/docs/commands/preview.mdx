@@ -13,12 +13,16 @@ Coolify must already know the pull request: preview deployments must be enabled 
 
 ## Flags
 
-| Flag                 | Purpose                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `--pr N`             | Pull request number (default: from `GITHUB_REF`).                |
-| `--no-wait`          | Return after submission without observing completion.            |
-| `--force`            | Force Coolify to rebuild without cache.                          |
-| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`). |
+| Flag                 | Purpose                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `--pr N`             | Pull request number (default: from `GITHUB_REF`).                                       |
+| `--no-wait`          | Return after submission without observing completion.                                   |
+| `--force`            | Force Coolify to rebuild without cache.                                                 |
+| `--timeout DURATION` | Maximum time to wait for deployment completion (default `10m0s`).                       |
+| `--logs`             | Stream the build log live above the checklist (terminal only).                          |
+| `--no-logs`          | Keep the build log collapsed; it prints in full if the deployment fails (terminal only). |
+
+In a terminal the deployment is shown as the same stage checklist as [`deploy`](/docs/commands/deploy), build log collapsed. `--logs` and `--no-logs` cannot be combined; without either, the `build_logs` preference decides, and without that the log stays collapsed. Piped output and `--format json` are unchanged.
 
 ## Examples
 

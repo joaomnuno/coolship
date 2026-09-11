@@ -336,12 +336,16 @@ func (r *Renderer) DeploymentEvent(event service.Event) error {
 		return writeLogs(r.streams.Err, event.Logs)
 	}
 	message := singleLine(event.Message)
-	if event.Type == "application" {
+	switch {
+	case event.Type == "stage":
+		// A stage line reads like a status line: what, then its state.
+		message = "Stage " + singleLine(event.Stage) + ": " + singleLine(event.Status)
+	case event.Type == "application":
 		// Stop reports the server's receipt once, then each status it observes.
 		if message == "" {
 			message = "Application status: " + singleLine(event.Status)
 		}
-	} else if message == "" && event.Status != "" {
+	case message == "" && event.Status != "":
 		status := singleLine(event.Status)
 		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status)
 	}

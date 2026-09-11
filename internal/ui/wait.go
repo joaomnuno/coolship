@@ -31,14 +31,8 @@ func NewSpinner(streams Streams) *Spinner {
 // running is replaced by one with the new label.
 func (s *Spinner) Start(label string) {
 	s.Stop()
-	terminal, ok := s.streams.Err.(*os.File)
-	if !s.streams.Interactive || !ok || !term.IsTerminal(int(terminal.Fd())) {
-		return
-	}
-	// A pseudo-terminal that does not report a size (unbuffer, script without
-	// a terminal behind it) has no line to draw on; drawing would only move
-	// the cursor over what was printed before.
-	if width, _, err := term.GetSize(int(terminal.Fd())); err != nil || width <= 0 {
+	terminal, ok := drawable(s.streams)
+	if !ok {
 		return
 	}
 	style := s.streams.errPalette()
@@ -58,6 +52,23 @@ func (s *Spinner) Start(label string) {
 		// The program only draws; whatever ends it, there is nothing to report.
 		_, _ = program.Run()
 	}(s.program, s.done)
+}
+
+// drawable returns stderr as the terminal a Bubble Tea program may draw on,
+// or false when nothing should be drawn: the streams are not interactive,
+// stderr is not a terminal, or it is a pseudo-terminal that does not report
+// a size (unbuffer, script without a terminal behind it), which has no line
+// to draw on; drawing would only move the cursor over what was printed
+// before.
+func drawable(streams Streams) (*os.File, bool) {
+	terminal, ok := streams.Err.(*os.File)
+	if !streams.Interactive || !ok || !term.IsTerminal(int(terminal.Fd())) {
+		return nil, false
+	}
+	if width, _, err := term.GetSize(int(terminal.Fd())); err != nil || width <= 0 {
+		return nil, false
+	}
+	return terminal, true
 }
 
 // Stop clears the spinner and waits until the terminal is restored. It is

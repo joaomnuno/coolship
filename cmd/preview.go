@@ -6,13 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-func newPreviewCommand(app Application, options *commandOptions, streams ui.Streams, environment func(string) string) *cobra.Command {
+func newPreviewCommand(app Application, options *commandOptions, streams ui.Streams, environment func(string) string, prefs preferences.Preferences) *cobra.Command {
 	var deploy service.DeployOptions
+	var logs logFlags
 	command := &cobra.Command{
 		Use:   "preview [target]",
 		Short: "Deploy the preview Coolify holds for a pull request",
@@ -25,7 +27,11 @@ webhook or in its UI. This command cannot create a preview, and reports the
 server's answer when it does not know the pull request.
 
 The pull request number comes from --pr, or from GITHUB_REF when running in a
-GitHub Actions pull_request workflow.`,
+GitHub Actions pull_request workflow.
+
+In a terminal the deployment is shown as a stage checklist with the build log
+collapsed, as deploy does; --logs streams the log, --no-logs keeps it
+collapsed, and the build_logs preference decides when neither is given.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {
@@ -37,19 +43,21 @@ GitHub Actions pull_request workflow.`,
 			if deploy.PullRequest <= 0 {
 				return inputError(errors.New("--pr is required outside a GitHub Actions pull_request workflow"))
 			}
-			deploy.Options = options.Options
-			renderer := ui.NewRenderer(streams, options.format)
-			result, err := app.Deploy(command.Context(), deploy, renderer.DeploymentEvent)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs)
 			if err != nil {
-				return deploymentFailure(renderer, options.format, result, err)
+				return err
 			}
-			return renderer.Deploy(result)
+			deploy.Options = options.Options
+			return observeDeployment(streams, options, deploy.NoWait, showLogs, func(emit service.Emitter) (service.DeployResult, error) {
+				return app.Deploy(command.Context(), deploy, emit)
+			})
 		},
 	}
 	command.Flags().IntVar(&deploy.PullRequest, "pr", 0, "Pull request number (default: from GITHUB_REF)")
 	command.Flags().BoolVar(&deploy.Force, "force", false, "Force Coolify to rebuild without cache")
 	command.Flags().BoolVar(&deploy.NoWait, "no-wait", false, "Return after submission without observing completion")
 	command.Flags().DurationVar(&deploy.Timeout, "timeout", 10*time.Minute, "Maximum time to wait for deployment completion")
+	logs.register(command.Flags())
 	return command
 }
 
