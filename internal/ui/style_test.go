@@ -4,22 +4,27 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/joaomnuno/coolship/internal/service"
 )
 
+// sgr is the SGR parameter list each look emits with colour on; the plain
+// look emits nothing.
+var sgr = map[look]string{bold: "1", dim: "2", red: "31", green: "32", yellow: "33", cyan: "36", redBold: "1;31", greenBold: "1;32"}
+
 func TestPaletteIsNoOpWhenOff(t *testing.T) {
-	off, on := palette{}, palette{enabled: true}
+	off, on := newPalette(io.Discard, false), newPalette(io.Discard, true)
 	if got := off.apply(redBold, "Error:"); got != "Error:" {
 		t.Fatalf("off palette changed text: %q", got)
 	}
 	if got := on.apply(redBold, "Error:"); got != "\x1b[1;31mError:\x1b[0m" {
 		t.Fatalf("on palette = %q", got)
 	}
-	if got := on.apply("", "plain"); got != "plain" {
-		t.Fatalf("empty style must not wrap: %q", got)
+	if got := on.apply(plain, "plain"); got != "plain" {
+		t.Fatalf("plain look must not wrap: %q", got)
 	}
 	if got := on.apply(green, ""); got != "" {
 		t.Fatalf("empty text must not produce escapes: %q", got)
@@ -29,10 +34,35 @@ func TestPaletteIsNoOpWhenOff(t *testing.T) {
 	}
 }
 
+// TestEveryLookIsPlainWithoutColor is the byte-for-byte rule for each look:
+// with colour off Lip Gloss returns the text untouched, and with colour on it
+// wraps the text in exactly the sequence the hand-written palette used, with
+// escaped tabs and newlines from singleLine left alone.
+func TestEveryLookIsPlainWithoutColor(t *testing.T) {
+	off, on := newPalette(io.Discard, false), newPalette(io.Discard, true)
+	for _, text := range []string{"finished", "Last deployment:", "a\\tb\\nc", "  padded  ", "über"} {
+		for l := plain; l < looks; l++ {
+			if got := off.apply(l, text); got != text {
+				t.Errorf("look %d with colour off rendered %q as %q", l, text, got)
+			}
+			want := text
+			if code, styled := sgr[l]; styled {
+				want = "\x1b[" + code + "m" + text + "\x1b[0m"
+			}
+			if got := on.apply(l, text); got != want {
+				t.Errorf("look %d with colour on rendered %q as %q, want %q", l, text, got, want)
+			}
+		}
+	}
+	if len(sgr) != int(looks)-1 {
+		t.Fatalf("sgr covers %d looks, the palette has %d", len(sgr), int(looks)-1)
+	}
+}
+
 func TestDeploymentStatusStyles(t *testing.T) {
-	for status, want := range map[string]string{"queued": dim, "in_progress": cyan, "finished": greenBold, "failed": redBold, "cancelled-by-user": redBold, "something-new": ""} {
+	for status, want := range map[string]look{"queued": dim, "in_progress": cyan, "finished": greenBold, "failed": redBold, "cancelled-by-user": redBold, "something-new": plain} {
 		if got := deploymentStatus(status); got != want {
-			t.Errorf("deploymentStatus(%q) = %q, want %q", status, got, want)
+			t.Errorf("deploymentStatus(%q) = %d, want %d", status, got, want)
 		}
 	}
 }
@@ -225,7 +255,7 @@ func TestErrorsAndPromptsAreStyledOnStderr(t *testing.T) {
 
 // strip removes the SGR sequences this package emits, and nothing else.
 func strip(text string) string {
-	for _, code := range []string{bold, dim, red, green, yellow, cyan, redBold, greenBold} {
+	for _, code := range sgr {
 		text = strings.ReplaceAll(text, "\x1b["+code+"m", "")
 	}
 	return strings.ReplaceAll(text, "\x1b[0m", "")

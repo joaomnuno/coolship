@@ -1,33 +1,72 @@
 package ui
 
-// palette applies ANSI SGR styling to sanitized text, or nothing at all. Each
-// stream carries its own palette because stdout may be piped while stderr is
-// still a terminal. Callers pass text through singleLine before styling, so a
-// style never wraps raw input.
-type palette struct {
-	enabled bool
-}
+import (
+	"io"
 
-// SGR parameter lists. Compound styles keep to one sequence per wrapped text.
-const (
-	bold      = "1"
-	dim       = "2"
-	red       = "31"
-	green     = "32"
-	yellow    = "33"
-	cyan      = "36"
-	redBold   = "1;31"
-	greenBold = "1;32"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
-// apply wraps text in the given SGR style. Empty text and disabled palettes
-// return text unchanged, so styled output equals plain output byte for byte
-// whenever color is off.
-func (p palette) apply(style, text string) string {
-	if !p.enabled || style == "" || text == "" {
+// look names one of the styles a palette can apply. plain applies nothing.
+type look int
+
+const (
+	plain look = iota
+	bold
+	dim
+	red
+	green
+	yellow
+	cyan
+	redBold
+	greenBold
+	looks
+)
+
+// palette renders looks with Lip Gloss for one stream. Each stream carries its
+// own palette because stdout may be piped while stderr is still a terminal.
+// The stream decides whether colour is on; the palette's renderer gets that
+// decision as an explicit colour profile — ANSI when on, Ascii when off — so
+// Lip Gloss never probes the terminal itself, and with colour off every look
+// renders its text unchanged, byte for byte. Callers pass text through
+// singleLine before styling, so a style never wraps raw input.
+type palette struct {
+	styles [looks]lipgloss.Style
+}
+
+// newPalette builds the looks on a renderer bound to w with the given colour
+// decision. The renderer is created with its profile, so neither termenv nor
+// Lip Gloss inspects the environment or the writer.
+func newPalette(w io.Writer, color bool) palette {
+	profile := termenv.Ascii
+	if color {
+		profile = termenv.ANSI
+	}
+	renderer := lipgloss.NewRenderer(w, termenv.WithProfile(profile))
+	renderer.SetColorProfile(profile)
+	// Every look keeps tabs as they are; Lip Gloss would otherwise expand
+	// them, and text is the caller's to shape.
+	base := renderer.NewStyle().TabWidth(lipgloss.NoTabConversion)
+	var p palette
+	p.styles[plain] = base
+	p.styles[bold] = base.Bold(true)
+	p.styles[dim] = base.Faint(true)
+	p.styles[red] = base.Foreground(lipgloss.Color("1"))
+	p.styles[green] = base.Foreground(lipgloss.Color("2"))
+	p.styles[yellow] = base.Foreground(lipgloss.Color("3"))
+	p.styles[cyan] = base.Foreground(lipgloss.Color("6"))
+	p.styles[redBold] = base.Bold(true).Foreground(lipgloss.Color("1"))
+	p.styles[greenBold] = base.Bold(true).Foreground(lipgloss.Color("2"))
+	return p
+}
+
+// apply renders text in the given look. Empty text and the plain look return
+// text unchanged, so nothing is ever wrapped for nothing.
+func (p palette) apply(l look, text string) string {
+	if l == plain || text == "" {
 		return text
 	}
-	return "\x1b[" + style + "m" + text + "\x1b[0m"
+	return p.styles[l].Render(text)
 }
 
 // key styles a "Label:" prefix of a key/value line; values stay plain.
@@ -35,9 +74,15 @@ func (p palette) key(label string) string {
 	return p.apply(dim, label+":")
 }
 
+// style returns the Lip Gloss style of a look, for views that render
+// themselves, such as the spinner.
+func (p palette) style(l look) lipgloss.Style {
+	return p.styles[l]
+}
+
 // deploymentStatus styles the server's deployment status words. Unknown
 // statuses stay plain rather than guessing at their meaning.
-func deploymentStatus(status string) string {
+func deploymentStatus(status string) look {
 	switch status {
 	case "queued":
 		return dim
@@ -48,5 +93,5 @@ func deploymentStatus(status string) string {
 	case "failed", "cancelled-by-user":
 		return redBold
 	}
-	return ""
+	return plain
 }
