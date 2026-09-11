@@ -738,7 +738,7 @@ func TestColorCapabilityStylesHumanOutputOnly(t *testing.T) {
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "\x1b[32m[ok]\x1b[0m   Server: Coolify 4.3.18\n" || diagnostic.Len() != 0 {
+	if out.String() != "\x1b[32m[ok]\x1b[m   Server: Coolify 4.3.18\n" || diagnostic.Len() != 0 {
 		t.Fatalf("styled doctor: out=%q diag=%q", out.String(), diagnostic.String())
 	}
 	out.Reset()

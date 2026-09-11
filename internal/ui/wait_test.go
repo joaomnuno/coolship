@@ -90,3 +90,22 @@ func TestSpinnerStopIsSafeWithoutAStart(t *testing.T) {
 	}
 	spinner.Stop()
 }
+
+func TestQuietTerminalDropsOnlyTerminalRequests(t *testing.T) {
+	for _, test := range []struct{ name, in, want string }{
+		{"mode queries", "\x1b[?2026$p\x1b[?2027$p", ""},
+		{"cursor position", "\x1b[6n", ""},
+		{"device attributes", "\x1b[c\x1b[0c", ""},
+		{"terminal version", "\x1b[>q\x1b[>0q", ""},
+		{"colour queries", "\x1b]11;?\x1b\\\x1b]10;?\a\x1b]12;?\x1b\\", ""},
+		{"query inside a frame", "\x1b[?2026$p\x1b[?25l\x1b[36m⣾\x1b[m Listing projects", "\x1b[?25l\x1b[36m⣾\x1b[m Listing projects"},
+		{"frame", "\r\x1b[2K\x1b[1;32mfinished\x1b[m\x1b[?25h\x1b[6;1H", "\r\x1b[2K\x1b[1;32mfinished\x1b[m\x1b[?25h\x1b[6;1H"},
+		{"text that looks close", "6n [c >q ]11;? $p", "6n [c >q ]11;? $p"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := string(terminalRequests.ReplaceAll([]byte(test.in), nil)); got != test.want {
+				t.Fatalf("filtered %q = %q, want %q", test.in, got, test.want)
+			}
+		})
+	}
+}

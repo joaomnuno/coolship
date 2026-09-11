@@ -2,11 +2,11 @@ package ui
 
 import (
 	"context"
-	"io"
 	"os"
+	"regexp"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 )
 
@@ -14,8 +14,8 @@ import (
 // label on stderr, only while stderr is an interactive terminal, cleared when
 // it stops so nothing is left behind. When stderr is not a terminal it prints
 // nothing at all, so pipes and CI see no change. The spinner never reads
-// stdin and installs no signal handler; Ctrl-C reaches the executable's own
-// cancellation as it always did.
+// stdin, installs no signal handler, and asks the terminal nothing; Ctrl-C
+// reaches the executable's own cancellation as it always did.
 type Spinner struct {
 	streams Streams
 	program *tea.Program
@@ -31,18 +31,27 @@ func NewSpinner(streams Streams) *Spinner {
 // running is replaced by one with the new label.
 func (s *Spinner) Start(label string) {
 	s.Stop()
-	if !s.streams.Interactive || !isTerminal(s.streams.Err) {
+	terminal, ok := s.streams.Err.(*os.File)
+	if !s.streams.Interactive || !ok || !term.IsTerminal(int(terminal.Fd())) {
 		return
 	}
+	// A pseudo-terminal that does not report a size (unbuffer, script without
+	// a terminal behind it) has no line to draw on; drawing would only move
+	// the cursor over what was printed before.
+	if width, _, err := term.GetSize(int(terminal.Fd())); err != nil || width <= 0 {
+		return
+	}
+	style := s.streams.errPalette()
 	model := spinnerModel{
-		spinner: spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(s.streams.errPalette().style(cyan))),
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		style:   style,
 		label:   singleLine(label),
 	}
 	s.program = tea.NewProgram(model,
-		tea.WithOutput(s.streams.Err),
+		tea.WithOutput(quietTerminal{terminal}),
 		tea.WithInput(nil),
 		tea.WithoutSignalHandler(),
-		tea.WithoutBracketedPaste())
+		tea.WithColorProfile(style.colorProfile()))
 	s.done = make(chan struct{})
 	go func(program *tea.Program, done chan struct{}) {
 		defer close(done)
@@ -76,9 +85,11 @@ func Wait(ctx context.Context, streams Streams, label string, fn func(context.Co
 	return fn(ctx)
 }
 
-// spinnerModel is the one-line Bubble Tea view behind Spinner.
+// spinnerModel is the one-line Bubble Tea view behind Spinner. The frame is
+// styled by the stream's palette, so the colour decision is the stream's.
 type spinnerModel struct {
 	spinner spinner.Model
+	style   palette
 	label   string
 }
 
@@ -91,12 +102,32 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View is a single line without a newline, so the renderer erases exactly it
-// when the program stops.
-func (m spinnerModel) View() string { return m.spinner.View() + " " + m.label }
+// when the program stops. Bracketed paste is an input concern, and there is
+// no input, so the terminal mode is left alone.
+func (m spinnerModel) View() tea.View {
+	view := tea.NewView(m.style.apply(cyan, m.spinner.View()) + " " + m.label)
+	view.DisableBracketedPasteMode = true
+	return view
+}
 
-// isTerminal asks the terminal driver whether w is an attached terminal, as
-// the executable does for its own streams.
-func isTerminal(w io.Writer) bool {
-	file, ok := w.(*os.File)
-	return ok && term.IsTerminal(int(file.Fd()))
+// terminalRequests are the sequences that ask a terminal to answer: DECRQM
+// mode queries, the cursor position report, primary device attributes, the
+// terminal version, and the OSC 10, 11, and 12 colour queries.
+var terminalRequests = regexp.MustCompile(`\x1b\[(?:\?\d+\$p|6n|0?c|>0?q)|\x1b\]1[0-2];\?(?:\x07|\x1b\\)`)
+
+// quietTerminal is the spinner's output: the stderr terminal, minus anything
+// that would ask it a question. Bubble Tea asks whether the terminal supports
+// synchronized output when it starts, and with no input reader the answer
+// would arrive after the program has exited and land in the shell as typed
+// text. The file is still the terminal for size and capability checks.
+type quietTerminal struct{ *os.File }
+
+func (q quietTerminal) Write(p []byte) (int, error) {
+	filtered := terminalRequests.ReplaceAll(p, nil)
+	if len(filtered) > 0 {
+		if _, err := q.File.Write(filtered); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
 }

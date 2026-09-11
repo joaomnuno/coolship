@@ -34,5 +34,5 @@ func (s Streams) Normalized() Streams {
 	return s
 }
 
-func (s Streams) outPalette() palette { return newPalette(s.Out, s.ColorOut) }
-func (s Streams) errPalette() palette { return newPalette(s.Err, s.ColorErr) }
+func (s Streams) outPalette() palette { return newPalette(s.ColorOut) }
+func (s Streams) errPalette() palette { return newPalette(s.ColorErr) }
