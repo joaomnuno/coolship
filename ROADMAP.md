@@ -36,6 +36,19 @@ Every command from the brief is implemented and verified against a live Coolify 
 - [x] Add local process execution for `dev` without a bespoke runtime.
 - [x] Decide on shared packages with Coolify CLI (no shared package yet; the seam is documented in `ARCHITECTURE.md`).
 
+## Milestone 3: the terminal experience (v0.4)
+
+Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the library choice. v0.3 ships with the plain output it has; this milestone is what a developer sees when a terminal is attached. Piped output and JSON do not change.
+
+- [ ] Adopt the Charm stack inside `internal/ui` only (ADR 0001).
+- [ ] `deploy`, `start`, `restart`, `preview`: a stage checklist keyed on Coolify's log markers, a spinner with elapsed time, the build log collapsed by default and printed in full on failure, and the application URL (or the Coolify deployment page) as the last line.
+- [ ] `--logs` and `--no-logs` for one run; then the preference; then the verbosity default.
+- [ ] Selectors with arrow keys, type-to-filter, and Esc; normal mode shows names only, a UUID only to break a tie.
+- [ ] Verbosity: normal, `--verbose`, `--debug`, and `COOLSHIP_VERBOSITY` for CI; `-v` stays version.
+- [ ] Preferences at `~/.config/coolship/preferences.toml`; credentials stay in Coolify CLI's shared file.
+- [ ] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.
+- [ ] `coolship ui`: a draft menu with the target, status, and last deployment above the verbs in the same groups.
+
 ## Later
 
 - [x] `init`: create a Coolify application from a repository's remote and link it — public repositories, and private ones through a GitHub App or a deploy key, including generating the key (all three verified live on 4.3.18), with every build pack Coolify offers: Railpack, Nixpacks, static, Dockerfile, and Compose with per-service domains.

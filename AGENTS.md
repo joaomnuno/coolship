@@ -36,6 +36,20 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 
 When the user authorizes agents, delegate bounded packages with explicit ownership and agree on interfaces first. All agents share the working tree. Do not overwrite another agent's work. The coordinating agent handles integration, final checks, commits, and pushes.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `joaomnuno/coolship`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels are used verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, created lazily by `/domain-modeling`. See `docs/agents/domain.md`.
+
 ## References
 
 - [Go module organization](https://go.dev/doc/modules/layout)
