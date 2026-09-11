@@ -14,6 +14,7 @@ import (
 
 	"github.com/joaomnuno/coolship/cmd"
 	"github.com/joaomnuno/coolship/internal/config"
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -955,5 +956,70 @@ func TestEnvPushPromptShowsWhatItLeavesAlone(t *testing.T) {
 	}
 	if strings.Contains(text, "secret") {
 		t.Fatalf("prompt shows a value: %q", text)
+	}
+}
+
+func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
+	app := fakeApplication{config: func(context.Context, service.Options) (service.ConfigResult, error) {
+		return service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file"}, nil
+	}}
+	run := func(report preferences.Report, args ...string) (string, string, error) {
+		var out, diagnostic bytes.Buffer
+		root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic}, "test-version", cmd.WithPreferences(report))
+		root.SetArgs(args)
+		err := root.ExecuteContext(context.Background())
+		return out.String(), diagnostic.String(), err
+	}
+	path := "/home/u/.config/coolship/preferences.toml"
+	out, diagnostic, err := run(preferences.Report{Path: path}, "config")
+	if err != nil || diagnostic != "" || !strings.Contains(out, "Preferences:      "+path+" (absent)\n") {
+		t.Fatalf("absent file: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	off := false
+	present := preferences.Report{Path: path, Present: true, Preferences: preferences.Preferences{Verbosity: "debug", BuildLogs: &off, Color: "auto"}}
+	out, _, err = run(present, "config")
+	if err != nil || !strings.Contains(out, "Preferences:      "+path+" (verbosity debug, build logs off, color auto)\n") {
+		t.Fatalf("present file: out=%q err=%v", out, err)
+	}
+	out, _, err = run(present, "config", "--format", "json")
+	var decoded struct {
+		ConfigPath  string `json:"config_path"`
+		Preferences struct {
+			Path      string `json:"path"`
+			Present   bool   `json:"present"`
+			Verbosity string `json:"verbosity"`
+			BuildLogs *bool  `json:"build_logs"`
+			Color     string `json:"color"`
+			Error     string `json:"error"`
+		} `json:"preferences"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &decoded) != nil {
+		t.Fatalf("json: out=%q err=%v", out, err)
+	}
+	p := decoded.Preferences
+	if decoded.ConfigPath != "/p/coolship.toml" || p.Path != path || !p.Present || p.Verbosity != "debug" || p.BuildLogs == nil || *p.BuildLogs || p.Color != "auto" || p.Error != "" {
+		t.Fatalf("json preferences = %+v", decoded)
+	}
+	// A broken file is one warning on stderr, then the command runs; config
+	// says the file is ignored and why.
+	broken := preferences.Report{Path: path, Present: true, Err: &preferences.Error{Path: path, Err: errors.New(`unknown key "verbosty"`)}}
+	out, diagnostic, err = run(broken, "config")
+	want := "Warning: Ignoring preferences file " + path + `: unknown key "verbosty"` + "\n"
+	if err != nil || diagnostic != want || !strings.Contains(out, "Preferences:      "+path+` (ignored: unknown key "verbosty")`+"\n") {
+		t.Fatalf("broken file: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	out, diagnostic, err = run(broken, "config", "--format", "json")
+	if err != nil || diagnostic != want || json.Unmarshal([]byte(out), &decoded) != nil || decoded.Preferences.Error != `unknown key "verbosty"` || !decoded.Preferences.Present {
+		t.Fatalf("broken file json: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	for _, args := range [][]string{{"--help"}, {"--version"}, {"help", "config"}, {"config", "--help"}, {"completion", "bash"}} {
+		if out, diagnostic, err := run(broken, args...); err != nil || out == "" || diagnostic != "" {
+			t.Fatalf("%v with a broken file: out=%q stderr=%q err=%v", args, out, diagnostic, err)
+		}
+	}
+	// Without the option there is no line and no field, as before.
+	out, _, err = run(preferences.Report{}, "config", "--format", "json")
+	if err != nil || strings.Contains(out, "preferences") {
+		t.Fatalf("no report: out=%q err=%v", out, err)
 	}
 }

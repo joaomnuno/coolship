@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
@@ -47,6 +48,7 @@ type Option func(*settings)
 type settings struct {
 	openBrowser func(string) error
 	environment func(string) string
+	preferences preferences.Report
 }
 
 // WithOpener supplies the browser launcher used by open. Without one, open
@@ -60,6 +62,15 @@ func WithOpener(open func(string) error) Option {
 // nothing is inferred.
 func WithEnvironment(lookup func(string) string) Option {
 	return func(s *settings) { s.environment = lookup }
+}
+
+// WithPreferences supplies the developer's preferences as the executable
+// loaded them once, before the tree runs. A report whose Err is set is
+// warned about at the start of every command except help, completion,
+// --help, and --version; it never fails a command. Without the option,
+// config shows no Preferences line.
+func WithPreferences(report preferences.Report) Option {
+	return func(s *settings) { s.preferences = report }
 }
 
 // NewRootCommand constructs an offline command tree with explicit dependencies.
@@ -86,9 +97,18 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error { return command.Help() },
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+		PersistentPreRunE: func(command *cobra.Command, _ []string) error {
 			if options.format != "human" && options.format != "json" {
 				return inputError(fmt.Errorf("unsupported format %q; use human or json", options.format))
+			}
+			// A typo in the preferences file is noticed once, here, and
+			// never stops a deploy; help and completion stay silent.
+			if err := config.preferences.Err; err != nil && !offline(command) {
+				message := "Preferences not read: " + err.Error()
+				if config.preferences.Path != "" {
+					message = "Ignoring " + err.Error()
+				}
+				return ui.NewRenderer(streams, options.format).Warn(message)
 			}
 			return nil
 		},
@@ -132,7 +152,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		}},
 		{cobra.Group{ID: "configure", Title: "Configure"}, []*cobra.Command{
 			newEnvCommand(app, options, streams), newDomainCommand(app, options, streams),
-			newConfigCommand(app, options, streams), newDevCommand(app, options, streams),
+			newConfigCommand(app, options, streams, config.preferences), newDevCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
 			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
@@ -167,6 +187,17 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	})
 	root.SetHelpCommandGroupID(maintainGroupID)
 	return root
+}
+
+// offline reports the commands that read nothing and so have no use for a
+// preferences warning: help and the completion scripts.
+func offline(command *cobra.Command) bool {
+	for c := command; c != nil; c = c.Parent() {
+		if c.Name() == "help" || c.Name() == "completion" {
+			return true
+		}
+	}
+	return false
 }
 
 // ownCompletionCommand keeps Cobra's completion command available and listed
