@@ -150,6 +150,54 @@ func TestHelpAndVersionAreOffline(t *testing.T) {
 	}
 }
 
+func TestHelpGroupsCommandsByTask(t *testing.T) {
+	out, _, _ := execute(t, nil, "--help")
+	if strings.Contains(out, "Available Commands:") || strings.Contains(out, "Additional Commands:") {
+		t.Fatalf("help keeps an ungrouped section: %s", out)
+	}
+	sections := []struct {
+		title    string
+		commands []string
+	}{
+		{"Get started", []string{"login", "init", "link"}},
+		{"Ship", []string{"deploy", "preview", "cancel", "deployments"}},
+		{"Run", []string{"start", "stop", "restart", "status", "logs", "open"}},
+		{"Configure", []string{"env", "domain", "config", "dev"}},
+		{"Maintain", []string{"doctor", "unlink", "logout", "completion", "help"}},
+	}
+	// Titles and commands must each appear after the previous one.
+	position := 0
+	for _, section := range sections {
+		title := "\n" + section.title + "\n"
+		index := strings.Index(out[position:], title)
+		if index < 0 {
+			t.Fatalf("help lacks group %q after offset %d: %s", section.title, position, out)
+		}
+		position += index + len(title) - 1 // keep the newline before the first command
+		for _, command := range section.commands {
+			index := strings.Index(out[position:], "\n  "+command+" ")
+			if index < 0 {
+				t.Fatalf("help lists %s outside or before its place in %q: %s", command, section.title, out)
+			}
+			position += index
+		}
+	}
+	// Between "Usage:" and "Flags:", every unindented line is one of the titles.
+	body := out[strings.Index(out, "Usage:"):strings.Index(out, "Flags:")]
+	for _, line := range strings.Split(body, "\n") {
+		if line == "" || line == "Usage:" || strings.HasPrefix(line, " ") {
+			continue
+		}
+		known := false
+		for _, section := range sections {
+			known = known || line == section.title
+		}
+		if !known {
+			t.Errorf("unexpected section %q", line)
+		}
+	}
+}
+
 func TestInvalidInputReturnsOneUnprintedError(t *testing.T) {
 	for _, args := range [][]string{
 		{"unknown"}, {"help", "unknown"}, {"help", "status", "extra"}, {"help", "env", "nope"}, {"status", "a", "b"},
