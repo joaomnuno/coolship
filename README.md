@@ -255,28 +255,30 @@ coolship deploy                  # wait for the deployment to finish
 coolship deploy --no-wait        # return the queued deployment UUID
 coolship deploy --force          # rebuild without cache
 coolship deploy --timeout 20m
+coolship deploy --logs           # stream the build log above the checklist
 ```
 
-Coolship submits one deployment and then observes exactly the UUID that submission returned, never "the latest deployment", which could belong to someone else. While waiting, the server's build log streams to stderr — clone, build, rolling update, health checks — when your token may read it; otherwise progress continues without it. Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up.
+Coolship submits one deployment and then observes exactly the UUID that submission returned, never "the latest deployment", which could belong to someone else. In a terminal the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, container, cleanup — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. The build log stays collapsed and is printed in full if the deployment fails; `--logs` streams it live, `--no-logs` keeps it collapsed, and without either the `build_logs` preference decides. Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up.
 
 ```text
 $ coolship deploy
-Deployment 03dusayin5rleswixblvdqba: queued
-Deployment 03dusayin5rleswixblvdqba: in_progress
-Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
-Building docker image started.
-Building docker image completed.
-Rolling update started.
-Attempt 2 of 10 | Healthcheck status: "healthy"
-Rolling update completed.
-Deployment 03dusayin5rleswixblvdqba: finished
+→ coolship-example
+→ production
+
+✓ Deployed                      0:52
+  ✓ build                       0:41
+  ✓ rolling update              0:08
+  ✓ container                   0:06
+  ✓ cleanup                     0:00
 Deployment: 03dusayin5rleswixblvdqba
 Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
 Status: finished
 https://coolship.example.com
 ```
 
-The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment names its page on stderr, where the build log and the retry live.
+Piped, in CI, or with `--format json`, the status lines, the build log — clone, build, rolling update, health checks — and one line per stage transition (`Stage build: started`) stream to stderr as they arrive, when your token may read the log; otherwise progress continues without it.
+
+The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log it gathered, then names its page on stderr, where the retry lives.
 
 When `--timeout` elapses the error names the flag (`--timeout 10m0s elapsed before the deployment finished; it continues on the server`), and when the deployment fails or times out, `--format json` still prints the result with the deployment UUID and its last observed status before exiting 1, so a script can pick the deployment up. If Coolify already holds a queued or running deployment for the same commit it declines a new one with `Deployment already queued for this commit.`, which Coolship reports with the suggestion to pass `--force`; a second submission within a couple of seconds can instead be accepted and then dropped by the server, which observation reports as `the server no longer holds this deployment (HTTP 404)`. When the server's deployment queue is full it answers 429, reported as `server deployment queue is full`.
 ### `coolship deployments`
@@ -327,7 +329,7 @@ Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
 Status: exited:unhealthy
 ```
 
-`start` and `restart` are Coolify's own start and restart actions, and both queue a deployment: Coolify has no container start, so `start` deploys the configured source and branch again, and `restart` queues a restart-only deployment that reuses the image already built for the commit — except for Dockerfile and Docker image applications, which Coolify deploys in full. Both are observed exactly like `deploy`, with the build log on stderr, `--no-wait`, and `--timeout`; `restart` asks first, or takes `--yes`.
+`start` and `restart` are Coolify's own start and restart actions, and both queue a deployment: Coolify has no container start, so `start` deploys the configured source and branch again, and `restart` queues a restart-only deployment that reuses the image already built for the commit — except for Dockerfile and Docker image applications, which Coolify deploys in full. Both are observed exactly like `deploy` — the stage checklist in a terminal, the status lines and build log on stderr otherwise — with `--no-wait`, `--timeout`, `--logs`, and `--no-logs`; `restart` asks first, or takes `--yes`.
 
 ### `coolship logs`
 

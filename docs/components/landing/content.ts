@@ -22,26 +22,20 @@ export const replayScript: ReplaySegment[] = [
     ],
   },
   {
+    // The checklist as it stands once the deployment finished; the live
+    // view spins and ticks in place, which the replay's append-only frames
+    // cannot show.
     command: "coolship deploy",
     output: [
-      { text: "Deployment 03dusayin5rleswixblvdqba: queued", delay: 500 },
-      { text: "Deployment 03dusayin5rleswixblvdqba: in_progress", delay: 1100 },
-      {
-        text: "Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.",
-        kind: "dim",
-        delay: 700,
-      },
-      { text: "Building docker image started.", kind: "dim", delay: 600 },
-      { text: "Building docker image completed.", kind: "dim", delay: 1800 },
-      { text: "Rolling update started.", kind: "dim", delay: 500 },
-      {
-        text: 'Attempt 2 of 10 | Healthcheck status: "healthy"',
-        kind: "dim",
-        delay: 1400,
-      },
-      { text: "Rolling update completed.", kind: "dim", delay: 600 },
-      { text: "Deployment 03dusayin5rleswixblvdqba: finished", delay: 500 },
-      { text: "Deployment: 03dusayin5rleswixblvdqba", delay: 150 },
+      { text: "→ coolship-example", delay: 500 },
+      { text: "→ production" },
+      { text: "" },
+      { text: "✓ Deployed                      0:52", delay: 1400 },
+      { text: "  ✓ build                       0:41", kind: "dim", delay: 200 },
+      { text: "  ✓ rolling update              0:08", kind: "dim", delay: 200 },
+      { text: "  ✓ container                   0:06", kind: "dim", delay: 200 },
+      { text: "  ✓ cleanup                     0:00", kind: "dim", delay: 200 },
+      { text: "Deployment: 03dusayin5rleswixblvdqba", delay: 400 },
       { text: "Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)" },
       { text: "Status: finished" },
       { text: "https://coolship.example.com" },

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
@@ -42,8 +43,9 @@ stopped, including a crash loop shown as restarting or degraded.`,
 	return command
 }
 
-func newStartCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
+func newStartCommand(app Application, options *commandOptions, streams ui.Streams, prefs preferences.Preferences) *cobra.Command {
 	var start service.StartOptions
+	var logs logFlags
 	command := &cobra.Command{
 		Use:   "start [target]",
 		Short: "Start the linked application by deploying it again",
@@ -52,29 +54,35 @@ deploying its configured source and branch again, so this queues a deployment
 and observes it exactly like deploy, build log included. It does not upload
 your worktree or push local commits.
 
-Use --no-wait to return the queued deployment UUID immediately.`,
+Use --no-wait to return the queued deployment UUID immediately. In a terminal
+the deployment is shown as a stage checklist with the build log collapsed, as
+deploy does; --logs streams the log, --no-logs keeps it collapsed, and the
+build_logs preference decides when neither is given.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if start.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))
 			}
-			start.Options = options.Options
-			renderer := ui.NewRenderer(streams, options.format)
-			result, err := app.Start(command.Context(), start, renderer.DeploymentEvent)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs)
 			if err != nil {
-				return deploymentFailure(renderer, options.format, result, err)
+				return err
 			}
-			return renderer.Deploy(result)
+			start.Options = options.Options
+			return observeDeployment(streams, options, start.NoWait, showLogs, func(emit service.Emitter) (service.DeployResult, error) {
+				return app.Start(command.Context(), start, emit)
+			})
 		},
 	}
 	command.Flags().BoolVar(&start.Force, "force", false, "Force Coolify to rebuild without cache")
 	command.Flags().BoolVar(&start.NoWait, "no-wait", false, "Return after submission without observing completion")
 	command.Flags().DurationVar(&start.Timeout, "timeout", 10*time.Minute, "Maximum time to wait for the deployment to finish")
+	logs.register(command.Flags())
 	return command
 }
 
-func newRestartCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
+func newRestartCommand(app Application, options *commandOptions, streams ui.Streams, prefs preferences.Preferences) *cobra.Command {
 	var restart service.StartOptions
+	var logs logFlags
 	command := &cobra.Command{
 		Use:   "restart [target]",
 		Short: "Restart the linked application's containers",
@@ -84,23 +92,28 @@ Dockerfile or a Docker image are deployed in full; the other build packs reuse
 the image already built for the commit when it still exists.
 
 The restart is confirmed first, or --yes skips the question. Use --no-wait to
-return the queued deployment UUID immediately.`,
+return the queued deployment UUID immediately. In a terminal the deployment is
+shown as a stage checklist with the build log collapsed, as deploy does;
+--logs streams the log, --no-logs keeps it collapsed, and the build_logs
+preference decides when neither is given.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if restart.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))
 			}
-			restart.Options = options.Options
-			renderer := ui.NewRenderer(streams, options.format)
-			result, err := app.Restart(command.Context(), restart, ui.NewPrompter(streams).ConfirmRestart, renderer.DeploymentEvent)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs)
 			if err != nil {
-				return deploymentFailure(renderer, options.format, result, err)
+				return err
 			}
-			return renderer.Deploy(result)
+			restart.Options = options.Options
+			return observeDeployment(streams, options, restart.NoWait, showLogs, func(emit service.Emitter) (service.DeployResult, error) {
+				return app.Restart(command.Context(), restart, ui.NewPrompter(streams).ConfirmRestart, emit)
+			})
 		},
 	}
 	command.Flags().BoolVarP(&restart.Yes, "yes", "y", false, "Restart without confirmation")
 	command.Flags().BoolVar(&restart.NoWait, "no-wait", false, "Return after submission without observing completion")
 	command.Flags().DurationVar(&restart.Timeout, "timeout", 10*time.Minute, "Maximum time to wait for the restart to finish")
+	logs.register(command.Flags())
 	return command
 }

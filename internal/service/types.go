@@ -480,13 +480,21 @@ type LinkResult struct {
 	Warnings []string   `json:"warnings,omitempty"`
 }
 
-// Event carries requested logs or workflow progress. It never contains credentials.
+// Event carries requested logs or workflow progress. It never contains
+// credentials. Type names what happened: "warning" carries Message;
+// "deployment" carries the deployment's UUID and its Status, and the first
+// one of a deployment also carries the Target it belongs to; "build" carries
+// build log lines in Logs; "stage" carries a Stage (one of DeploymentStages)
+// and its Status (started, done, or failed); "logs" carries runtime logs;
+// "application" carries an application status.
 type Event struct {
-	Type           string `json:"type"`
-	DeploymentUUID string `json:"deployment_uuid,omitempty"`
-	Status         string `json:"status,omitempty"`
-	Message        string `json:"message,omitempty"`
-	Logs           string `json:"logs,omitempty"`
+	Type           string      `json:"type"`
+	DeploymentUUID string      `json:"deployment_uuid,omitempty"`
+	Status         string      `json:"status,omitempty"`
+	Stage          string      `json:"stage,omitempty"`
+	Message        string      `json:"message,omitempty"`
+	Logs           string      `json:"logs,omitempty"`
+	Target         *TargetInfo `json:"target,omitempty"`
 }
 
 type Emitter func(Event) error

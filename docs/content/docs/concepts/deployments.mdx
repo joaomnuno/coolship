@@ -15,20 +15,51 @@ Coolship submits one deployment (`POST /deploy` with the application UUID) and v
 
 Deployment states are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. Only a confirmed successful terminal state completes a waiting command successfully. An unknown state is shown as-is and waits for the timeout instead of being guessed as terminal. Deployment completion is reported separately from the application's health, which `status` reads.
 
-## Build logs
+## Stages and the build log
 
-While waiting, the server's build log streams to stderr — clone, build, rolling update, health checks — when your token may read it; otherwise progress continues without it. Each visible entry is emitted once, ahead of the status change it led to. Build logs belong to deployment observation; [`logs`](/docs/commands/logs) means application runtime logs.
+Coolify writes fixed lines into a deployment's build log as its job moves along: `Building docker image started.` and `completed.`, `Rolling update started.` and `completed.`, `New container started.`, `New container is healthy.` or `unhealthy.`, `Removing old containers.`, and `Deployment failed.` Coolship reads them as **stages** — build, rolling update, container, cleanup — each started once and ended once, done or failed. A compose deployment that pulls images without a build line, or a container without a health check, still ends its stage: the new container starting finishes an open build, and the rolling update completing accepts the container.
+
+In a terminal, the stages are a checklist under the target: a spinner and elapsed time on whatever is open, `✓` and its duration on what finished, `✗` on what failed, the stages not reached yet dim. Warnings print above it and stay. The build log is collapsed by default and printed in full, after the checklist, when the deployment fails, so its tail is right before the deployment page and the error; no command can fetch a past build log. `--logs` streams the log live above the checklist for one run and `--no-logs` keeps it collapsed; without either, the `build_logs` key of the preferences file decides, and without that the log stays collapsed.
 
 ```text
 $ coolship deploy
+→ coolship-example
+→ production
+
+✓ Deployed                      0:52
+  ✓ build                       0:41
+  ✓ rolling update              0:08
+  ✓ container                   0:06
+  ✓ cleanup                     0:00
+Deployment: 03dusayin5rleswixblvdqba
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: finished
+https://coolship.example.com
+```
+
+Piped, in CI, or with `--format json`, the build log streams to stderr as it always did — clone, build, rolling update, health checks — and each stage transition is one plain line among the status lines (`Stage build: started`). Each visible log entry is emitted once, ahead of the status change it led to, and the stage it announces follows it. All of this needs a token that may read the build log; otherwise progress continues without it. Build logs belong to deployment observation; [`logs`](/docs/commands/logs) means application runtime logs.
+
+```text
+$ coolship deploy 2>&1 | cat
 Deployment 03dusayin5rleswixblvdqba: queued
 Deployment 03dusayin5rleswixblvdqba: in_progress
 Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.
 Building docker image started.
+Stage build: started
 Building docker image completed.
+Stage build: done
 Rolling update started.
+Stage rolling update: started
+New container started.
+Stage container: started
 Attempt 2 of 10 | Healthcheck status: "healthy"
+New container is healthy.
+Stage container: done
+Removing old containers.
+Stage cleanup: started
+Stage cleanup: done
 Rolling update completed.
+Stage rolling update: done
 Deployment 03dusayin5rleswixblvdqba: finished
 Deployment: 03dusayin5rleswixblvdqba
 Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
@@ -40,9 +71,9 @@ https://coolship.example.com
 
 By default `deploy` waits for the deployment to finish, bounded by `--timeout` (10 minutes unless changed). `--no-wait` returns the queued deployment UUID immediately. `--force` asks Coolify to rebuild without cache.
 
-The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment names its page on stderr, where the build log and the retry live. `start`, `restart`, and [`preview`](/docs/commands/preview) end the same way.
+The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log it gathered, then names its page on stderr, where the retry lives. `start`, `restart`, and [`preview`](/docs/commands/preview) show the same checklist, take the same `--logs` and `--no-logs`, and end the same way.
 
-Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up in Coolify. Coolship does not cancel the remote deployment automatically.
+Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up in Coolify. The checklist ends with `✗ Observation stopped` rather than `Deployment failed`, because the server gave no verdict. Coolship does not cancel the remote deployment automatically.
 
 ## Uncertain submission is never retried
 
