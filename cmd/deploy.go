@@ -40,15 +40,20 @@ the queued deployment UUID immediately.`,
 	return command
 }
 
-// deploymentFailure returns the failure after writing the result a machine
-// reader needs to follow up: once a deployment has a UUID, --format json
-// prints the result with its last observed status even though the command
-// fails. Human output keeps the diagnostic alone, and the exit status is the
-// failure's either way.
+// deploymentFailure returns the failure after writing what a reader needs to
+// follow up: once a deployment has a UUID, --format json prints the result
+// with its last observed status and URL even though the command fails, and
+// human output names the deployment's Coolify page on stderr, where the log
+// and the retry live. The exit status is the failure's either way.
 func deploymentFailure(renderer *ui.Renderer, format string, result service.DeployResult, err error) error {
-	if format == "json" && result.DeploymentUUID != "" {
-		// The failure is what the caller must learn; a lost write cannot displace it.
+	if result.DeploymentUUID == "" {
+		return err
+	}
+	// The failure is what the caller must learn; a lost write cannot displace it.
+	if format == "json" {
 		_ = renderer.Deploy(result)
+	} else if result.URL != "" {
+		_ = renderer.DeploymentPage(result.URL)
 	}
 	return err
 }

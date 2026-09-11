@@ -112,6 +112,7 @@ func TestStartAndRestartFlags(t *testing.T) {
 	if err != nil || out != "Deployment: d-1\nApplication: web (app-1)\nStatus: queued\n" || diagnostic != "Deployment d-1: queued\n" {
 		t.Fatalf("start: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
+	// A result without a URL prints exactly what it did before the URL line existed.
 	out, _, err = execute(t, app, "start", "--force", "--no-wait", "--timeout", "30s", "--format", "json")
 	if err != nil || !strings.Contains(out, `"action":"start"`) {
 		t.Fatalf("start json: out=%q err=%v", out, err)
@@ -232,5 +233,68 @@ func TestStatusShowsTheLastDeployment(t *testing.T) {
 	out, _, err = execute(t, app, "status", "--format", "json")
 	if err != nil || !strings.Contains(out, `"last_deployment":{"deployment_uuid":"nmfvbbn3bqbzor1bdhmrf7k8"`) {
 		t.Fatalf("json out=%q err=%v", out, err)
+	}
+}
+
+// TestDeploymentOutputEndsWithTheURL covers the last line of deploy, start,
+// restart, and preview: the application in human output when the service
+// says it is live, its Coolify page otherwise, and on failure the page on
+// stderr so the diagnostic has somewhere to point.
+func TestDeploymentOutputEndsWithTheURL(t *testing.T) {
+	target := service.TargetInfo{Application: "web", ApplicationUUID: "app-1"}
+	page := "https://coolify.example.com/project/p-1/environment/e-1/application/app-1/deployment/d-1"
+	live := service.DeployResult{Target: target, DeploymentUUID: "d-1", Status: "finished", URL: "https://web.example.com", URLKind: "application"}
+	queued := service.DeployResult{Target: target, DeploymentUUID: "d-1", Status: "queued", URL: page, URLKind: "deployment"}
+	failed := service.DeployResult{Target: target, DeploymentUUID: "d-1", Status: "failed", URL: page, URLKind: "deployment"}
+	failure := &service.DeploymentError{DeploymentUUID: "d-1", Err: errors.New("ended with status failed")}
+	var result service.DeployResult
+	var failWith error
+	app := fakeApplication{
+		deploy: func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error) {
+			return result, failWith
+		},
+		start: func(context.Context, service.StartOptions, service.Emitter) (service.DeployResult, error) {
+			return result, failWith
+		},
+		rstart: func(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error) {
+			return result, failWith
+		},
+	}
+
+	result, failWith = live, nil
+	out, diagnostic, err := execute(t, app, "deploy")
+	if err != nil || out != "Deployment: d-1\nApplication: web (app-1)\nStatus: finished\nhttps://web.example.com\n" || diagnostic != "" {
+		t.Fatalf("deploy: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	out, _, err = execute(t, app, "deploy", "--format", "json")
+	if err != nil || !strings.Contains(out, `"url":"https://web.example.com","url_kind":"application"`) {
+		t.Fatalf("deploy json: out=%q err=%v", out, err)
+	}
+	result = queued
+	for _, args := range [][]string{{"deploy", "--no-wait"}, {"start", "--no-wait"}, {"restart", "--yes", "--no-wait"}, {"preview", "--pr", "7", "--no-wait"}} {
+		out, diagnostic, err := execute(t, app, args...)
+		if err != nil || !strings.HasSuffix(out, "Status: queued\n"+page+"\n") || diagnostic != "" {
+			t.Fatalf("%v: out=%q stderr=%q err=%v", args, out, diagnostic, err)
+		}
+	}
+
+	// A failure keeps stdout empty and names the page on stderr before the
+	// error the boundary prints; JSON prints the result instead, URL included.
+	result, failWith = failed, failure
+	for _, args := range [][]string{{"deploy"}, {"start"}, {"restart", "--yes"}, {"preview", "--pr", "7"}} {
+		out, diagnostic, err := execute(t, app, args...)
+		if !errors.Is(err, failure) || out != "" || diagnostic != "Deployment page: "+page+"\n" {
+			t.Fatalf("%v failed: out=%q stderr=%q err=%v", args, out, diagnostic, err)
+		}
+		out, diagnostic, err = execute(t, app, append(args, "--format", "json")...)
+		if !errors.Is(err, failure) || !strings.Contains(out, `"status":"failed","url":"`+page+`","url_kind":"deployment"`) || diagnostic != "" {
+			t.Fatalf("%v failed json: out=%q stderr=%q err=%v", args, out, diagnostic, err)
+		}
+	}
+	// A refusal before anything was queued has no page to name.
+	result, failWith = service.DeployResult{Target: target}, errors.New("server did not confirm a deployment")
+	out, diagnostic, err = execute(t, app, "start")
+	if !errors.Is(err, failWith) || out != "" || diagnostic != "" {
+		t.Fatalf("refused start: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
 }

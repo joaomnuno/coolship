@@ -42,11 +42,13 @@ Error: server did not confirm a deployment for application mm4c0zpbrzx8z96t0qiw3
   "target": { "…": "the resolved target, see the command reference" },
   "deployment_uuid": "gk2p8m1qz4vwx9c7n5b3ldrs",
   "pull_request": 42,
-  "status": "finished"
+  "status": "finished",
+  "url": "https://coolify.example.com/project/o8m4q2xk1vzr7b5n3c9jlwts/environment/x2n7vk4q9m1zrb8c5j3lwtp6/application/mm4c0zpbrzx8z96t0qiw3tff/deployment/gk2p8m1qz4vwx9c7n5b3ldrs",
+  "url_kind": "deployment"
 }
 ```
 
-The shape is `deploy`'s with the `pull_request` number added.
+The shape is `deploy`'s with the `pull_request` number added. The application's URL is the production one, so a preview always ends with its deployment page in Coolify (`url_kind` is `deployment`), in human output too.
 
 ## Exit codes
 

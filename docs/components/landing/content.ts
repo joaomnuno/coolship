@@ -44,6 +44,7 @@ export const replayScript: ReplaySegment[] = [
       { text: "Deployment: 03dusayin5rleswixblvdqba", delay: 150 },
       { text: "Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)" },
       { text: "Status: finished" },
+      { text: "https://coolship.example.com" },
     ],
   },
   {

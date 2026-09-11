@@ -23,9 +23,10 @@ Deployment 03dusayin5rleswixblvdqba: finished
 Deployment: 03dusayin5rleswixblvdqba
 Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
 Status: finished
+https://coolship.example.com
 ```
 
-Status lines and the build log go to stderr as progress; the final result goes to stdout.
+Status lines and the build log go to stderr as progress; the final result goes to stdout. The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment names its page on stderr, where the build log and the retry live.
 
 ## Flags
 
@@ -59,11 +60,13 @@ coolship deploy api              # named target in a monorepo
 {
   "target": { "…": "the resolved target, see the command reference" },
   "deployment_uuid": "03dusayin5rleswixblvdqba",
-  "status": "finished"
+  "status": "finished",
+  "url": "https://coolship.example.com",
+  "url_kind": "application"
 }
 ```
 
-With `--no-wait`, `status` is `queued`. A failed or cancelled deployment is reported with its state and a nonzero exit. In JSON mode no progress reaches stdout.
+`url` is the last line of the human output and `url_kind` says what it is: `application` for the application's URL, `deployment` for its page in Coolify (`<instance>/project/<project>/environment/<environment>/application/<application>/deployment/<uuid>`). With `--no-wait`, `status` is `queued` and the URL is the deployment page. A failed or cancelled deployment is reported with its state, the deployment page, and a nonzero exit. In JSON mode no progress reaches stdout.
 
 ## Exit codes
 

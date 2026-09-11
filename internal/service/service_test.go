@@ -497,8 +497,72 @@ func TestDeploymentObservesExactIdentityAndTerminalState(t *testing.T) {
 	if result.Status != "finished" || !reflect.DeepEqual(states, []string{"queued", "in_progress", "finished"}) {
 		t.Fatalf("result=%+v states=%v", result, states)
 	}
+	// A finished deployment of an application with a domain ends at the
+	// application, read from the record the session already holds: the one
+	// application read is preparation's.
+	if result.URL != "https://app.example.com" || result.URLKind != "application" || f.calls["application"] != 1 {
+		t.Fatalf("url=%q kind=%q calls=%v", result.URL, result.URLKind, f.calls)
+	}
 	if f.calls["deploy"] != 1 || f.calls["projects"] != 1 {
 		t.Fatalf("unexpected repeated preparation/submission: %v", f.calls)
+	}
+}
+
+const deploymentPageOfDeploy1 = "https://coolify.example.com/project/project-1/environment/env-1/application/app-1/deployment/deploy-1"
+
+func TestDeploymentURLNamesTheApplicationOrItsPage(t *testing.T) {
+	// No domain: the deployment page, even though it finished.
+	f := newBackend()
+	f.application.FQDN = ""
+	f.environments[0].Applications[0].FQDN = ""
+	app, _, _ := testApp(f)
+	result, err := app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err != nil || result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("no domain: result=%+v err=%v", result, err)
+	}
+	// A domain list with only malformed entries counts as no domain, as open says.
+	f = newBackend()
+	f.application.FQDN = "not a url, ftp://files.example.com"
+	f.environments[0].Applications[0].FQDN = f.application.FQDN
+	app, _, _ = testApp(f)
+	result, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err != nil || result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("malformed domains: result=%+v err=%v", result, err)
+	}
+	// The first web URL of several is the application's, as open picks it.
+	f = newBackend()
+	f.application.FQDN = "https://app.example.com,https://www.example.com"
+	f.environments[0].Applications[0].FQDN = f.application.FQDN
+	app, _, _ = testApp(f)
+	result, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t)}, nil)
+	if err != nil || result.URL != "https://app.example.com" || result.URLKind != "application" {
+		t.Fatalf("several domains: result=%+v err=%v", result, err)
+	}
+	// A preview's FQDN is the production one, so a finished preview still
+	// ends at its deployment page.
+	f = newBackend()
+	app, _, _ = testApp(f)
+	result, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), PullRequest: 42}, nil)
+	if err != nil || result.PullRequest != 42 || result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("preview: result=%+v err=%v", result, err)
+	}
+	// --no-wait has nothing to show yet.
+	f = newBackend()
+	app, _, _ = testApp(f)
+	result, err = app.Deploy(context.Background(), DeployOptions{Options: linkedOptions(t), NoWait: true}, nil)
+	if err != nil || result.Status != "queued" || result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+		t.Fatalf("no-wait: result=%+v err=%v", result, err)
+	}
+	// Every segment of the page is escaped, the instance's trailing slash is
+	// dropped, and the page hangs off the dashboard URL, so the two cannot drift.
+	p := project.Context{InstanceURL: "https://coolify.example.com/", RemoteProject: models.Project{UUID: "p 1"},
+		Environment: models.Environment{UUID: "e/1"}, Application: models.Application{UUID: "a?1"}}
+	url, kind := resultURL(p, DeployResult{DeploymentUUID: "odd/id?x=1", Status: "finished"})
+	if want := applicationPage(p) + "/deployment/odd%2Fid%3Fx=1"; url != want || kind != "deployment" {
+		t.Fatalf("escaping: url=%q kind=%q want %q", url, kind, want)
+	}
+	if applicationPage(p) != "https://coolify.example.com/project/p%201/environment/e%2F1/application/a%3F1" {
+		t.Fatalf("application page: %q", applicationPage(p))
 	}
 }
 
@@ -533,6 +597,15 @@ func TestDeploymentFailureContracts(t *testing.T) {
 			}
 			if f.calls["deploy"] != 1 {
 				t.Fatalf("submission repeated: %v", f.calls)
+			}
+			// Once a deployment has an identity its page is named, whatever
+			// stopped the observation; before that there is nothing to point at.
+			if result.DeploymentUUID == "" {
+				if result.URL != "" || result.URLKind != "" {
+					t.Fatalf("url without a deployment: %+v", result)
+				}
+			} else if result.URL != deploymentPageOfDeploy1 || result.URLKind != "deployment" {
+				t.Fatalf("url=%q kind=%q", result.URL, result.URLKind)
 			}
 		})
 	}

@@ -273,7 +273,10 @@ Deployment 03dusayin5rleswixblvdqba: finished
 Deployment: 03dusayin5rleswixblvdqba
 Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
 Status: finished
+https://coolship.example.com
 ```
+
+The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment names its page on stderr, where the build log and the retry live.
 
 When `--timeout` elapses the error names the flag (`--timeout 10m0s elapsed before the deployment finished; it continues on the server`), and when the deployment fails or times out, `--format json` still prints the result with the deployment UUID and its last observed status before exiting 1, so a script can pick the deployment up. If Coolify already holds a queued or running deployment for the same commit it declines a new one with `Deployment already queued for this commit.`, which Coolship reports with the suggestion to pass `--force`; a second submission within a couple of seconds can instead be accepted and then dropped by the server, which observation reports as `the server no longer holds this deployment (HTTP 404)`. When the server's deployment queue is full it answers 429, reported as `server deployment queue is full`.
 ### `coolship deployments`
