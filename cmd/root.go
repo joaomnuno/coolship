@@ -4,12 +4,16 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// maintainGroupID is the help group that also lists help and completion.
+const maintainGroupID = "maintain"
 
 // Application is the workflow contract consumed by the command tree.
 type Application interface {
@@ -105,15 +109,44 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	// tree exists, because styling is a stream capability decided with the
 	// streams; the flag is declared here so parsing accepts and documents it.
 	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
-	root.AddCommand(newInitCommand(app, options, streams), newLinkCommand(app, options, streams), newStatusCommand(app, options, streams),
-		newDeployCommand(app, options, streams), newDeploymentsCommand(app, options, streams), newCancelCommand(app, options, streams),
-		newStopCommand(app, options, streams), newStartCommand(app, options, streams), newRestartCommand(app, options, streams),
-		newLogsCommand(app, options, streams),
-		newOpenCommand(app, options, streams, config.openBrowser), newUnlinkCommand(app, options, streams),
-		newConfigCommand(app, options, streams), newDoctorCommand(app, options, streams),
-		newEnvCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment),
-		newDevCommand(app, options, streams), newDomainCommand(app, options, streams),
-		newLoginCommand(app, options, streams), newLogoutCommand(app, options, streams))
+	// The help lists the commands in five task-shaped groups, each in the
+	// order a project moves through its verbs rather than alphabetically;
+	// every command stays a flat verb. Cobra's sorting switch is package-wide,
+	// so it is set here, where the order is decided.
+	cobra.EnableCommandSorting = false
+	groups := []struct {
+		group    cobra.Group
+		commands []*cobra.Command
+	}{
+		{cobra.Group{ID: "start", Title: "Get started"}, []*cobra.Command{
+			newLoginCommand(app, options, streams), newInitCommand(app, options, streams), newLinkCommand(app, options, streams),
+		}},
+		{cobra.Group{ID: "ship", Title: "Ship"}, []*cobra.Command{
+			newDeployCommand(app, options, streams), newPreviewCommand(app, options, streams, config.environment),
+			newCancelCommand(app, options, streams), newDeploymentsCommand(app, options, streams),
+		}},
+		{cobra.Group{ID: "run", Title: "Run"}, []*cobra.Command{
+			newStartCommand(app, options, streams), newStopCommand(app, options, streams), newRestartCommand(app, options, streams),
+			newStatusCommand(app, options, streams), newLogsCommand(app, options, streams),
+			newOpenCommand(app, options, streams, config.openBrowser),
+		}},
+		{cobra.Group{ID: "configure", Title: "Configure"}, []*cobra.Command{
+			newEnvCommand(app, options, streams), newDomainCommand(app, options, streams),
+			newConfigCommand(app, options, streams), newDevCommand(app, options, streams),
+		}},
+		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
+			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
+		}},
+	}
+	for _, entry := range groups {
+		group := entry.group
+		root.AddGroup(&group)
+		for _, command := range entry.commands {
+			command.GroupID = group.ID
+			root.AddCommand(command)
+		}
+	}
+	root.SetCompletionCommandGroupID(maintainGroupID)
 	ownCompletionCommand(root)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command [subcommand]]",
@@ -132,6 +165,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 			return command.Help()
 		},
 	})
+	root.SetHelpCommandGroupID(maintainGroupID)
 	return root
 }
 
@@ -151,6 +185,7 @@ func ownCompletionCommand(root *cobra.Command) {
 			shell.Args = noArgs
 			shells = append(shells, shell.Name())
 		}
+		slices.Sort(shells) // Cobra lists the shells in registration order once sorting is off
 		completion.Args = func(_ *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return inputError(fmt.Errorf("unknown shell %q; use one of %s", args[0], strings.Join(shells, ", ")))

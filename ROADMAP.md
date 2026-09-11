@@ -46,7 +46,7 @@ Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the librar
 - [ ] Selectors with arrow keys, type-to-filter, and Esc; normal mode shows names only, a UUID only to break a tie.
 - [ ] Verbosity: normal, `--verbose`, `--debug`, and `COOLSHIP_VERBOSITY` for CI; `-v` stays version.
 - [ ] Preferences at `~/.config/coolship/preferences.toml`; credentials stay in Coolify CLI's shared file.
-- [ ] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.
+- [x] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.
 - [ ] `coolship ui`: a draft menu with the target, status, and last deployment above the verbs in the same groups.
 
 ## Later
