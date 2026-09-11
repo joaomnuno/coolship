@@ -381,6 +381,9 @@ func (r *Renderer) target(target service.TargetInfo) error {
 	return err
 }
 
+// Warn writes one warning to stderr in the style every result's warnings use.
+func (r *Renderer) Warn(message string) error { return r.warnings([]string{message}) }
+
 func (r *Renderer) warnings(warnings []string) error {
 	for _, warning := range warnings {
 		if _, err := fmt.Fprintf(r.streams.Err, "%s %s\n", r.err.apply(yellow, "Warning:"), singleLine(warning)); err != nil {
@@ -467,6 +470,7 @@ func (r *Renderer) Config(result service.ConfigResult) error {
 		{"Application", describeSelector(b.Application, b.ApplicationUUID)},
 		{"Credentials", describeCredentials(result)},
 		{"Instance", describeInstance(result)},
+		{"Preferences", describePreferences(result.Preferences)},
 	}
 	for _, key := range slices.Sorted(maps.Keys(result.Overrides)) {
 		rows = append(rows, [2]string{"Override " + key, result.Overrides[key]})
@@ -482,6 +486,36 @@ func (r *Renderer) Config(result service.ConfigResult) error {
 		}
 	}
 	return nil
+}
+
+// describePreferences shows the path and, after it, why there is nothing
+// more to show or the keys the file sets.
+func describePreferences(report *service.PreferencesReport) string {
+	if report == nil {
+		return ""
+	}
+	switch {
+	case report.Path == "":
+		return "(not read: " + report.Error + ")"
+	case report.Error != "":
+		return report.Path + " (ignored: " + report.Error + ")"
+	case !report.Present:
+		return report.Path + " (absent)"
+	}
+	var set []string
+	if report.Verbosity != "" {
+		set = append(set, "verbosity "+report.Verbosity)
+	}
+	if report.BuildLogs != nil {
+		set = append(set, "build logs "+map[bool]string{true: "on", false: "off"}[*report.BuildLogs])
+	}
+	if report.Color != "" {
+		set = append(set, "color "+report.Color)
+	}
+	if len(set) == 0 {
+		return report.Path + " (no keys set)"
+	}
+	return report.Path + " (" + strings.Join(set, ", ") + ")"
 }
 
 func describeSelector(name, uuid string) string {

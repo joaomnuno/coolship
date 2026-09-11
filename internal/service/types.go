@@ -11,6 +11,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/resolver"
 	"github.com/joaomnuno/coolship/internal/sshkey"
 )
@@ -283,18 +284,29 @@ type UnlinkResult struct {
 // ConfigResult is the effective local configuration for one invocation. It is
 // computed without network access and never contains a token.
 type ConfigResult struct {
-	ConfigPath       string            `json:"config_path"`
-	ConfigRoot       string            `json:"config_root"`
-	GitRoot          string            `json:"git_root,omitempty"`
-	Target           string            `json:"target"`
-	AppRoot          string            `json:"app_root"`
-	Binding          config.Binding    `json:"binding"`
-	CredentialSource string            `json:"credential_source"`
-	CredentialPath   string            `json:"credential_path,omitempty"`
-	Instance         string            `json:"instance,omitempty"`
-	InstanceURL      string            `json:"instance_url,omitempty"`
-	Overrides        map[string]string `json:"overrides,omitempty"`
-	Warnings         []string          `json:"warnings,omitempty"`
+	ConfigPath       string             `json:"config_path"`
+	ConfigRoot       string             `json:"config_root"`
+	GitRoot          string             `json:"git_root,omitempty"`
+	Target           string             `json:"target"`
+	AppRoot          string             `json:"app_root"`
+	Binding          config.Binding     `json:"binding"`
+	CredentialSource string             `json:"credential_source"`
+	CredentialPath   string             `json:"credential_path,omitempty"`
+	Instance         string             `json:"instance,omitempty"`
+	InstanceURL      string             `json:"instance_url,omitempty"`
+	Overrides        map[string]string  `json:"overrides,omitempty"`
+	Preferences      *PreferencesReport `json:"preferences,omitempty"`
+	Warnings         []string           `json:"warnings,omitempty"`
+}
+
+// PreferencesReport is what config shows of the developer's preferences
+// file: where it is, whether it exists, and its keys. Error is set when the
+// file exists but is ignored because it cannot be read or parsed.
+type PreferencesReport struct {
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	preferences.Preferences
+	Error string `json:"error,omitempty"`
 }
 
 // Check is one doctor finding. Status is ok, warning, failed, or skipped.

@@ -13,6 +13,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/coolify"
 	"github.com/joaomnuno/coolship/internal/gitinfo"
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/process"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
@@ -81,7 +82,10 @@ func run() int {
 	})
 	info, ok := debug.ReadBuildInfo()
 	resolved := resolveVersion(version, info, ok)
-	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv)).ExecuteContext(ctx)
+	// Preferences are read once here; a broken file becomes a warning the
+	// command tree prints, never a failure.
+	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv),
+		cmd.WithPreferences(preferences.Discover(os.Getenv))).ExecuteContext(ctx)
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
 		_ = ui.PrintError(streams, err)
