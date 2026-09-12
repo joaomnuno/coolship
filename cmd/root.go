@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
@@ -133,9 +134,10 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
 	// The help lists the commands in five task-shaped groups, each in the
 	// order a project moves through its verbs rather than alphabetically;
-	// every command stays a flat verb. Cobra's sorting switch is package-wide,
-	// so it is set here, where the order is decided.
-	cobra.EnableCommandSorting = false
+	// every command stays a flat verb. unsortedUsageFunc, installed below
+	// once every command is attached, renders that order without leaving
+	// Cobra's process-wide sorting switch changed for the rest of the
+	// program (see withStableCommandOrder and issue #30).
 	groups := []struct {
 		group    cobra.Group
 		commands []*cobra.Command
@@ -188,7 +190,52 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		},
 	})
 	root.SetHelpCommandGroupID(maintainGroupID)
+	root.SetUsageFunc(unsortedUsageFunc(root))
 	return root
+}
+
+// commandOrderMu serializes the brief windows in which withStableCommandOrder
+// changes Cobra's process-wide EnableCommandSorting switch, so concurrent
+// use of a Coolship tree (in tests, or an embedder running more than one
+// Cobra tree) never races on it.
+var commandOrderMu sync.Mutex
+
+// withStableCommandOrder runs fn with Cobra's command sorting turned off,
+// under a lock, and puts the switch back the way it found it straight
+// after — so any reading of a command's children during fn (Cobra's own
+// construction code, or a usage renderer) sees the order commands were
+// attached in, without leaving that switch changed for whatever the rest
+// of the process does with Cobra once fn returns.
+func withStableCommandOrder(fn func()) {
+	commandOrderMu.Lock()
+	defer commandOrderMu.Unlock()
+	previous := cobra.EnableCommandSorting
+	cobra.EnableCommandSorting = false
+	defer func() { cobra.EnableCommandSorting = previous }()
+	fn()
+}
+
+// unsortedUsageFunc returns a usage renderer for root that lists commands
+// (root's five task groups; env's pull, diff, push; any other command's
+// children) in the order they were attached, rather than alphabetically.
+// Cobra only exposes this as a package-global switch
+// (cobra.EnableCommandSorting), so rather than setting it once for the
+// whole run — which reorders the help of any other Cobra tree the same
+// process builds, as issue #30 found — this borrows it for the default
+// renderer's own call and nothing more. root.UsageFunc() is captured once,
+// before this override replaces it, so the renderer below stays Cobra's
+// real default rather than calling itself.
+//
+// Cobra re-adds its own help command right before running, which marks a
+// command's children unsorted again; that's fine, since this renders after
+// that and asks for insertion order regardless of whether Cobra thinks the
+// order is already settled.
+func unsortedUsageFunc(root *cobra.Command) func(*cobra.Command) error {
+	renderDefault := root.UsageFunc()
+	return func(command *cobra.Command) (err error) {
+		withStableCommandOrder(func() { err = renderDefault(command) })
+		return err
+	}
 }
 
 // offline reports the commands that read nothing and so have no use for a
@@ -216,16 +263,24 @@ func offline(command *cobra.Command) bool {
 // where every other command reports invalid input.
 func ownCompletionCommand(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
-	for _, completion := range root.Commands() {
+	// Reading root's and completion's children here, through Cobra's own
+	// Commands(), would otherwise bake an alphabetical order into them
+	// (see withStableCommandOrder); this construction-time read needs the
+	// order commands were attached in, same as a help render does.
+	var completions []*cobra.Command
+	withStableCommandOrder(func() { completions = root.Commands() })
+	for _, completion := range completions {
 		if completion.Name() != "completion" {
 			continue
 		}
+		var shellCommands []*cobra.Command
+		withStableCommandOrder(func() { shellCommands = completion.Commands() })
 		var shells []string
-		for _, shell := range completion.Commands() {
+		for _, shell := range shellCommands {
 			shell.Args = noArgs
 			shells = append(shells, shell.Name())
 		}
-		slices.Sort(shells) // Cobra lists the shells in registration order once sorting is off
+		slices.Sort(shells) // the error message lists shells alphabetically, regardless of help order
 		completion.Args = func(_ *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return inputError(fmt.Errorf("unknown shell %q; use one of %s", args[0], strings.Join(shells, ", ")))
