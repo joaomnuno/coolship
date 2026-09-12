@@ -67,6 +67,7 @@ change command behavior; the changelog says when they do.
 ### Changed
 
 - The one-page site under `site/` and its GitHub Pages workflow are replaced by the documentation site under `docs/`. GitHub Pages is no longer updated; the page it last built stays up at joaomnuno.github.io/coolship until Pages is disabled in the repository settings.
+- Running the Release workflow by hand now works for any existing tag, including one older than the release tooling itself, such as v0.1.0. The tagged commit is still what gets built and published, but the GoReleaser configuration and the release-notes script are read from the branch the workflow is started from instead of from the tag, and a file the archives ship that the tag does not have, such as LICENSE, is taken from that branch too. Archive and checksum names are unchanged.
 
 ## [0.2.0] - 2026-09-10
 

@@ -4,6 +4,10 @@ name: Release
 # triggers it; run it manually with a tag to publish or republish an existing
 # tag (for example v0.1.0). Tags with a pre-release suffix (v0.2.0-rc.1) are
 # published as pre-releases and never become "latest".
+#
+# The sources come from the tag, but the release tooling (.goreleaser.yaml and
+# scripts/release-notes) always comes from the ref this workflow runs from, so
+# republishing a tag older than that tooling still works.
 
 on:
   push:
@@ -36,7 +40,7 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout the tag
+      - name: Check out the tagged sources
         uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ env.TAG }}
@@ -46,6 +50,35 @@ jobs:
       - name: Confirm the checkout is the tagged commit
         run: |
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
+
+      - name: Take the release tooling from the workflow ref
+        # .goreleaser.yaml and scripts/release-notes were added after v0.1.0,
+        # so the tagged tree may not contain them at all. Read both from the
+        # commit this workflow itself runs from and keep them in RUNNER_TEMP,
+        # outside the working tree, so GoReleaser still sees a clean checkout
+        # of the tag and builds exactly the tagged sources.
+        env:
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          git fetch --no-tags origin "$WORKFLOW_SHA"
+          tooling="$RUNNER_TEMP/release-tooling"
+          mkdir -p "$tooling"
+          git cat-file -p "$WORKFLOW_SHA:.goreleaser.yaml" > "$tooling/goreleaser.yaml"
+          git cat-file -p "$WORKFLOW_SHA:scripts/release-notes" > "$tooling/release-notes"
+          chmod +x "$tooling/release-notes"
+          echo "TOOLING=$tooling" >> "$GITHUB_ENV"
+          echo "Release tooling taken from $WORKFLOW_SHA."
+          # The archives ship LICENSE, README.md and CHANGELOG.md, and
+          # GoReleaser fails when one of them is missing (v0.1.0 predates the
+          # LICENSE file). Fill a gap from the workflow ref and hide the copy
+          # from Git so the tag checkout stays clean.
+          for file in LICENSE README.md CHANGELOG.md; do
+            if [ ! -e "$file" ]; then
+              git cat-file -p "$WORKFLOW_SHA:$file" > "$file"
+              echo "/$file" >> .git/info/exclude
+              echo "$TAG has no $file; using the one from the workflow ref."
+            fi
+          done
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -58,14 +91,14 @@ jobs:
       - name: Write release notes from CHANGELOG.md
         run: |
           notes="$RUNNER_TEMP/release-notes.md"
-          if scripts/release-notes "$TAG" > "$notes"; then
+          if "$TOOLING/release-notes" "$TAG" CHANGELOG.md > "$notes"; then
             echo "Using the CHANGELOG.md section for ${TAG#v}."
           elif [[ "$TAG" == *-* ]]; then
             echo "No CHANGELOG.md section for ${TAG#v}; using [Unreleased] for the pre-release."
             {
               echo "Pre-release $TAG. Changes since the last release, from the [Unreleased] section of CHANGELOG.md:"
               echo
-              scripts/release-notes Unreleased || echo "_No changelog entries since the last release._"
+              "$TOOLING/release-notes" Unreleased CHANGELOG.md || echo "_No changelog entries since the last release._"
             } > "$notes"
           else
             echo "::error::CHANGELOG.md has no '## [${TAG#v}]' section. Add it (see AGENTS.md) before releasing."
@@ -100,7 +133,7 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --release-notes "${{ env.NOTES }}"
+          args: release --clean --config "${{ env.TOOLING }}/goreleaser.yaml" --release-notes "${{ env.NOTES }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ env.TAG }}
