@@ -16,6 +16,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
+	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 	"github.com/joaomnuno/coolship/internal/sshkey"
@@ -1145,7 +1146,7 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 	options := linkedOptions(t)
 	options.Environment = "staging"
 	options.Context = "other"
-	result, err := app.Config(context.Background(), options)
+	result, err := app.Config(context.Background(), options, preferences.Report{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1162,9 +1163,53 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{Source: "file", Path: "/nowhere"} },
 		NewBackend:         func(auth.Credentials) (Backend, error) { return f, nil },
 	})
-	result, err = broken.Config(context.Background(), linkedOptions(t))
+	result, err = broken.Config(context.Background(), linkedOptions(t), preferences.Report{})
 	if err != nil || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "no default instance") {
 		t.Fatalf("credential failure should be a warning: result=%+v err=%v", result, err)
+	}
+}
+
+// TestConfigAssemblesPreferencesReport verifies that Config folds the
+// preferences report it is given into the result itself, so a command has
+// nothing left to add: an absent report leaves the field nil, a present file
+// carries its keys, and a broken file keeps the path but reports only the
+// cause, not the file-path prefix Error already puts in front of it.
+func TestConfigAssemblesPreferencesReport(t *testing.T) {
+	f := newBackend()
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+
+	result, err := app.Config(context.Background(), options, preferences.Report{})
+	if err != nil || result.Preferences != nil {
+		t.Fatalf("no report: preferences=%+v err=%v", result.Preferences, err)
+	}
+
+	off := false
+	present := preferences.Report{
+		Path: "/home/u/.config/coolship/preferences.toml", Present: true,
+		Preferences: preferences.Preferences{Verbosity: "debug", BuildLogs: &off, Color: "auto"},
+	}
+	result, err = app.Config(context.Background(), options, present)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Preferences == nil || result.Preferences.Path != present.Path || !result.Preferences.Present ||
+		result.Preferences.Verbosity != "debug" || result.Preferences.BuildLogs == nil || *result.Preferences.BuildLogs ||
+		result.Preferences.Color != "auto" || result.Preferences.Error != "" {
+		t.Fatalf("present file: %+v", result.Preferences)
+	}
+
+	broken := preferences.Report{
+		Path: present.Path, Present: true,
+		Err: &preferences.Error{Path: present.Path, Err: errors.New(`unknown key "verbosty"`)},
+	}
+	result, err = app.Config(context.Background(), options, broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Preferences == nil || result.Preferences.Path != present.Path || !result.Preferences.Present ||
+		result.Preferences.Error != `unknown key "verbosty"` {
+		t.Fatalf("broken file: %+v", result.Preferences)
 	}
 }
 
