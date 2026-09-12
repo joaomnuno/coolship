@@ -34,11 +34,13 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if err != nil {
 		return LinkResult{}, err
 	}
+	current := currentBinding(p.Config, options.Target)
 	projectID := options.ProjectUUID
 	if options.Project == "" && projectID == "" {
 		choices := make([]Choice, len(projects))
 		for i, resource := range projects {
-			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID}
+			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID,
+				Current: isCurrent(resource.UUID, resource.Name, current.ProjectUUID, current.Project)}
 		}
 		projectID, err = choose(ctx, "project", choices, selectChoice)
 		if err != nil {
@@ -53,11 +55,15 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if err != nil {
 		return LinkResult{}, err
 	}
+	// A current environment or application counts only under the current
+	// parent; the same name elsewhere is a different resource.
+	sameProject := isCurrent(remoteProject.UUID, remoteProject.Name, current.ProjectUUID, current.Project)
 	environmentID := options.EnvironmentUUID
 	if options.Environment == "" && environmentID == "" {
 		choices := make([]Choice, len(environments))
 		for i, resource := range environments {
-			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID}
+			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID,
+				Current: sameProject && isCurrent(resource.UUID, resource.Name, current.EnvironmentUUID, current.Environment)}
 		}
 		environmentID, err = choose(ctx, "environment", choices, selectChoice)
 		if err != nil {
@@ -75,11 +81,13 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 	if details.UUID != environment.UUID {
 		return LinkResult{}, errors.New("server returned a different environment identity")
 	}
+	sameEnvironment := sameProject && isCurrent(environment.UUID, environment.Name, current.EnvironmentUUID, current.Environment)
 	applicationID := options.ApplicationUUID
 	if options.Application == "" && applicationID == "" {
 		choices := make([]Choice, len(details.Applications))
 		for i, resource := range details.Applications {
-			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID}
+			choices[i] = Choice{ID: resource.UUID, Name: resource.Name, Detail: resource.UUID,
+				Current: sameEnvironment && isCurrent(resource.UUID, resource.Name, current.ApplicationUUID, current.Application)}
 		}
 		applicationID, err = choose(ctx, "application", choices, selectChoice)
 		if err != nil {
@@ -100,6 +108,28 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 		return LinkResult{}, err
 	}
 	return outcome.result, nil
+}
+
+// currentBinding is the binding link would replace: the named target's table,
+// or [project] when no target is named and the file is in that form. An
+// unlinked directory has the zero binding, which matches nothing.
+func currentBinding(cfg config.Config, target string) config.Binding {
+	if target != "" && target != "default" {
+		return cfg.Apps[target]
+	}
+	if cfg.Named() {
+		return config.Binding{}
+	}
+	return cfg.Project
+}
+
+// isCurrent reports whether a resource is the one a binding names: by its
+// pinned UUID when the binding has one, otherwise by its exact name.
+func isCurrent(uuid, name, boundUUID, boundName string) bool {
+	if boundUUID != "" {
+		return uuid == boundUUID
+	}
+	return boundName != "" && name == boundName
 }
 
 // linkSelection rewords a resolver failure for link itself, where the usual

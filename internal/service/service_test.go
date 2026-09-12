@@ -989,6 +989,84 @@ func TestLinkPersistsBindingAndRequiresReviewedReplacement(t *testing.T) {
 	}
 }
 
+func TestLinkMarksTheCurrentBindingAmongTheChoices(t *testing.T) {
+	// Two projects and two environments, where every project lists the same
+	// environments, so a bound name also exists under a parent it is not bound to.
+	backend := func() *fakeBackend {
+		f := newBackend()
+		f.projects = append(f.projects, models.Project{UUID: "project-2", Name: "Work"})
+		f.environments[0].Applications = append(f.environments[0].Applications, models.Application{UUID: "app-2", Name: "other"})
+		f.environments = append(f.environments, models.Environment{UUID: "env-2", Name: "staging"})
+		return f
+	}
+	bound := func(t *testing.T, binding config.Binding) Options {
+		t.Helper()
+		dir := unlinkedDirectory(t)
+		binding.Context, binding.Root = "home", "."
+		data, err := config.Marshal(config.Config{Version: 1, Project: binding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "coolship.toml"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return Options{CWD: dir}
+	}
+	byName := config.Binding{Project: "Personal", Environment: "production", Application: "api"}
+	cases := []struct {
+		name    string
+		options func(*testing.T) Options
+		project string
+		// current names the choice marked current at each step, or "" for none.
+		current map[string]string
+	}{
+		{"bound resources by name", func(t *testing.T) Options { return bound(t, byName) }, "project-1",
+			map[string]string{"project": "project-1", "environment": "env-1", "application": "app-1"}},
+		{"same names under another project", func(t *testing.T) Options { return bound(t, byName) }, "project-2",
+			map[string]string{"project": "project-1", "environment": "", "application": ""}},
+		{"same application name under another environment", func(t *testing.T) Options {
+			return bound(t, config.Binding{Project: "Personal", Environment: "staging", Application: "api"})
+		}, "project-1",
+			map[string]string{"project": "project-1", "environment": "env-2", "application": ""}},
+		{"pinned UUIDs win over names", func(t *testing.T) Options {
+			return bound(t, config.Binding{Project: "Personal", ProjectUUID: "project-2", Environment: "staging", EnvironmentUUID: "env-1", Application: "api", ApplicationUUID: "app-2"})
+		}, "project-2",
+			map[string]string{"project": "project-2", "environment": "env-1", "application": "app-2"}},
+		{"unlinked directory", func(t *testing.T) Options { return Options{CWD: unlinkedDirectory(t)} }, "project-1",
+			map[string]string{"project": "", "environment": "", "application": ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, _, _ := testApp(backend())
+			offered := map[string][]Choice{}
+			stop := errors.New("stop before writing")
+			selector := func(_ context.Context, kind string, choices []Choice) (string, error) {
+				offered[kind] = choices
+				switch kind {
+				case "project":
+					return tc.project, nil
+				case "environment":
+					return "env-1", nil
+				}
+				return "", stop
+			}
+			if _, err := app.Link(context.Background(), LinkOptions{Options: tc.options(t)}, selector, nil); !errors.Is(err, stop) {
+				t.Fatalf("link returned %v; want the selector to stop it at the application", err)
+			}
+			for _, kind := range []string{"project", "environment", "application"} {
+				if len(offered[kind]) < 2 {
+					t.Fatalf("%s offered %+v; want a choice among several", kind, offered[kind])
+				}
+				for _, choice := range offered[kind] {
+					if want := choice.ID == tc.current[kind]; choice.Current != want {
+						t.Errorf("%s %s (%s) current=%t; want %t", kind, choice.Name, choice.ID, choice.Current, want)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestLinkCancellationDoesNotWrite(t *testing.T) {
 	f := newBackend()
 	f.environments[0].Applications = append(f.environments[0].Applications, models.Application{UUID: "app-2", Name: "other"})
