@@ -192,8 +192,15 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 }
 
 // offline reports the commands that read nothing and so have no use for a
-// preferences warning: help and the completion scripts.
+// preferences warning: help, the completion scripts, and a bare invocation
+// of the root command. Cobra passes the found command to
+// PersistentPreRunE, so a bare `coolship` arrives here as the root command
+// itself, with no parent; its RunE prints the help page exactly like
+// `coolship help` does, so it is treated the same way.
 func offline(command *cobra.Command) bool {
+	if command.Parent() == nil {
+		return true
+	}
 	for c := command; c != nil; c = c.Parent() {
 		if c.Name() == "help" || c.Name() == "completion" {
 			return true

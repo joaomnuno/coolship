@@ -1012,7 +1012,7 @@ func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
 	if err != nil || diagnostic != want || json.Unmarshal([]byte(out), &decoded) != nil || decoded.Preferences.Error != `unknown key "verbosty"` || !decoded.Preferences.Present {
 		t.Fatalf("broken file json: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
-	for _, args := range [][]string{{"--help"}, {"--version"}, {"help", "config"}, {"config", "--help"}, {"completion", "bash"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"--version"}, {"help", "config"}, {"config", "--help"}, {"completion", "bash"}} {
 		if out, diagnostic, err := run(broken, args...); err != nil || out == "" || diagnostic != "" {
 			t.Fatalf("%v with a broken file: out=%q stderr=%q err=%v", args, out, diagnostic, err)
 		}
