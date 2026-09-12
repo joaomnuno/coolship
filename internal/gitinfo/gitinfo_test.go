@@ -25,6 +25,13 @@ func TestNormalizeRemote(t *testing.T) {
 		{"git@gitlab.com:group/sub/repo.git", "https://gitlab.com/group/sub/repo"},
 		{"ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"ssh://git@github.com:22/owner/repo", "https://github.com/owner/repo"},
+		// A forge on a port of its own keeps it; an SSH port addresses a
+		// different service and never becomes part of the https URL.
+		{"https://gitea.example.com:8443/owner/repo.git", "https://gitea.example.com:8443/owner/repo"},
+		{"http://gitea.example.com:3000/owner/repo", "https://gitea.example.com:3000/owner/repo"},
+		{"https://github.com:443/owner/repo", "https://github.com/owner/repo"},
+		{"http://gitea.example.com:80/owner/repo", "https://gitea.example.com/owner/repo"},
+		{"ssh://git@gitea.example.com:2222/owner/repo", "https://gitea.example.com/owner/repo"},
 		{"git://github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"  git@github.com:owner/repo  ", "https://github.com/owner/repo"},
 	} {
@@ -54,6 +61,39 @@ func TestNormalizeRemote(t *testing.T) {
 	}
 }
 
+// TestErrorsRedactCredentials checks that a remote carrying a login never
+// has it quoted back: validation errors are printed, logged, and pasted into
+// issues, so a token in a remote must not survive the round trip.
+func TestErrorsRedactCredentials(t *testing.T) {
+	const secret = "supersecret"
+	for _, test := range []struct{ in, want string }{
+		{"https://user:" + secret + "@github.com/onlyowner", `"https://github.com/onlyowner"`},
+		{"https://" + secret + "@github.com/onlyowner", `"https://github.com/onlyowner"`},
+		{"https://user:" + secret + "@github.com/owner/repo?x=1", `"https://github.com/owner/repo?x=1"`},
+		{"ssh://user:" + secret + "@github.com/onlyowner", `"ssh://github.com/onlyowner"`},
+		{"ftp://user:" + secret + "@example.com/owner/repo", `"ftp://example.com/owner/repo"`},
+		{"user:" + secret + "@github.com:repo", `"redacted@github.com:repo"`},
+	} {
+		for name, normalize := range map[string]func(string) (string, error){"NormalizeRemote": NormalizeRemote, "SSHRemote": SSHRemote} {
+			got, err := normalize(test.in)
+			if err == nil {
+				t.Errorf("%s(%q) = %q, want an error", name, test.in, got)
+				continue
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("%s(%q) error exposes credentials: %v", name, test.in, err)
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Errorf("%s(%q) error = %v, want it to quote %s", name, test.in, err, test.want)
+			}
+		}
+	}
+	// Heads rejects anything that is not a URL, and quotes it just as safely.
+	if _, err := Heads(context.Background(), "-x://user:"+secret+"@github.com/owner/repo"); err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("Heads error exposes credentials: %v", err)
+	}
+}
+
 func TestSSHRemoteKeepsSSHFormsAndConvertsHTTPS(t *testing.T) {
 	for _, test := range []struct{ in, want string }{
 		{"git@github.com:owner/repo.git", "git@github.com:owner/repo.git"},
@@ -65,6 +105,7 @@ func TestSSHRemoteKeepsSSHFormsAndConvertsHTTPS(t *testing.T) {
 		{"https://github.com/owner/repo", "git@github.com:owner/repo.git"},
 		{"https://github.com/owner/repo.git/", "git@github.com:owner/repo.git"},
 		{"http://gitea.example.com/owner/repo", "git@gitea.example.com:owner/repo.git"},
+		{"https://gitea.example.com:8443/owner/repo", "git@gitea.example.com:owner/repo.git"},
 	} {
 		got, err := SSHRemote(test.in)
 		if err != nil || got != test.want {

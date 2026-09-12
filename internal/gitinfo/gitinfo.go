@@ -78,7 +78,7 @@ func Parse(remote string) (Repository, error) {
 // option.
 func Heads(ctx context.Context, remote string) ([]string, error) {
 	if !strings.Contains(remote, "://") || strings.HasPrefix(remote, "-") {
-		return nil, fmt.Errorf("remote %q is not a URL", remote)
+		return nil, fmt.Errorf("remote %q is not a URL", redact(remote))
 	}
 	home, err := os.MkdirTemp("", "coolship-probe-")
 	if err != nil {
@@ -172,6 +172,30 @@ func firstLine(text string) string {
 // scpStyle matches git@host:owner/repo(.git) and user@host:path forms.
 var scpStyle = regexp.MustCompile(`^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9.-]+):([^/].*)$`)
 
+// urlUserinfo is the userinfo of a URL-style remote, scheme://user:token@,
+// and scpUserinfo the user:token@ of anything written in the scp-style form.
+// Both reach as far as the last @ before the path, so a secret containing an
+// @ leaves nothing behind.
+var (
+	urlUserinfo = regexp.MustCompile(`^([A-Za-z0-9+.-]+://)[^/]*@`)
+	scpUserinfo = regexp.MustCompile(`^[^/@]*:[^/]*@`)
+)
+
+// redact is a remote as it can be shown in an error: a URL-style remote loses
+// its userinfo entirely, since a login there is a password or a token and is
+// dropped from the clone forms anyway, and an scp-style remote loses a
+// user:token@ prefix while a plain git@ stays, because an SSH remote's user
+// is not a secret.
+func redact(value string) string {
+	if strings.Contains(value, "://") {
+		return urlUserinfo.ReplaceAllString(value, "$1")
+	}
+	return scpUserinfo.ReplaceAllString(value, "redacted@")
+}
+
+// defaultPorts is the port each URL scheme already means.
+var defaultPorts = map[string]string{"https": "443", "http": "80", "git": "9418"}
+
 // remote is one parsed remote: the pieces both clone forms are built from.
 type remote struct {
 	user, host, port, path string
@@ -189,29 +213,37 @@ func parse(raw string) (remote, error) {
 	if strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return remote{}, errors.New("repository URL must not contain whitespace")
 	}
+	// Errors quote the remote without its credentials: a validation failure
+	// is printed, logged, and pasted into issues.
+	shown := redact(value)
 	var parsed remote
 	switch {
 	case strings.Contains(value, "://"):
 		u, err := url.Parse(value)
 		if err != nil || u.Hostname() == "" {
-			return remote{}, fmt.Errorf("repository URL %q is not a valid URL", value)
+			return remote{}, fmt.Errorf("repository URL %q is not a valid URL", shown)
 		}
 		switch u.Scheme {
 		case "https", "http", "git":
+			// A port the scheme already implies says nothing; any other
+			// one is part of the address and has to survive normalization.
+			if port := u.Port(); port != defaultPorts[u.Scheme] {
+				parsed.port = port
+			}
 		case "ssh", "git+ssh", "ssh+git":
 			parsed.ssh = true
 			parsed.user, parsed.port = u.User.Username(), u.Port()
 		default:
-			return remote{}, fmt.Errorf("repository URL %q uses scheme %q; only https and ssh remotes can be converted", value, u.Scheme)
+			return remote{}, fmt.Errorf("repository URL %q uses scheme %q; only https and ssh remotes can be converted", shown, u.Scheme)
 		}
 		if u.RawQuery != "" || u.Fragment != "" {
-			return remote{}, fmt.Errorf("repository URL %q must not contain a query or fragment", value)
+			return remote{}, fmt.Errorf("repository URL %q must not contain a query or fragment", shown)
 		}
 		parsed.host, parsed.path = strings.ToLower(u.Hostname()), u.Path
 	default:
 		match := scpStyle.FindStringSubmatch(value)
 		if match == nil {
-			return remote{}, fmt.Errorf("repository %q is not a remote URL; pass --repo with an https URL", value)
+			return remote{}, fmt.Errorf("repository %q is not a remote URL; pass --repo with an https URL", shown)
 		}
 		parsed.ssh = true
 		parsed.user, parsed.host, parsed.path = match[1], strings.ToLower(match[2]), "/"+match[3]
@@ -219,11 +251,11 @@ func parse(raw string) (remote, error) {
 	path := strings.TrimSuffix(strings.TrimRight(parsed.path, "/"), ".git")
 	path = strings.Trim(path, "/")
 	if strings.Count(path, "/") < 1 || strings.Contains(path, "..") {
-		return remote{}, fmt.Errorf("repository URL %q must name an owner and a repository", value)
+		return remote{}, fmt.Errorf("repository URL %q must name an owner and a repository", shown)
 	}
 	for _, segment := range strings.Split(path, "/") {
 		if segment == "" {
-			return remote{}, fmt.Errorf("repository URL %q must name an owner and a repository", value)
+			return remote{}, fmt.Errorf("repository URL %q must name an owner and a repository", shown)
 		}
 	}
 	parsed.path = path
@@ -233,13 +265,19 @@ func parse(raw string) (remote, error) {
 // NormalizeRemote turns any common remote form into the https URL Coolify
 // clones public repositories from: git@github.com:owner/repo.git,
 // ssh://git@github.com/owner/repo, and https://github.com/owner/repo.git all
-// become https://github.com/owner/repo.
+// become https://github.com/owner/repo. A forge served on a port of its own,
+// https://gitea.example.com:8443/owner/repo, keeps it; an SSH port does not
+// carry over, because it addresses a different service.
 func NormalizeRemote(raw string) (string, error) {
 	parsed, err := parse(raw)
 	if err != nil {
 		return "", err
 	}
-	return "https://" + parsed.host + "/" + parsed.path, nil
+	host := parsed.host
+	if !parsed.ssh && parsed.port != "" {
+		host += ":" + parsed.port
+	}
+	return "https://" + host + "/" + parsed.path, nil
 }
 
 // SSHRemote turns any common remote form into the SSH URL a deploy key clones
@@ -256,7 +294,7 @@ func SSHRemote(raw string) (string, error) {
 	if user == "" {
 		user = "git"
 	}
-	if parsed.port != "" {
+	if parsed.ssh && parsed.port != "" {
 		return user + "@" + parsed.host + ":" + parsed.port + "/" + parsed.path + ".git", nil
 	}
 	return user + "@" + parsed.host + ":" + parsed.path + ".git", nil
