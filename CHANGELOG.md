@@ -44,7 +44,7 @@ change command behavior; the changelog says when they do.
 - `dev` with more than one argument and no `--` says to put the command after `--`, with the corrected invocation.
 - `link`'s own selection failures name the flags to use (`link: no project named "x" in …; pass an exact name with --project, or a UUID with --project-uuid`) instead of advising to run `coolship link` or to link a UUID, which only applies to later commands.
 - `login` validates the URL before asking for the token: a bare host is asked again interactively, and noninteractively the error names `--url` or `--name`.
-- `coolship --help` lists the commands in five groups in the order a project moves through them — Get started (`login`, `init`, `link`), Ship (`deploy`, `preview`, `cancel`, `deployments`), Run (`start`, `stop`, `restart`, `status`, `logs`, `open`), Configure (`env`, `domain`, `config`, `dev`), and Maintain (`doctor`, `unlink`, `logout`, `help`, `completion`) — instead of one alphabetical list. Every command is invoked exactly as before: nothing moved, nested, or was renamed, and piped output and `--format json` are unchanged.
+- `coolship --help` lists the commands in five groups in the order a project moves through them — Get started (`login`, `init`, `link`), Ship (`deploy`, `preview`, `cancel`, `deployments`), Run (`start`, `stop`, `restart`, `status`, `logs`, `open`), Configure (`env`, `domain`, `config`, `dev`), and Maintain (`doctor`, `unlink`, `logout`, `completion`, `help`) — instead of one alphabetical list. Every command is invoked exactly as before: nothing moved, nested, or was renamed, and piped output and `--format json` are unchanged.
 
 ### Fixed
 
