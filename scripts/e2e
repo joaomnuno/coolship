@@ -11,9 +11,11 @@
 # environment "production", application "coolship-example" (E2E_PROJECT,
 # E2E_ENVIRONMENT, and E2E_APPLICATION override the names). It links from a
 # fresh temporary directory, deploys that application once, stops, starts,
-# and restarts it, and creates variables whose keys start with E2E_, which it
+# and restarts it, creates variables whose keys start with E2E_, which it
 # deletes again before exiting, even when a step fails or the run is
-# interrupted. Nothing else on the instance is written to.
+# interrupted, and reads the application's domains back and sets them to
+# themselves, a no-op the server accepts without changing anything. Nothing
+# else on the instance is written to.
 set -euo pipefail
 
 # shellcheck disable=SC1007 # same idiom as scripts/build
@@ -63,6 +65,11 @@ mkdir -p "$workspace/.git" # bounds discovery: without it the CLI would walk up
 # them from both scopes. It is stored in a file because steps run in subshells.
 pushed_flag="$tmp_root/variables-pushed"
 
+# domain_backup holds the domains read back before check_domain_set runs, one
+# per line; its presence is the guard, exactly like pushed_flag, so cleanup
+# can restore them if the run dies before the step confirms the restore itself.
+domain_backup="$tmp_root/domain-backup"
+
 cleanup() {
   status=$?
   trap - EXIT
@@ -71,6 +78,11 @@ cleanup() {
     current="cleanup"
     (prune_e2e_variables "") || log "cleanup: regular-scope prune did not complete; check the application's variables for E2E_ keys"
     (prune_e2e_variables --preview) || log "cleanup: preview-scope prune did not complete; check the application's preview variables for E2E_ keys"
+  fi
+  if [ -f "$domain_backup" ] && [ -f "$workspace/coolship.toml" ]; then
+    log "cleanup: restoring domains left changed on the application"
+    current="cleanup"
+    (restore_domain) || log "cleanup: domain restore did not complete; check the application's domains"
   fi
   rm -rf "$tmp_root"
   exit "$status"
@@ -171,6 +183,21 @@ prune_e2e_variables() {
   expect_out "Pushed"
   log "[$current] deleted E2E_ keys from the $label scope: $(tr '\n' ' ' <"$out")"
   rm -f "$file"
+}
+
+# restore_domain sets the application's domains back to what check_domain_set
+# recorded in domain_backup before it ran. It is idempotent, so cleanup can
+# call it regardless of how far the domain check got: once the domains are
+# confirmed set, it removes domain_backup, and a domain_backup that is
+# already gone means there is nothing left to restore.
+restore_domain() {
+  [ -f "$domain_backup" ] || return 0
+  local domains
+  domains=$(tr '\n' ' ' <"$domain_backup")
+  # shellcheck disable=SC2086 # $domains is a space-separated list of URLs
+  run 0 domain set $domains --yes
+  expect_out "Domains of $application"
+  rm -f "$domain_backup"
 }
 
 # step runs one check function in a subshell and records the outcome. A
@@ -355,6 +382,32 @@ check_preview_refusal() {
   expect_err "not found"
 }
 
+check_domain() {
+  run 0 domain
+  expect_out_lines 1
+  run 0 domain --format json
+  expect_out '"domains"'
+}
+
+check_domain_set() {
+  # Record the current domains in domain_backup, then set them back to
+  # themselves through restore_domain: DomainSet takes a no-op path when the
+  # requested list matches what is already set, so this exercises
+  # `domain set` on the live application without changing what it serves.
+  run 0 domain --format json
+  python3 -c '
+import json, sys
+for domain in json.load(sys.stdin).get("domains") or []:
+    print(domain)
+' <"$out" >"$domain_backup"
+  if [ ! -s "$domain_backup" ]; then
+    log "[$current] application has no domain to exercise; skipping"
+    rm -f "$domain_backup"
+    return 0
+  fi
+  restore_domain
+}
+
 check_deploy() {
   run 0 deploy --timeout "$deploy_timeout"
   expect_out "Status: finished"
@@ -426,6 +479,8 @@ run_all() {
   step optional "dev" check_dev
   step required "env push --prune" check_env_prune || return 1
   step optional "preview refusal" check_preview_refusal
+  step optional "domain" check_domain
+  step optional "domain set" check_domain_set
   step optional "deploy" check_deploy
   step optional "deployments" check_deployments
   step optional "cancel refusal" check_cancel_refusal
@@ -433,7 +488,7 @@ run_all() {
   step optional "restart" check_restart
   step required "unlink" check_unlink || return 1
 }
-all_steps=("version" "link" "doctor" "status" "config" "open" "logs" "logs --follow" "env pull + diff" "env push" "dev" "env push --prune" "preview refusal" "deploy" "deployments" "cancel refusal" "stop + start" "restart" "unlink")
+all_steps=("version" "link" "doctor" "status" "config" "open" "logs" "logs --follow" "env pull + diff" "env push" "dev" "env push --prune" "preview refusal" "domain" "domain set" "deploy" "deployments" "cancel refusal" "stop + start" "restart" "unlink")
 
 run_all || aborted=1
 
