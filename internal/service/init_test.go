@@ -348,3 +348,54 @@ func TestInitWritesNamedTargetWithBaseDirectory(t *testing.T) {
 		t.Fatalf("configuration %s: %v", data, err)
 	}
 }
+
+// TestInitRefusesANewProjectOutsideProduction covers the environment a new
+// project cannot have: Coolify provisions only production with the project,
+// so the refusal must come before the project is created.
+func TestInitRefusesANewProjectOutsideProduction(t *testing.T) {
+	f := newBackend()
+	app, _, _ := testApp(f)
+	confirmed := false
+	confirm := func(context.Context, InitPlan) (bool, error) {
+		confirmed = true
+		return true, nil
+	}
+	options := InitOptions{Options: Options{CWD: unlinkedDirectory(t), Environment: "staging"}, Project: "Fresh", CreateProject: true}
+	_, err := app.Init(context.Background(), options, nil, confirm, nil)
+	if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "production") {
+		t.Fatalf("err=%v", err)
+	}
+	if confirmed || f.calls["create-project"] != 0 || f.calls["create-application"] != 0 {
+		t.Fatalf("confirmed=%v calls=%v", confirmed, f.calls)
+	}
+	// The refusal is about the project being new, not about the flag: an
+	// existing project is still looked up for the environment it may have.
+	_, err = app.Init(context.Background(), InitOptions{Options: options.Options, Project: "Personal", CreateProject: true, Yes: true}, nil, nil, nil)
+	if err == nil || strings.Contains(err.Error(), "--create-project") || f.calls["environments"] == 0 {
+		t.Fatalf("existing project: err=%v calls=%v", err, f.calls)
+	}
+}
+
+// TestInitShowsWarningsBeforeTheConfirmation checks that the warning about a
+// Compose application without domains reaches the plan, so the user reads it
+// while the answer can still be no.
+func TestInitShowsWarningsBeforeTheConfirmation(t *testing.T) {
+	f := newBackend()
+	app, _, _ := testApp(f)
+	dir := unlinkedDirectory(t)
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var plan InitPlan
+	confirm := func(_ context.Context, p InitPlan) (bool, error) {
+		plan = p
+		return false, nil
+	}
+	_, err := app.Init(context.Background(), InitOptions{Options: Options{CWD: dir}, Project: "Personal"}, nil, confirm, nil)
+	if !errors.Is(err, ErrCancelled) || f.calls["create-application"] != 0 {
+		t.Fatalf("err=%v calls=%v", err, f.calls)
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "No service has a domain") {
+		t.Fatalf("warnings=%q", plan.Warnings)
+	}
+}
