@@ -60,14 +60,29 @@ func observeDeployment(streams ui.Streams, options *commandOptions, noWait, logs
 	if err != nil {
 		if checklist != nil {
 			// The failure is what the caller must learn; a lost write cannot displace it.
-			_ = checklist.Close(true)
+			_ = checklist.Close(deploymentOutcome(result.Status))
 		}
 		return deploymentFailure(renderer, options.format, result, err)
 	}
 	if checklist != nil {
-		if err := checklist.Close(false); err != nil {
+		if err := checklist.Close(ui.OutcomeSucceeded); err != nil {
 			return err
 		}
 	}
 	return renderer.Deploy(result)
+}
+
+// deploymentOutcome reads how observation ended from the deployment's last
+// observed status, which is the only thing that says whether the deployment
+// failed. A --timeout that elapses, a Ctrl-C, or a poll that fails all end
+// observation with an error while the deployment is still queued or running
+// on the server; none of them is a failed deployment, so the checklist says
+// observation stopped and the build log stays collapsed. Only the server's
+// own verdict prints the log.
+func deploymentOutcome(status string) ui.Outcome {
+	switch status {
+	case "failed", "cancelled-by-user":
+		return ui.OutcomeFailed
+	}
+	return ui.OutcomeStopped
 }

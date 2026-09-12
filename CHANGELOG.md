@@ -61,6 +61,7 @@ change command behavior; the changelog says when they do.
 - `status` interrupted while reading the deployment history reported success with a warning; it now exits as cancelled, like every other command.
 - A remote that carries a login, such as `https://user:token@github.com/owner/repo`, had it quoted back verbatim when the URL was rejected, so a token could end up in terminal output, logs, and CI transcripts. The credentials are now stripped from the quoted remote in every one of those errors, for URL and `user@host:path` remotes alike.
 - A repository URL on a port of its own, such as `https://gitea.example.com:8443/owner/repo`, lost the port when it was normalized, so a self-hosted forge was linked to the wrong address. The port is kept now; an SSH port still does not carry over to the https form, since it addresses a different service.
+- A `deploy`, `start`, `restart`, or `preview` whose observation stopped before the server decided anything printed the whole build log, as if the deployment had failed. A `--timeout` that elapses, a Ctrl-C, and a failed poll all leave the deployment running on the server, so the checklist says observation stopped and the log now stays collapsed; only a deployment the server reports as failed or cancelled prints it. The error and the exit status are unchanged, and `--logs` still streams.
 
 ### Changed
 
