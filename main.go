@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -114,19 +115,34 @@ func interactive() bool {
 // on that stream, and is turned off by NO_COLOR (https://no-color.org), a dumb
 // terminal, CI, or --no-color. Only this function decides; ui receives the
 // result as a capability and never inspects the environment.
+//
+// This scan happens on raw argv, before Cobra/pflag parse the command line,
+// so --no-color=VALUE is decoded the same way pflag decodes any bool flag:
+// via strconv.ParseBool, which accepts 1/t/T/TRUE/true/True and
+// 0/f/F/FALSE/false/False. An explicit false form (or a value ParseBool does
+// not recognize) leaves color as-is rather than forcing it off, and a later
+// occurrence overrides an earlier one, matching how repeated flags behave.
 func colorEnabled(terminal bool, env func(string) string, args []string) bool {
 	if !terminal || env("NO_COLOR") != "" || env("TERM") == "dumb" || env("CI") != "" {
 		return false
 	}
+	optOut := false
 	for _, arg := range args {
 		if arg == "--" {
 			break
 		}
-		if arg == "--no-color" || arg == "--no-color=true" {
-			return false
+		if arg == "--no-color" {
+			optOut = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, "--no-color="); ok {
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				optOut = parsed
+			}
+			continue
 		}
 	}
-	return true
+	return !optOut
 }
 
 // isTerminal asks the terminal driver, not the file mode: /dev/null is a
