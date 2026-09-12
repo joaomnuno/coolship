@@ -17,6 +17,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
+	"github.com/spf13/cobra"
 )
 
 type fakeApplication struct {
@@ -196,6 +197,46 @@ func TestHelpGroupsCommandsByTask(t *testing.T) {
 		if !known {
 			t.Errorf("unexpected section %q", line)
 		}
+	}
+}
+
+// TestHelpOrderStaysLocalToTheTree is issue #30: building and rendering the
+// help of a Coolship tree used to leave cobra.EnableCommandSorting turned
+// off for the rest of the process, silently reordering the help of any
+// other Cobra tree the same program builds. A sibling tree, built and
+// rendered around the same calls, must keep Cobra's own alphabetical
+// default throughout and after.
+func TestHelpOrderStaysLocalToTheTree(t *testing.T) {
+	if !cobra.EnableCommandSorting {
+		t.Fatal("test assumes Cobra's default sorting is enabled before it runs")
+	}
+	sibling := &cobra.Command{Use: "sibling"}
+	for _, name := range []string{"zebra", "mango", "apple"} {
+		sibling.AddCommand(&cobra.Command{Use: name, Run: func(*cobra.Command, []string) {}})
+	}
+
+	if _, _, err := execute(t, nil, "--help"); err != nil {
+		t.Fatalf("coolship --help: %v", err)
+	}
+
+	if !cobra.EnableCommandSorting {
+		t.Fatal("rendering the Coolship tree's help left cobra.EnableCommandSorting disabled")
+	}
+
+	var out bytes.Buffer
+	sibling.SetOut(&out)
+	sibling.SetArgs([]string{"--help"})
+	if err := sibling.Execute(); err != nil {
+		t.Fatalf("sibling --help: %v", err)
+	}
+	names := []string{"apple", "mango", "zebra"} // alphabetical: Cobra's own default, undisturbed
+	position := 0
+	for _, name := range names {
+		index := strings.Index(out.String()[position:], "\n  "+name+" ")
+		if index < 0 {
+			t.Fatalf("sibling tree lost Cobra's default alphabetical order: %s", out.String())
+		}
+		position += index
 	}
 }
 
