@@ -236,8 +236,9 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
-// ConfirmInit shows everything init is about to create and write. With a new
-// deploy key, only the key is created at this point, and the plan says so.
+// ConfirmInit shows everything init is about to create and write, with any
+// warnings above the question. With a new deploy key, only the key is created
+// at this point, and the plan says so.
 func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -291,6 +292,13 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	if plan.NewDeployKey {
 		question = "Create deploy key " + singleLine(plan.DeployKey) + " on " + singleLine(plan.Instance) + " for " + singleLine(plan.Repository) + "?"
 		rows = rows[:2]
+	}
+	// The warnings come first: they are the reason to answer no, so they
+	// must be read before the question rather than after the creation.
+	for _, warning := range plan.Warnings {
+		if _, err := fmt.Fprintf(p.streams.Err, "%s %s\n", p.style.apply(yellow, "Warning:"), singleLine(warning)); err != nil {
+			return false, err
+		}
 	}
 	if _, err := fmt.Fprintln(p.streams.Err, p.question(question)); err != nil {
 		return false, err

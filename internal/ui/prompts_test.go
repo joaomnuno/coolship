@@ -34,3 +34,23 @@ func TestSelectNamesTheFlagsWhenNoninteractive(t *testing.T) {
 		t.Errorf("unknown kind: %v", err)
 	}
 }
+
+// TestConfirmInitPrintsWarningsBeforeTheQuestion keeps the warnings where they
+// can still change the answer, above the question rather than after creation.
+func TestConfirmInitPrintsWarningsBeforeTheQuestion(t *testing.T) {
+	var diagnostic strings.Builder
+	prompter := NewPrompter(Streams{In: strings.NewReader("n\n"), Err: &diagnostic, Interactive: true})
+	plan := service.InitPlan{Name: "web", Instance: "home", Project: "Personal", Environment: "production", Server: "localhost",
+		Repository: "https://github.com/o/r", Branch: "main", BuildPack: "dockercompose", Path: "coolship.toml",
+		Warnings: []string{"No service has a domain yet."}}
+	accepted, err := prompter.ConfirmInit(context.Background(), plan)
+	if err != nil || accepted {
+		t.Fatalf("accepted=%v err=%v", accepted, err)
+	}
+	out := diagnostic.String()
+	warning := strings.Index(out, "No service has a domain yet.")
+	question := strings.Index(out, "Create application web")
+	if warning < 0 || question < 0 || warning > question {
+		t.Fatalf("warning at %d, question at %d in:\n%s", warning, question, out)
+	}
+}

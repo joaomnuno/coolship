@@ -97,6 +97,12 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	if err != nil {
 		return InitResult{}, err
 	}
+	// Coolify provisions only a production environment with a new project,
+	// and there is no API call here to add another, so refuse before
+	// anything is created rather than orphan the project.
+	if newProject && environmentName != "production" {
+		return InitResult{}, input(fmt.Errorf("project %q does not exist yet and a new project only gets a production environment, so --environment %s cannot be created; create the project and its environment in Coolify first, then rerun without --create-project", options.Project, environmentName))
+	}
 	var environments []models.Environment
 	var environment models.Environment
 	var applications []models.Application
@@ -147,6 +153,9 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 			warnings = append(warnings, "--deploy has no effect yet: the application is created once the new key is registered on the repository.")
 		}
 	}
+	// The plan carries the warnings so the confirmation shows them while the
+	// answer can still be no; the result reports them again afterwards.
+	plan.Warnings = warnings
 	if !options.Yes {
 		if confirm == nil {
 			return InitResult{}, input(errors.New("creating an application requires --yes when input is noninteractive"))

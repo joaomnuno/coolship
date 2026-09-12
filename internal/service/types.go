@@ -104,6 +104,10 @@ type InitPlan struct {
 	GitHubApp        string          `json:"github_app,omitempty"`
 	DeployKey        string          `json:"deploy_key,omitempty"`
 	NewDeployKey     bool            `json:"new_deploy_key,omitempty"`
+	// Warnings are what the confirmation must show before the answer. They
+	// are reported again in InitResult.Warnings, so the plan's JSON omits
+	// them.
+	Warnings []string `json:"-"`
 }
 
 type ConfirmInit func(context.Context, InitPlan) (bool, error)
