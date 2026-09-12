@@ -79,9 +79,15 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 	if err != nil || status.Target.ApplicationUUID != "app-new-app" {
 		t.Fatalf("status %+v err=%v", status, err)
 	}
-	// A linked directory is refused before any request, even with --yes.
+	// A linked directory is refused before any request, even with --yes, and
+	// before the repository is resolved or the remote is probed: the target
+	// is already bound, so none of that work is needed to know it.
+	inspected, probed, projects := len(f.inspected), len(f.probed), f.calls["projects"]
 	if _, err := app.Init(context.Background(), InitOptions{Options: Options{CWD: dir}, Project: "Personal", Name: "another", Yes: true}, nil, nil, nil); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "already binds") || f.calls["create-application"] != 1 {
 		t.Fatalf("already linked: err=%v calls=%v", err, f.calls)
+	}
+	if len(f.inspected) != inspected || len(f.probed) != probed || f.calls["projects"] != projects {
+		t.Fatalf("already linked did work it should have skipped: inspected=%d probed=%d projects=%d", len(f.inspected), len(f.probed), f.calls["projects"])
 	}
 }
 

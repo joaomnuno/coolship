@@ -255,6 +255,50 @@ func TestConcurrentCreatorsPublishOnlyOneCompleteBinding(t *testing.T) {
 	}
 }
 
+// TestLinkedAgreesWithProposeReviewWithoutTheFinishedBinding checks that
+// Linked's cheaper answer, reached without a binding to compare, agrees with
+// the review decision Propose reaches once it has one.
+func TestLinkedAgreesWithProposeReviewWithoutTheFinishedBinding(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unlinked, err := project.Discover(project.Paths{CWD: root}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.Linked(unlinked, "") || project.Linked(unlinked, "web") {
+		t.Fatal("a directory with no configuration is never already linked")
+	}
+
+	named := namedProject(t, "apps/api")
+	if !project.Linked(named, "api") {
+		t.Fatal("an existing named target must be linked")
+	}
+	if project.Linked(named, "worker") {
+		t.Fatal("a new named target is not linked; Propose adds it without review")
+	}
+	if !project.Linked(named, "") || !project.Linked(named, "default") {
+		t.Fatal("the single form conflicts with an existing named configuration")
+	}
+	if plan, err := project.Propose(named, "default", config.Binding{Project: "Personal", Environment: "production", Application: "worker", Root: "."}); err != nil || !plan.Review {
+		t.Fatalf("Propose must review the same conversion: plan=%+v err=%v", plan, err)
+	}
+	if plan, err := project.Propose(named, "worker", config.Binding{Project: "Personal", Environment: "production", Application: "worker", Root: "apps/worker"}); err != nil || plan.Review {
+		t.Fatalf("Propose must not review a genuinely new target: plan=%+v err=%v", plan, err)
+	}
+
+	single := namedProject(t, ".")
+	single.Config = config.Config{Version: 1, Project: config.Binding{Project: "Personal", Environment: "production", Application: "app", Root: "."}}
+	single.Exists = true
+	if !project.Linked(single, "") || !project.Linked(single, "default") {
+		t.Fatal("an existing single-form binding is linked")
+	}
+	if !project.Linked(single, "web") {
+		t.Fatal("a named target conflicts with an existing single-form configuration")
+	}
+}
+
 func namedProject(t *testing.T, cwd string) project.Project {
 	t.Helper()
 	root := t.TempDir()

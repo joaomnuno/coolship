@@ -48,6 +48,12 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	if err != nil {
 		return InitResult{}, input(err)
 	}
+	// Checked before the repository is resolved or any backend is called, so
+	// a directory that is already linked is refused without paying for the
+	// anonymous git probe, project listing, or the other calls below.
+	if project.Linked(p, options.Target) {
+		return InitResult{}, input(fmt.Errorf("%s already binds this target; run coolship unlink first, or coolship link to change the binding without creating an application", p.ConfigPath))
+	}
 	root := proposedRoot(p, options.Target, "")
 	appRoot := filepath.Join(p.ConfigRoot, root)
 
@@ -123,9 +129,10 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	}
 	warnings = append(warnings, serverWarnings...)
 
-	// The binding is proposed before anything is created, so a directory that
-	// is already linked is refused rather than left pointing at the old
-	// application after a second one appeared.
+	// project.Linked already refused an already-linked target before any of
+	// the work above ran; proposing the binding here still catches it in the
+	// rare case the file changed underneath this run, before anything is
+	// created.
 	binding := config.Binding{Context: credentials.Name, Project: remoteProject.Name, Environment: environmentName, Application: name, Root: root}
 	if authOptions.URL != "" {
 		binding.Context = ""
