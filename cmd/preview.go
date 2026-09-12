@@ -43,7 +43,7 @@ collapsed, and the build_logs preference decides when neither is given.`,
 			if deploy.PullRequest <= 0 {
 				return inputError(errors.New("--pr is required outside a GitHub Actions pull_request workflow"))
 			}
-			showLogs, err := buildLogs(logs, prefs.BuildLogs)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs, options.verbosity)
 			if err != nil {
 				return err
 			}

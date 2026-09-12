@@ -24,12 +24,11 @@ func (f *logFlags) register(flags *pflag.FlagSet) {
 //
 //  1. the run's --logs or --no-logs flag; both together is an input error;
 //  2. the build_logs key of the preferences file, when the key is set;
-//  3. the verbosity default, which is collapsed for now, since verbosity
-//     does not exist yet (verbose and debug will stream once it lands).
+//  3. the verbosity: normal collapses, verbose and debug stream.
 //
 // Off a terminal, and with --format json, the answer is moot: the build log
 // streams as it always did. --no-wait observes nothing, so it is moot too.
-func buildLogs(flags logFlags, preference *bool) (bool, error) {
+func buildLogs(flags logFlags, preference *bool, verbosity ui.Verbosity) (bool, error) {
 	switch {
 	case flags.logs && flags.noLogs:
 		return false, inputError(errors.New("--logs and --no-logs cannot be combined"))
@@ -40,7 +39,7 @@ func buildLogs(flags logFlags, preference *bool) (bool, error) {
 	case preference != nil:
 		return *preference, nil
 	}
-	return false, nil
+	return verbosity != ui.VerbosityNormal, nil
 }
 
 // observeDeployment runs one workflow that queues and observes a deployment
