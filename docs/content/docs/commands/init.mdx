@@ -29,7 +29,7 @@ Linked project in /home/you/my-app/coolship.toml
 
 ## Build packs
 
-The application root decides the build pack, in the order Coolify's own form checks: a compose file (`docker-compose.yaml`, `docker-compose.yml`, `compose.yaml`, or `compose.yml`) makes a Compose application, a `Dockerfile` builds itself, an `index.html` with no `package.json` is served as it is, and anything else goes to Railpack, Coolify's default. `--build-pack` overrides the detection.
+The application root decides the build pack, in the order Coolify's own form checks: a compose file (`docker-compose.yaml`, `docker-compose.yml`, `compose.yaml`, or `compose.yml`) makes a Compose application, a `Dockerfile` builds itself, an `index.html` with no `package.json` is served as it is, and anything else goes to Railpack, Coolify's default. `--build-pack` overrides the detection; naming `--dockerfile` or `--compose-file` (or `--compose-domain`) without `--build-pack` picks that pack too, so naming the file is enough.
 
 | Build pack      | What Coolify does                                                                                          | Flags that refine it                                                                                                   |
 | --------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |

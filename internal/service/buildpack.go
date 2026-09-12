@@ -148,12 +148,28 @@ func isFile(path string) bool {
 
 // settleBuild combines the flags with what the root contains and refuses a
 // refinement that does not belong to the pack, so the plan never carries a
-// setting Coolify would ignore.
+// setting Coolify would ignore. An explicit --dockerfile or --compose-file
+// (or --compose-domain) picks its pack when --build-pack is not given, so
+// naming the file is enough; --build-pack still wins, and still conflicts
+// loudly with a refinement that names the wrong pack. Naming both a
+// --dockerfile and a --compose-file/--compose-domain with no --build-pack is
+// refused outright, since neither inference should win silently over the
+// other.
 func settleBuild(options BuildOptions, appRoot string) (buildPlan, error) {
 	plan := buildPlan{BuildPack: options.BuildPack}
 	detected, composeFile := detectBuildPack(appRoot)
 	if plan.BuildPack == "" {
-		plan.BuildPack = detected
+		compose := options.ComposeFile != "" || len(options.ComposeDomains) > 0
+		switch {
+		case options.Dockerfile != "" && compose:
+			return buildPlan{}, input(errors.New("--dockerfile and --compose-file/--compose-domain name different build packs; pass one, or name --build-pack"))
+		case options.Dockerfile != "":
+			plan.BuildPack = BuildPackDockerfile
+		case compose:
+			plan.BuildPack = BuildPackCompose
+		default:
+			plan.BuildPack = detected
+		}
 	}
 	builds := plan.BuildPack == BuildPackRailpack || plan.BuildPack == BuildPackNixpacks
 	if options.Static && !builds {
