@@ -71,7 +71,7 @@ export function SiteNav() {
         <div className="ml-auto flex items-center gap-2">
           <SearchTrigger hideIfDisabled className="hidden sm:inline-flex" />
           <ThemeSwitch className="hidden sm:inline-flex" />
-          <a href="#install" className={buttonClass("primary", "sm")}>
+          <a href="/#install" className={buttonClass("primary", "sm")}>
             Install
           </a>
           <details className="group relative md:hidden">
@@ -112,9 +112,19 @@ export function SiteNav() {
                   </Link>
                 ),
               )}
-              <div className="mt-1 flex items-center justify-between border-t border-fd-border px-2 pt-2 sm:hidden">
-                <span className="text-xs text-fd-muted-foreground">Theme</span>
-                <ThemeSwitch />
+              <div className="mt-1 flex flex-col gap-2 border-t border-fd-border px-2 pt-2 sm:hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-fd-muted-foreground">
+                    Search
+                  </span>
+                  <SearchTrigger hideIfDisabled />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-fd-muted-foreground">
+                    Theme
+                  </span>
+                  <ThemeSwitch />
+                </div>
               </div>
             </div>
           </details>
