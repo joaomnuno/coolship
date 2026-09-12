@@ -44,7 +44,8 @@ Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the librar
 - [x] `deploy`, `start`, `restart`, `preview`: a stage checklist keyed on Coolify's log markers, a spinner with elapsed time, the build log collapsed by default and printed in full on failure, and the application URL (or the Coolify deployment page) as the last line.
 - [x] `--logs` and `--no-logs` for one run; then the preference; then the verbosity default (collapsed at normal, streamed at verbose and debug; the resolution lives in one place in `cmd`).
 - [ ] Selectors with arrow keys, type-to-filter, and Esc; normal mode shows names only, a UUID only to break a tie.
-- [x] Verbosity: normal, `--verbose`, `--debug`, and `COOLSHIP_VERBOSITY` for CI; `-v` stays version (request lines and full exchanges on stderr; names-only normal output arrives with the selectors).
+- [x] Verbosity: normal, `--verbose`, `--debug`, and `COOLSHIP_VERBOSITY` for CI; `-v` stays version (request lines and full exchanges on stderr).
+- [ ] Normal command output shows names only, and `--verbose` adds UUIDs and timings (the rest of #18; the selectors item covers only the `link` and `init` choice).
 - [x] Preferences at `~/.config/coolship/preferences.toml`; credentials stay in Coolify CLI's shared file (the file is read and shown by `config`; verbosity and build logs consume it, color not yet).
 - [x] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.
 - [ ] `coolship ui`: a draft menu with the target, status, and last deployment above the verbs in the same groups.

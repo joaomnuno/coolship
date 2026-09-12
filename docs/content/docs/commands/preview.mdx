@@ -22,7 +22,7 @@ Coolify must already know the pull request: preview deployments must be enabled 
 | `--logs`             | Stream the build log live above the checklist (terminal only).                          |
 | `--no-logs`          | Keep the build log collapsed; it prints in full if the deployment fails (terminal only). |
 
-In a terminal the deployment is shown as the same stage checklist as [`deploy`](/docs/commands/deploy), build log collapsed. `--logs` and `--no-logs` cannot be combined; without either, the `build_logs` preference decides, and without that the log stays collapsed. Piped output and `--format json` are unchanged.
+In a terminal the deployment is shown as the same stage checklist as [`deploy`](/docs/commands/deploy), build log collapsed. `--logs` and `--no-logs` cannot be combined; without either, the `build_logs` preference decides; without that, the [verbosity](/docs/platform/output#verbosity) does: collapsed at normal, streamed with `--verbose` or `--debug`. Piped output and `--format json` are unchanged.
 
 ## Examples
 

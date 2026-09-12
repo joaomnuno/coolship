@@ -21,7 +21,7 @@ Read `ARCHITECTURE.md` and `ROADMAP.md` before substantial changes. `REQUEST.md`
 - Return typed data and errors from lower layers. Print and classify errors once at the executable boundary.
 - Use temporary directories, injected writers/clocks, and `httptest.Server` for behavioral tests. Do not require actual user credentials for tests.
 - Run focused tests while developing, then `./scripts/go test ./...`, `./scripts/go test -race ./...`, and `./scripts/go vet ./...` for the milestone. CI (`.github/workflows/ci.yml`) runs the same plus `gofmt -l`, `go build ./...`, and `shellcheck` on `scripts/`; a pull request that changes Go code without a `CHANGELOG.md` entry fails unless it carries the `skip-changelog` label.
-- Keep credential files read-only. Never persist tokens or fetched secret values in project configuration, fixtures, debug output, or Git.
+- Keep credential files read-only. Never persist tokens or fetched secret values in project configuration, fixtures, or Git. Debug output (`--debug`) goes to stderr only, masks the token to its last four characters, and shows request and response bodies in full as `ARCHITECTURE.md` section 8 records; never write it to a file or cache.
 - Update README examples, architecture decisions, and roadmap status when behavior changes. Do not document planned commands as implemented.
 
 ## Versioning and changelog

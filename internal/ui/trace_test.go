@@ -66,10 +66,29 @@ func TestTraceDebugShowsHeadersAndBodiesWithoutControlCharacters(t *testing.T) {
 	}
 }
 
-func TestDrawableIsOffAboveNormal(t *testing.T) {
-	trace := NewTrace(nil)
-	trace.SetLevel(VerbosityVerbose)
-	if _, ok := drawable(Streams{Interactive: true, Trace: trace}); ok {
-		t.Fatal("a verbose run must not draw live views")
+// TestLiveViewsAreOffAboveNormal checks the verbosity gate of drawable on
+// its own, since a test has no terminal to reach the rest of it.
+func TestLiveViewsAreOffAboveNormal(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		interactive bool
+		trace       *Trace
+		want        bool
+	}{
+		{"nil trace is normal", true, nil, true},
+		{"normal", true, NewTrace(nil), true},
+		{"verbose", true, leveled(VerbosityVerbose), false},
+		{"debug", true, leveled(VerbosityDebug), false},
+		{"not interactive", false, NewTrace(nil), false},
+	} {
+		if got := liveViewsAllowed(Streams{Interactive: test.interactive, Trace: test.trace}); got != test.want {
+			t.Errorf("%s: liveViewsAllowed = %v, want %v", test.name, got, test.want)
+		}
 	}
+}
+
+func leveled(level Verbosity) *Trace {
+	trace := NewTrace(nil)
+	trace.SetLevel(level)
+	return trace
 }

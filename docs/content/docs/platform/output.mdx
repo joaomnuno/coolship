@@ -11,7 +11,7 @@ Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping
 
 `--format json` prints one result object per command. The shapes are documented on each command page, and every result that names an application carries the same `target` object (see the [command reference](/docs/commands)). `logs --format json` prints newline-delimited events, one object per line, for a single snapshot and when following. JSON mode never mixes human progress into stdout, and JSON output is never styled.
 
-Values that may be secrets are masked in JSON as well, unless `--show-values` is given. Tokens never appear in any output.
+Values that may be secrets are masked in JSON as well, unless `--show-values` is given. The token never appears in any output; at debug verbosity only its last four characters are shown.
 
 ## Styling
 
@@ -36,7 +36,7 @@ The level comes from the first of these that is set:
 3. the `verbosity` key of the [preferences file](/docs/commands/config#preferences);
 4. normal.
 
-Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise, and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain status lines print instead. Debug output shows what the server returns, which for `env pull` includes variable values, so keep it out of shared CI logs.
+Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise (then it is held back and printed in full only if the deployment fails), and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain status lines print instead. Debug output shows request and response bodies in full, with only the token masked, so it includes the variable values `env set` and `env push` send and `env pull` returns, and any other secret a request or response carries; keep it out of shared CI logs.
 
 ## Prompts
 
