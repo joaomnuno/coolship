@@ -7,6 +7,9 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Changed
+- `link` and `init` ask for each choice (context, project, environment, application, server, source, GitHub App, deploy key) with an arrow-key picker when run in a terminal, in place of the numbered list: the arrow keys move, Enter picks, and Esc or Ctrl-C cancels without writing anything. Typing filters a list too long for the terminal, and `/` starts the filter on a shorter one. Choices show names only; the UUID or another detail appears only when two candidates share a name. When `link` runs in a directory that is already linked, the cursor starts on the project, environment, and application the binding names. The picker is erased once it ends and a chosen value leaves one line such as `Project: Personal`. When stdin is not a terminal but input is interactive, the numbered list remains and shows the same names, with `(current)` after the bound resource. Noninteractive runs, piped output, and `--format json` are unchanged.
+
 ## [0.3.0] - 2026-09-12
 
 Coolship now covers an application's whole life from the terminal: create it, deploy it, watch the stages, manage its lifecycle and history, and read its logs, variables, and domains. A documentation site and a landing page came with it.

@@ -43,7 +43,7 @@ Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the librar
 - [x] Adopt the Charm stack inside `internal/ui` only (ADR 0001).
 - [x] `deploy`, `start`, `restart`, `preview`: a stage checklist keyed on Coolify's log markers, a spinner with elapsed time, the build log collapsed by default and printed in full on failure, and the application URL (or the Coolify deployment page) as the last line.
 - [x] `--logs` and `--no-logs` for one run; then the preference; then the verbosity default (collapsed until verbosity lands; the resolution lives in one place in `cmd`).
-- [ ] Selectors with arrow keys, type-to-filter, and Esc; normal mode shows names only, a UUID only to break a tie.
+- [x] Selectors with arrow keys, type-to-filter, and Esc; normal mode shows names only, a UUID only to break a tie.
 - [ ] Verbosity: normal, `--verbose`, `--debug`, and `COOLSHIP_VERBOSITY` for CI; `-v` stays version.
 - [x] Preferences at `~/.config/coolship/preferences.toml`; credentials stay in Coolify CLI's shared file (the file is read and shown by `config`; verbosity and build logs consume it once they land).
 - [x] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.

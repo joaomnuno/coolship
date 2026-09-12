@@ -465,7 +465,13 @@ type CancelResult struct {
 	Warnings       []string   `json:"warnings,omitempty"`
 }
 
-type Choice struct{ ID, Name, Detail string }
+// Choice is one candidate a selector offers. Detail tells candidates that
+// share a name apart; Current marks the one the existing binding names, so a
+// selector can start on it when a directory is linked again.
+type Choice struct {
+	ID, Name, Detail string
+	Current          bool
+}
 type Selector func(context.Context, string, []Choice) (string, error)
 type Confirm func(context.Context, LinkPlan) (bool, error)
 

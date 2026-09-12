@@ -11,11 +11,15 @@ coolship link [flags]
 
 ```text
 $ coolship link
-Select project:
-  1. Personal (a1b2c3d4)
-  2. Work (e5f6a7b8)
-Choice [1-2, q to cancel]: 1
+Select project
+> Personal
+  Work
+```
 
+Each choice is a picker: the arrow keys move, Enter picks, and Esc (or Ctrl-C) cancels without writing anything. Typing filters a list too long for the terminal; on a shorter one, `/` starts the filter. Choices show names only, and a detail such as the UUID appears only when two candidates share a name. When the directory is already linked, the cursor starts on the current project, environment, and application. Once a choice is made, the picker gives way to one line that records it:
+
+```text
+Project: Personal
 Linked project in /home/you/my-app/coolship.toml
 Application: fenix-bot (9f8e7d6c)
 Environment: production
@@ -23,7 +27,7 @@ Project: Personal
 Context: home
 ```
 
-The prompts appear only when a choice is genuinely ambiguous; a single project, environment, or application is selected without asking.
+The prompts appear only when a choice is genuinely ambiguous; a single project, environment, or application is selected without asking. When stdin is not a terminal but input is still interactive, the same choices are printed as a numbered list that reads a number, or `q` to cancel. Noninteractive runs never prompt and name the flag to pass instead.
 
 ## Flags
 

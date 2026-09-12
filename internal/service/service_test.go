@@ -989,6 +989,35 @@ func TestLinkPersistsBindingAndRequiresReviewedReplacement(t *testing.T) {
 	}
 }
 
+func TestLinkMarksTheCurrentBindingAmongTheChoices(t *testing.T) {
+	f := newBackend()
+	f.environments[0].Applications = append(f.environments[0].Applications, models.Application{UUID: "app-2", Name: "other"})
+	app, _, _ := testApp(f)
+	var offered []Choice
+	selector := func(_ context.Context, kind string, choices []Choice) (string, error) {
+		if kind != "application" {
+			return "", errors.New("unexpected " + kind + " choice")
+		}
+		offered = choices
+		return "app-1", nil
+	}
+	if _, err := app.Link(context.Background(), LinkOptions{Options: linkedOptions(t)}, selector, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered) != 2 || offered[0].Name != "api" || !offered[0].Current || offered[1].Current {
+		t.Fatalf("linked directory offered %+v; want api marked current", offered)
+	}
+	offered = nil
+	if _, err := app.Link(context.Background(), LinkOptions{Options: Options{CWD: unlinkedDirectory(t)}}, selector, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range offered {
+		if choice.Current {
+			t.Fatalf("unlinked directory marked %+v current", choice)
+		}
+	}
+}
+
 func TestLinkCancellationDoesNotWrite(t *testing.T) {
 	f := newBackend()
 	f.environments[0].Applications = append(f.environments[0].Applications, models.Application{UUID: "app-2", Name: "other"})
