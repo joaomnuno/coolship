@@ -29,6 +29,7 @@ type Client struct {
 	retries    int
 	retryDelay time.Duration
 	userAgent  string
+	trace      func(Exchange)
 }
 
 // DefaultUserAgent identifies Coolship when no version is supplied.
@@ -169,11 +170,24 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 		if method != http.MethodGet {
 			req.GetBody = nil
 		}
+		started := time.Now()
+		report := func(resp *http.Response, data []byte, err error) {
+			if c.trace == nil {
+				return
+			}
+			exchange := Exchange{Method: method, URL: u.String(), Attempt: attempt, RequestHeader: c.traceHeader(req.Header),
+				RequestBody: encoded, ResponseBody: data, Duration: time.Since(started), Err: err}
+			if resp != nil {
+				exchange.Status, exchange.ResponseHeader = resp.StatusCode, resp.Header.Clone()
+			}
+			c.trace(exchange)
+		}
 		resp, err := c.http.Do(req)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				resp.Body.Close()
 			}
+			report(nil, nil, err)
 			if method == http.MethodGet && attempt < c.retries && ctx.Err() == nil {
 				if err := wait(ctx, c.backoff(attempt)); err != nil {
 					return nil, "", err
@@ -185,10 +199,19 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			message := ""
 			refused := resp.StatusCode >= 400 && resp.StatusCode < 500
+			var refusal io.Reader = resp.Body
+			var traced []byte
+			if c.trace != nil {
+				// A trace shows the refusal whether or not it is an
+				// explanation; the message below still follows the rule.
+				traced, _ = io.ReadAll(io.LimitReader(resp.Body, maxMessageBytes))
+				refusal = bytes.NewReader(traced)
+			}
 			if (method != http.MethodGet && refused) || (explain != nil && explain(resp.StatusCode)) {
-				message = serverMessage(resp.Body)
+				message = serverMessage(refusal)
 			}
 			resp.Body.Close()
+			report(resp, traced, nil)
 			delay, canRetry := c.retryAfter(resp.Header.Get("Retry-After"), attempt)
 			if method == http.MethodGet && attempt < c.retries && retryable(resp.StatusCode) && canRetry {
 				if err := wait(ctx, delay); err != nil {
@@ -200,10 +223,12 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 		}
 		if strings.Contains(resp.Header.Get("Link"), `rel="next"`) || strings.Contains(resp.Header.Get("Link"), "rel=next") {
 			resp.Body.Close()
+			report(resp, nil, nil)
 			return nil, "", &ProtocolError{Endpoint: endpoint, Reason: "unexpected pagination; refusing to use an incomplete resource list"}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		resp.Body.Close()
+		report(resp, data, readErr)
 		if readErr != nil {
 			return nil, "", &RequestError{Method: method, Endpoint: endpoint, Err: readErr}
 		}

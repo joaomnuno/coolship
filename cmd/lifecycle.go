@@ -63,7 +63,7 @@ build_logs preference decides when neither is given.`,
 			if start.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))
 			}
-			showLogs, err := buildLogs(logs, prefs.BuildLogs)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs, options.verbosity)
 			if err != nil {
 				return err
 			}
@@ -101,7 +101,7 @@ preference decides when neither is given.`,
 			if restart.Timeout <= 0 {
 				return inputError(errors.New("--timeout must be greater than zero"))
 			}
-			showLogs, err := buildLogs(logs, prefs.BuildLogs)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs, options.verbosity)
 			if err != nil {
 				return err
 			}

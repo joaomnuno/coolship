@@ -19,8 +19,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Verbosity values. The consumer of the preference arrives with the verbosity
-// flags; the file accepts the values now so it can be written ahead of them.
+// Verbosity values. The command tree uses the preference as the default when
+// neither --verbose, --debug, nor COOLSHIP_VERBOSITY is given.
 const (
 	VerbosityNormal  = "normal"
 	VerbosityVerbose = "verbose"

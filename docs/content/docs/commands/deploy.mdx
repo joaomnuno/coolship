@@ -69,7 +69,7 @@ Progress goes to stderr; the final result goes to stdout. The last line is where
 | `--logs`             | Stream the build log live above the checklist (terminal only).                          |
 | `--no-logs`          | Keep the build log collapsed; it prints in full if the deployment fails (terminal only). |
 
-`--logs` and `--no-logs` cannot be combined. Without either, the `build_logs` key of the [preferences file](/docs/commands/config) decides; without that, the log stays collapsed. Piped output and `--format json` always stream the log.
+`--logs` and `--no-logs` cannot be combined. Without either, the `build_logs` key of the [preferences file](/docs/commands/config) decides; without that, the [verbosity](/docs/platform/output#verbosity) does: collapsed at normal, streamed with `--verbose` or `--debug`. Piped output and `--format json` always stream the log.
 
 ## Examples
 
