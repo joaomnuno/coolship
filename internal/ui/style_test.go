@@ -237,7 +237,7 @@ func TestErrorsAndPromptsAreStyledOnStderr(t *testing.T) {
 	if err != nil || choice != "p2" {
 		t.Fatalf("choice=%q err=%v", choice, err)
 	}
-	want := "\x1b[1mSelect project:\x1b[m\n  \x1b[36m1.\x1b[m one (p1)\n  \x1b[36m2.\x1b[m two\\n (p2)\n\x1b[1mChoice [1-2, q to cancel]:\x1b[m "
+	want := "\x1b[1mSelect project:\x1b[m\n  \x1b[36m1.\x1b[m one\n  \x1b[36m2.\x1b[m two\\n\n\x1b[1mChoice [1-2, q to cancel]:\x1b[m "
 	if diagnostic.String() != want {
 		t.Fatalf("select prompt = %q, want %q", diagnostic.String(), want)
 	}

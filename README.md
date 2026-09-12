@@ -124,11 +124,15 @@ coolship init          # or: create the application first, then bind
 `link` walks the hierarchy, asking only when a choice is genuinely ambiguous:
 
 ```text
-Select project:
-  1. Personal (a1b2c3d4)
-  2. Work (e5f6a7b8)
-Choice [1-2, q to cancel]: 1
+Select project
+> Personal
+  Work
+```
 
+Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The picker then gives way to the result:
+
+```text
+Project: Personal
 Linked project in /home/you/my-app/coolship.toml
 Application: fenix-bot (9f8e7d6c)
 Environment: production
