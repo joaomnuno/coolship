@@ -14,12 +14,11 @@ import { InstallBlock } from "@/components/landing/install-block";
 import { Heading, Lede, Section } from "@/components/landing/section";
 import { Tabs } from "@/components/landing/tabs";
 import { TerminalReplay } from "@/components/landing/terminal-replay";
-import { VideoSlot } from "@/components/landing/video-slot";
+// import { VideoSlot } from "@/components/landing/video-slot"; // with the Showcase section below
 import {
   latestVersion,
   repo,
-  showcasePoster,
-  showcaseVideoUrl,
+  // showcasePoster and showcaseVideoUrl come back with the Showcase section
   siteName,
   verifiedCoolifyVersion,
 } from "@/lib/site";
@@ -68,6 +67,7 @@ function Hero() {
   );
 }
 
+/*
 function Showcase() {
   return (
     <Section aria-labelledby="showcase-title" className="pt-4 sm:pt-6">
@@ -92,6 +92,7 @@ function Showcase() {
     </Section>
   );
 }
+*/
 
 function Replay() {
   return (
@@ -544,7 +545,10 @@ export default function HomePage() {
     <>
       <main id="main" className="landing flex-1">
         <Hero />
-        <Showcase />
+        {/* The walkthrough recording is not made yet, and the replay below
+            carries the same story. Uncomment this line, and the Showcase
+            function above, once showcaseVideoUrl in lib/site.ts points at one. */}
+        {/* <Showcase /> */}
         <Replay />
         <Features />
         <Minute />
