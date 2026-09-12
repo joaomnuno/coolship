@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"errors"
-
 	"github.com/joaomnuno/coolship/internal/preferences"
-	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -18,31 +15,11 @@ which credentials would be used, and the preferences file, after applying any
 overrides. No request is made to Coolify and no token is shown.`,
 		Args: noArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := app.Config(command.Context(), options.Options)
+			result, err := app.Config(command.Context(), options.Options, prefs)
 			if err != nil {
 				return err
 			}
-			result.Preferences = preferencesReport(prefs)
 			return ui.NewRenderer(streams, options.format).Config(result)
 		},
 	}
-}
-
-// preferencesReport describes the preferences file without a second read:
-// the executable loaded it once, before the tree ran. Without a report there
-// is no line to show.
-func preferencesReport(report preferences.Report) *service.PreferencesReport {
-	if report.Path == "" && report.Err == nil {
-		return nil
-	}
-	out := &service.PreferencesReport{Path: report.Path, Present: report.Present, Preferences: report.Preferences}
-	if report.Err != nil {
-		out.Error = report.Err.Error()
-		// The path is already its own field; keep only the cause.
-		var typed *preferences.Error
-		if errors.As(report.Err, &typed) {
-			out.Error = typed.Err.Error()
-		}
-	}
-	return out
 }

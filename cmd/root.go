@@ -30,7 +30,7 @@ type Application interface {
 	Init(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	Open(context.Context, service.OpenOptions) (service.OpenResult, error)
 	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
-	Config(context.Context, service.Options) (service.ConfigResult, error)
+	Config(context.Context, service.Options, preferences.Report) (service.ConfigResult, error)
 	Doctor(context.Context, service.Options) (service.DoctorResult, error)
 	EnvPull(context.Context, service.EnvOptions) (service.EnvPullResult, error)
 	EnvDiff(context.Context, service.EnvOptions) (service.EnvDiffResult, error)

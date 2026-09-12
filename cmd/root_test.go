@@ -27,7 +27,7 @@ type fakeApplication struct {
 	init   func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	open   func(context.Context, service.OpenOptions) (service.OpenResult, error)
 	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
-	config func(context.Context, service.Options) (service.ConfigResult, error)
+	config func(context.Context, service.Options, preferences.Report) (service.ConfigResult, error)
 	doctor func(context.Context, service.Options) (service.DoctorResult, error)
 	pull   func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
 	diff   func(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
@@ -94,8 +94,8 @@ func (f fakeApplication) Open(ctx context.Context, options service.OpenOptions) 
 func (f fakeApplication) Unlink(ctx context.Context, options service.UnlinkOptions, confirm service.ConfirmUnlink) (service.UnlinkResult, error) {
 	return f.unlink(ctx, options, confirm)
 }
-func (f fakeApplication) Config(ctx context.Context, options service.Options) (service.ConfigResult, error) {
-	return f.config(ctx, options)
+func (f fakeApplication) Config(ctx context.Context, options service.Options, prefs preferences.Report) (service.ConfigResult, error) {
+	return f.config(ctx, options, prefs)
 }
 func (f fakeApplication) Doctor(ctx context.Context, options service.Options) (service.DoctorResult, error) {
 	return f.doctor(ctx, options)
@@ -483,7 +483,7 @@ func TestUnlinkAndConfigRender(t *testing.T) {
 			}
 			return service.UnlinkResult{Path: "/p/coolship.toml"}, nil
 		},
-		config: func(context.Context, service.Options) (service.ConfigResult, error) {
+		config: func(context.Context, service.Options, preferences.Report) (service.ConfigResult, error) {
 			return service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file", CredentialPath: "/home/u/.config/coolify/config.json", Instance: "home", InstanceURL: "https://coolify.example.com", Overrides: map[string]string{"environment": "staging"}}, nil
 		},
 	}
@@ -960,8 +960,22 @@ func TestEnvPushPromptShowsWhatItLeavesAlone(t *testing.T) {
 }
 
 func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
-	app := fakeApplication{config: func(context.Context, service.Options) (service.ConfigResult, error) {
-		return service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file"}, nil
+	app := fakeApplication{config: func(_ context.Context, _ service.Options, prefs preferences.Report) (service.ConfigResult, error) {
+		result := service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file"}
+		// The real service assembles the preferences report; mirror that
+		// here so this test still exercises what the command tree renders.
+		if prefs.Path != "" || prefs.Err != nil {
+			out := &service.PreferencesReport{Path: prefs.Path, Present: prefs.Present, Preferences: prefs.Preferences}
+			if prefs.Err != nil {
+				out.Error = prefs.Err.Error()
+				var typed *preferences.Error
+				if errors.As(prefs.Err, &typed) {
+					out.Error = typed.Err.Error()
+				}
+			}
+			result.Preferences = out
+		}
+		return result, nil
 	}}
 	run := func(report preferences.Report, args ...string) (string, string, error) {
 		var out, diagnostic bytes.Buffer
