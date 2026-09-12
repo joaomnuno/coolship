@@ -8,7 +8,7 @@ change command behavior; the changelog says when they do.
 ## [Unreleased]
 
 ### Fixed
-- `init --dockerfile PATH` or `--compose-file PATH` (or `--compose-domain SERVICE=URL`) now picks the matching build pack on its own when `--build-pack` is not given, instead of requiring both flags together. `--build-pack` still wins when it is given, and still conflicts loudly with a refinement that names a different pack.
+- `init --dockerfile PATH` or `--compose-file PATH` (or `--compose-domain SERVICE=URL`) now picks the matching build pack on its own when `--build-pack` is not given, instead of requiring both flags together. `--build-pack` still wins when it is given, and still conflicts loudly with a refinement that names a different pack. Naming both a `--dockerfile` and a `--compose-file`/`--compose-domain` with no `--build-pack` is now refused with a message naming the conflict, instead of picking dockerfile silently and failing later with a message about a build pack that was never chosen.
 
 ## [0.3.0] - 2026-09-12
 
