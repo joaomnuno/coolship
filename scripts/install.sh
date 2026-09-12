@@ -21,6 +21,7 @@ version=${COOLSHIP_VERSION:-latest}
 install_dir=${COOLSHIP_INSTALL_DIR:-}
 dry_run=0
 tmp=
+staged=
 
 usage() {
 	cat <<USAGE
@@ -55,6 +56,7 @@ has() { command -v "$1" >/dev/null 2>&1; }
 
 cleanup() {
 	if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+	if [ -n "$staged" ]; then rm -f "$staged"; fi
 }
 
 make_tmp() {
@@ -258,15 +260,26 @@ tar -xzf "$tmp/$asset" -C "$tmp/extract" || fail "could not extract $asset"
 
 # Copy into the target directory first so the final rename is atomic on the
 # same filesystem; a concurrent invocation never sees a half-written binary.
+# The staged copy is removed by the EXIT trap on any path that does not
+# rename it into place.
 staged=$install_dir/.coolship.$$.tmp
 cp "$tmp/extract/coolship" "$staged" || fail "could not write to $install_dir"
 chmod 0755 "$staged"
-mv -f "$staged" "$install_dir/coolship"
 
-if ! installed_version=$("$install_dir/coolship" --version 2>&1); then
-	printf 'install.sh: %s/coolship was installed but does not run:\n%s\n' "$install_dir" "$installed_version" >&2
+# Run the new binary before it replaces anything. A checksum only proves the
+# archive is the published one; it cannot say the binary runs on this host.
+if ! installed_version=$("$staged" --version 2>&1); then
+	printf 'install.sh: the downloaded coolship does not run on this host:\n%s\n' "$installed_version" >&2
+	if [ -e "$install_dir/coolship" ]; then
+		printf 'install.sh: %s/coolship was left unchanged.\n' "$install_dir" >&2
+	else
+		printf 'install.sh: nothing was installed.\n' >&2
+	fi
 	exit 1
 fi
+
+mv -f "$staged" "$install_dir/coolship" || fail "could not install $install_dir/coolship"
+staged=
 log "Installed $install_dir/coolship ($installed_version)"
 
 # --- PATH --------------------------------------------------------------------
