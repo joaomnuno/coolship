@@ -56,6 +56,7 @@ change command behavior; the changelog says when they do.
 - `doctor`'s server check and `login`'s failure keep the `HTTP 401`/`403` status text alongside the explanation.
 - `--no-color=1`, `--no-color=TRUE`, `--no-color=T`, and other true forms pflag accepts left colour on; the opt-out is now decoded with the same rule as the flag itself, so every true form turns colour off and every false form (`--no-color=false`, `--no-color=0`, and so on) leaves it as it was.
 - `init --create-deploy-key` now suggests `--repo` in the follow-up command it prints, quoted when the repository or key name needs it; re-running the suggested command targets the repository the key was registered against instead of whatever the git origin remote says.
+- Bare `coolship` printed the preferences warning even though it shows the help page exactly like `coolship help`, which stayed silent; a bare invocation is now treated the same as `help`.
 
 ### Changed
 
