@@ -7,6 +7,9 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Fixed
+- The help groups (Get started, Ship, Run, Configure, Maintain) and each group's own workflow order no longer come from turning off Cobra's command sorting for the whole process. `NewRootCommand` used to set the package-global `cobra.EnableCommandSorting` and never restore it, so any other Cobra command tree built in the same process — for instance an embedder running Coolship's constructor alongside its own — had its help silently reordered too, with no synchronization if two such trees rendered help at the same time. Coolship's own help output is unchanged.
+
 ## [0.3.0] - 2026-09-12
 
 Coolship now covers an application's whole life from the terminal: create it, deploy it, watch the stages, manage its lifecycle and history, and read its logs, variables, and domains. A documentation site and a landing page came with it.
