@@ -13,6 +13,7 @@ change command behavior; the changelog says when they do.
 - `init` on an already-linked directory is refused immediately, before it inspects the repository, probes the remote for `--source auto`, or lists projects on the Coolify instance; it used to do all of that first and only then refuse.
 - `init` on an already-linked directory inspected the repository, probed the remote for `--source auto`, and listed projects on the Coolify instance before refusing; it now refuses before doing any of that.
 - `init --dockerfile PATH` or `--compose-file PATH` (or `--compose-domain SERVICE=URL`) now picks the matching build pack on its own when `--build-pack` is not given, instead of requiring both flags together. `--build-pack` still wins when it is given, and still conflicts loudly with a refinement that names a different pack.
+- `init --dockerfile PATH` or `--compose-file PATH` (or `--compose-domain SERVICE=URL`) now picks the matching build pack on its own when `--build-pack` is not given, instead of requiring both flags together. `--build-pack` still wins when it is given, and still conflicts loudly with a refinement that names a different pack. Naming both a `--dockerfile` and a `--compose-file`/`--compose-domain` with no `--build-pack` is now refused with a message naming the conflict, instead of picking dockerfile silently and failing later with a message about a build pack that was never chosen.
 
 ## [0.3.0] - 2026-09-12
 
