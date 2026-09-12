@@ -1146,7 +1146,7 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 	options := linkedOptions(t)
 	options.Environment = "staging"
 	options.Context = "other"
-	result, err := app.Config(context.Background(), options, preferences.Report{})
+	result, err := app.Config(context.Background(), options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1163,7 +1163,7 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{Source: "file", Path: "/nowhere"} },
 		NewBackend:         func(auth.Credentials) (Backend, error) { return f, nil },
 	})
-	result, err = broken.Config(context.Background(), linkedOptions(t), preferences.Report{})
+	result, err = broken.Config(context.Background(), linkedOptions(t))
 	if err != nil || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "no default instance") {
 		t.Fatalf("credential failure should be a warning: result=%+v err=%v", result, err)
 	}
@@ -1176,10 +1176,24 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 // cause, not the file-path prefix Error already puts in front of it.
 func TestConfigAssemblesPreferencesReport(t *testing.T) {
 	f := newBackend()
-	app, _, _ := testApp(f)
 	options := linkedOptions(t)
+	// Config reads Dependencies.Preferences, the report the executable
+	// already loaded once before the command tree ran; build one App per
+	// report the way main wires a fresh App per process.
+	appWith := func(report preferences.Report) *App {
+		return New(Dependencies{
+			ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
+				return auth.Credentials{Name: "home", URL: "https://coolify.example.com", Token: "private-token"}, nil
+			},
+			InspectCredentials: func(auth.Options) auth.Report {
+				return auth.Report{Source: "file", Path: "/home/test/.config/coolify/config.json"}
+			},
+			NewBackend:  func(auth.Credentials) (Backend, error) { return f, nil },
+			Preferences: report,
+		})
+	}
 
-	result, err := app.Config(context.Background(), options, preferences.Report{})
+	result, err := appWith(preferences.Report{}).Config(context.Background(), options)
 	if err != nil || result.Preferences != nil {
 		t.Fatalf("no report: preferences=%+v err=%v", result.Preferences, err)
 	}
@@ -1189,7 +1203,7 @@ func TestConfigAssemblesPreferencesReport(t *testing.T) {
 		Path: "/home/u/.config/coolship/preferences.toml", Present: true,
 		Preferences: preferences.Preferences{Verbosity: "debug", BuildLogs: &off, Color: "auto"},
 	}
-	result, err = app.Config(context.Background(), options, present)
+	result, err = appWith(present).Config(context.Background(), options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1203,7 +1217,7 @@ func TestConfigAssemblesPreferencesReport(t *testing.T) {
 		Path: present.Path, Present: true,
 		Err: &preferences.Error{Path: present.Path, Err: errors.New(`unknown key "verbosty"`)},
 	}
-	result, err = app.Config(context.Background(), options, broken)
+	result, err = appWith(broken).Config(context.Background(), options)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,10 +10,10 @@ import (
 
 // Config reports the effective local configuration for this invocation. It
 // reads files only: a credential problem is a warning here, not a failure.
-// prefs is the preferences file as the executable already loaded it, once,
-// before the command tree ran; Config assembles it into the result without a
-// second read.
-func (a *App) Config(ctx context.Context, options Options, prefs preferences.Report) (ConfigResult, error) {
+// The preferences report comes from Dependencies, as the executable already
+// loaded it, once, before the command tree ran; Config assembles it into the
+// result without a second read, so every caller gets the complete result.
+func (a *App) Config(ctx context.Context, options Options) (ConfigResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ConfigResult{}, err
 	}
@@ -56,7 +56,7 @@ func (a *App) Config(ctx context.Context, options Options, prefs preferences.Rep
 	if a.deps.CredentialURL != "" {
 		result.Warnings = append(result.Warnings, "COOLSHIP_URL and COOLSHIP_TOKEN select this invocation's instance; committed context is not used.")
 	}
-	result.Preferences = preferencesReport(prefs)
+	result.Preferences = preferencesReport(a.deps.Preferences)
 	return result, nil
 }
 

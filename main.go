@@ -71,6 +71,10 @@ func run() int {
 		ColorOut: colorEnabled(isTerminal(os.Stdout), os.Getenv, os.Args[1:]),
 		ColorErr: colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:])}
 	runner := process.New(os.Stdin, os.Stdout, os.Stderr)
+	// Preferences are read once here; a broken file becomes a warning the
+	// command tree prints, never a failure. The service gets the same
+	// report so Config assembles it into the result without a second read.
+	prefs := preferences.Discover(os.Getenv)
 	app := service.New(service.Dependencies{
 		NewBackend:      newBackend,
 		CredentialURL:   os.Getenv("COOLSHIP_URL"),
@@ -80,13 +84,12 @@ func run() int {
 		},
 		InspectRepository: gitinfo.Inspect,
 		ProbeRemote:       gitinfo.Heads,
+		Preferences:       prefs,
 	})
 	info, ok := debug.ReadBuildInfo()
 	resolved := resolveVersion(version, info, ok)
-	// Preferences are read once here; a broken file becomes a warning the
-	// command tree prints, never a failure.
 	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv),
-		cmd.WithPreferences(preferences.Discover(os.Getenv))).ExecuteContext(ctx)
+		cmd.WithPreferences(prefs)).ExecuteContext(ctx)
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
 		_ = ui.PrintError(streams, err)
