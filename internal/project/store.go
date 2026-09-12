@@ -18,6 +18,32 @@ type Plan struct {
 	Review    bool          // an existing binding changes or the form changes
 }
 
+// Linked reports whether key already resolves to a binding, without needing
+// the finished binding a caller may still be resolving. It is the part of
+// Propose's review decision that depends only on what is already on disk:
+// converting between the single and named forms always needs review, a
+// "default" key already needs review once [project] names anything, and a
+// named key needs review once it already appears under [apps]. A caller that
+// only wants to add a new named target sees false and keeps going; one that
+// would touch an existing binding can refuse before doing any of the work
+// Propose's caller would otherwise do first to build the binding to compare.
+func Linked(value Project, key string) bool {
+	if key == "" {
+		key = "default"
+	}
+	if !value.Exists {
+		return false
+	}
+	if value.Config.Named() != (key != "default") {
+		return true // converting between forms drops the other form's bindings
+	}
+	if key == "default" {
+		return value.Config.Project.IsSet()
+	}
+	_, present := value.Config.Apps[key]
+	return present
+}
+
 // Propose composes the configuration that binds key. Adding a new named target
 // keeps the others and needs no review; changing an existing binding, or
 // converting between the single and named forms, does.

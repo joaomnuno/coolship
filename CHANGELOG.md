@@ -7,6 +7,9 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Fixed
+- `init` on an already-linked directory is refused immediately, before it inspects the repository, probes the remote for `--source auto`, or lists projects on the Coolify instance; it used to do all of that first and only then refuse.
+
 ## [0.3.0] - 2026-09-12
 
 Coolship now covers an application's whole life from the terminal: create it, deploy it, watch the stages, manage its lifecycle and history, and read its logs, variables, and domains. A documentation site and a landing page came with it.
