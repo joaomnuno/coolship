@@ -237,9 +237,9 @@ func (r *Renderer) Init(result service.InitResult) error {
 	}
 	plan := result.Plan
 	if key := result.DeployKey; key != nil && result.Target.ApplicationUUID == "" {
-		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s (%s) on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s\n",
+		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s (%s) on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s --repo %s\n",
 			singleLine(key.Name), singleLine(key.UUID), singleLine(plan.Instance), r.out.key("Public key"), singleLine(key.PublicKey),
-			singleLine(key.Repository), singleLine(key.Name))
+			singleLine(key.Repository), shellQuote(singleLine(key.Name)), shellQuote(singleLine(key.Repository)))
 		return err
 	}
 	buildPack := singleLine(plan.BuildPack)
@@ -432,6 +432,32 @@ func singleLine(value string) string {
 		}
 	}
 	return out.String()
+}
+
+// shellQuote makes a value safe to paste into a POSIX shell command line, so
+// a repository URL or key name with spaces or shell metacharacters does not
+// split into extra arguments when a suggested command is copied verbatim.
+// A value made only of characters that never need escaping is left bare.
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	bare := true
+	for _, char := range value {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9':
+		case strings.ContainsRune("_-./:@+", char):
+		default:
+			bare = false
+		}
+		if !bare {
+			break
+		}
+	}
+	if bare {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // Open prints the resolved URL on stdout so it can be piped; launching is
