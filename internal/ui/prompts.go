@@ -30,6 +30,9 @@ func (p *Prompter) question(text string) string {
 }
 
 // Select returns a chosen ID; noninteractive execution never guesses a choice.
+// On a terminal it is an arrow-key picker (see pick); when input is
+// interactive but not a terminal it prints a numbered list and reads a line.
+// Both show names only, with a detail only where two names are the same.
 func (p *Prompter) Select(ctx context.Context, kind string, choices []service.Choice) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -40,16 +43,15 @@ func (p *Prompter) Select(ctx context.Context, kind string, choices []service.Ch
 	if len(choices) == 0 {
 		return "", &service.InputError{Err: fmt.Errorf("no %s choices are available", singleLine(kind))}
 	}
+	if in, errTerminal, ok := terminalInput(p.streams); ok {
+		return p.pick(ctx, kind, choices, in, errTerminal)
+	}
 	if _, err := fmt.Fprintln(p.streams.Err, p.question("Select "+singleLine(kind)+":")); err != nil {
 		return "", err
 	}
-	for index, choice := range choices {
-		label := singleLine(choice.Name)
-		if choice.ID != choice.Name {
-			label += " (" + singleLine(choice.ID) + ")"
-		}
-		if choice.Detail != "" && choice.Detail != choice.ID {
-			label += " — " + singleLine(choice.Detail)
+	for index, label := range choiceLabels(choices) {
+		if choices[index].Current {
+			label += " (current)"
 		}
 		if _, err := fmt.Fprintf(p.streams.Err, "  %s %s\n", p.style.apply(cyan, strconv.Itoa(index+1)+"."), label); err != nil {
 			return "", err
