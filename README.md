@@ -60,11 +60,11 @@ curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/ins
 
 The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
 
-Overrides, as environment variables or flags (`sh -s -- --version 0.2.0 --dir /opt/bin`):
+Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 
 | Variable               | Flag        | Default           | Meaning                                                              |
 | ---------------------- | ----------- | ----------------- | -------------------------------------------------------------------- |
-| `COOLSHIP_VERSION`     | `--version` | latest            | Release to install; a pre-release such as `0.2.0-rc.1` must be named |
+| `COOLSHIP_VERSION`     | `--version` | latest            | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
 | `COOLSHIP_INSTALL_DIR` | `--dir`     | `$HOME/.local/bin` | Directory to install into, created if missing                        |
 |                        | `--dry-run` |                   | Resolve the version and print what would happen                      |
 
@@ -95,7 +95,7 @@ coolship completion fish > ~/.config/fish/completions/coolship.fish
 
 ### Releases
 
-Every `vX.Y.Z` tag publishes a [GitHub Release](https://github.com/joaomnuno/coolship/releases) with `coolship_<version>_<os>_<arch>.tar.gz` archives (`.zip` on Windows) for Linux, macOS, and Windows on amd64 and arm64, plus a `checksums.txt` of SHA-256 sums. Tags with a suffix such as `v0.2.0-rc.1` and the rolling `nightly` build from `main` are marked as pre-releases; `latest` always points at the newest full release.
+Every `vX.Y.Z` tag publishes a [GitHub Release](https://github.com/joaomnuno/coolship/releases) with `coolship_<version>_<os>_<arch>.tar.gz` archives (`.zip` on Windows) for Linux, macOS, and Windows on amd64 and arm64, plus a `checksums.txt` of SHA-256 sums. Tags with a suffix such as `v0.3.0-rc.1` and the rolling `nightly` build from `main` are marked as pre-releases; `latest` always points at the newest full release.
 
 ## Getting started
 

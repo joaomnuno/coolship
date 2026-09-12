@@ -45,7 +45,7 @@ jobs:
 
 Notes:
 
-- The installer puts `coolship` in `$HOME/.local/bin`; adding that directory to `GITHUB_PATH` makes it available to later steps. Pin a release with `COOLSHIP_VERSION=0.2.0` in the step's `env` if you want reproducible runs.
+- The installer puts `coolship` in `$HOME/.local/bin`; adding that directory to `GITHUB_PATH` makes it available to later steps. Pin a release with `COOLSHIP_VERSION=0.3.0` in the step's `env` if you want reproducible runs.
 - Coolify deploys from its configured source and branch. The checkout step is there for `coolship.toml`; nothing from the runner's worktree is uploaded. Push before you deploy.
 - `deploy` waits for the exact deployment it submitted and fails the job when it fails, is cancelled, or times out. The build log streams into the job output when the token may read it.
 - `concurrency` keeps two pushes from racing. Coolship never retries an uncertain submission, so a cancelled job leaves at most one deployment queued, and its UUID is in the log.

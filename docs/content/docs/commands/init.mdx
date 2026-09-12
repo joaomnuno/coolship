@@ -63,7 +63,7 @@ Paths are relative to the application root (the monorepo target's directory with
 | `--timeout DURATION` | Maximum time to wait for the deployment with `--deploy` (default `10m0s`).                |
 | `-y`, `--yes`        | Create without confirmation.                                                              |
 
-`--environment` (global) defaults to `production`. In a monorepo, `--target NAME` writes an `[apps.NAME]` table with the current directory as its root, which becomes the application's base directory.
+`--environment` (global) defaults to `production`. Coolify gives a project it creates only a production environment, so `--create-project` with any other `--environment` is refused before anything is created. In a monorepo, `--target NAME` writes an `[apps.NAME]` table with the current directory as its root, which becomes the application's base directory.
 
 <Callout type="warn" title="Check the port">
   Coolify routes traffic to the port in the plan. It defaults to 3000 for a Railpack or Nixpacks build and 80 for a Dockerfile or static site; pass `--port` when your application listens elsewhere. A Compose application has no such port: each service publishes its own.
@@ -89,6 +89,7 @@ The project and server are asked for only when there is a choice. Noninteractive
 - **A Compose application's domains are per service.** `init` sets them with `--compose-domain`; afterwards they are managed in Coolify, since [`domain set`](/docs/commands/domain) does not apply to Compose applications. Variables work as for any application.
 - **A refinement that does not belong to the pack is refused** before any request, so the plan never carries a setting Coolify would ignore: `--static` and the three commands need `railpack` or `nixpacks`, `--dockerfile` needs `dockerfile`, and `--compose-file`, `--compose-domain` need `dockercompose`.
 - **A directory that is already linked is refused** rather than re-pointed; use `link` to change a binding.
+- **Warnings arrive before the confirmation**, not after the application exists, so a Compose application with no `--compose-domain` can still be answered with no.
 - The application is created without an instant deployment; `--deploy` then submits and observes the first deployment exactly like [`deploy`](/docs/commands/deploy).
 - A refusal from the server carries its explanation — the message and field errors — so a repository Coolify cannot reach or a rejected value is reported as such rather than as a bare status code.
 - The binding is written and verified through the same step `link` uses.

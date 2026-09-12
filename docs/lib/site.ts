@@ -18,7 +18,7 @@ export const installScriptUrl = `${repo.url}/blob/${repo.branch}/scripts/install
  * without network access (both Dockerfiles), so this is not read from the
  * GitHub API; bump it when a release is tagged.
  */
-export const latestVersion = "v0.2.0";
+export const latestVersion = "v0.3.0";
 
 /** The Coolify version every command was verified against (README, Server compatibility). */
 export const verifiedCoolifyVersion = "4.3.18";
