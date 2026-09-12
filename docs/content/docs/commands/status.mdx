@@ -54,4 +54,4 @@ coolship status --format json | jq -r .status
 
 ## Exit codes
 
-`0` on a successful read regardless of the application's status; `1` when the server cannot be reached or refuses the request; `2` when the directory is not linked or the binding no longer resolves.
+`0` on a successful read regardless of the application's status; `1` when the server cannot be reached or refuses the request; `2` when the directory is not linked or the binding no longer resolves; `130` when an interrupt stops the read, including the read of the last deployment.

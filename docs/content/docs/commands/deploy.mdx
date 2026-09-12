@@ -87,7 +87,7 @@ coolship deploy api              # named target in a monorepo
 - Coolship observes exactly the UUID the submission returned, never "the latest deployment", which could belong to someone else.
 - States are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed.
 - Stages come from fixed lines in Coolify's build log (`Building docker image started.`, `Rolling update started.`, `New container is healthy.`, `Removing old containers.`, and their completions and failures), so they need a token that may read the build log. Without one, progress continues without stages or log, and the command says so.
-- An observation that stops before the server's verdict — `--timeout` elapsing, an interrupt, a lost connection — ends the checklist with `✗ Observation stopped`, not `Deployment failed`; the deployment continues on the server.
+- An observation that stops before the server's verdict — `--timeout` elapsing, an interrupt, a lost connection — ends the checklist with `✗ Observation stopped`, not `Deployment failed`; the deployment continues on the server. The build log stays collapsed in that case, since nothing failed: only a deployment the server reports as failed or cancelled prints it.
 - Interrupting the command stops local waiting only. The remote deployment continues, and the UUID is reported so you can pick it back up.
 - An uncertain submission — the request was sent but no answer arrived — is never replayed automatically, because the API defines no idempotency key. Coolship reports what it knows.
 

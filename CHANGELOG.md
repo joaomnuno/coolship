@@ -7,6 +7,10 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-12
+
+Coolship now covers an application's whole life from the terminal: create it, deploy it, watch the stages, manage its lifecycle and history, and read its logs, variables, and domains. A documentation site and a landing page came with it.
+
 ### Added
 - Coolship reads a preferences file, one developer's tastes on one machine, at `~/.config/coolship/preferences.toml` (`$XDG_CONFIG_HOME/coolship/preferences.toml` when `XDG_CONFIG_HOME` is set to an absolute path; `%AppData%\coolship\preferences.toml` on Windows), or at the file `COOLSHIP_PREFERENCES` names. It accepts `verbosity` (`normal`, `verbose`, or `debug`), `build_logs` (`true` streams build logs, `false` collapses them, absent follows the verbosity), and `color` (`auto`, `always`, or `never`); the keys are read and checked now and take effect in later versions. The file is never created and never holds credentials, which stay in Coolify CLI's file. `config` shows a `Preferences` line with the path and either `(absent)` or the keys the file sets, and its JSON carries a `preferences` object with `path`, `present`, and the values. An unknown key, a value outside its list, or a file that cannot be read is a warning printed once at the start of the command, naming the file and the key; the file is ignored and the command runs.
 - `init` creates every kind of application Coolify builds from a repository. The root is read in the order Coolify's own form uses: a compose file (`docker-compose.yaml`, `docker-compose.yml`, `compose.yaml`, or `compose.yml`) makes a Compose application, a `Dockerfile` builds itself, an `index.html` with no `package.json` is served as it is, and anything else goes to Railpack, Coolify's default. `--build-pack` takes `railpack`, `nixpacks`, `static`, `dockerfile`, or `dockercompose`. Each pack has its own flags, refused before any request when they do not belong to the pack: `--install-command`, `--build-command`, and `--start-command` override what Railpack or Nixpacks detect, and `--static` serves their build output with nginx from `--publish-dir` (default `/dist`); `--publish-dir` also applies to the static pack; `--dockerfile PATH` names the Dockerfile; `--compose-file PATH` names the compose file and `--compose-domain SERVICE=URL`, repeatable, gives each service its domain, with a warning when none is given. A named file must exist. The plan and the result show the settings, and the JSON plan carries them as `publish_directory`, `dockerfile`, `compose_file`, `compose_domains`, `install_command`, `build_command`, and `start_command`. A Compose application has no port of its own, so `--port` is refused and `plan.port` is 0.
@@ -65,6 +69,11 @@ change command behavior; the changelog says when they do.
 - `scripts/e2e` never ran `domain` or `domain set`, and README claimed `domain` was verified end to end anyway; the script now reads the application's domains and sets them back to themselves (a no-op the server accepts unchanged), and README's coverage claims for `domain` and `preview` match what the script and the recorded manual verification actually cover.
 - The site header's Install link pointed at a bare `#install` anchor, which only resolved on the home page and went nowhere on any other page; it now points at the home page's install section from anywhere on the site. The header's mobile menu had no way to open search; it now shows the same search trigger as the theme switch beside it.
 
+### Compatibility
+
+- Verified against Coolify 4.3.18; the 4.3.19 source has no changes to any endpoint used. Other versions are untested.
+- Requires Go 1.26 to build, matching `coolify-cli`.
+
 ## [0.2.0] - 2026-09-10
 
 Every command is now installable from a release, and the tool logs you in itself.
@@ -106,6 +115,7 @@ example repository and an isolated project on that instance.
 - Verified against Coolify 4.3.18; the 4.3.19 source has no changes to any endpoint used. Other versions are untested.
 - Requires Go 1.26 to build, matching `coolify-cli`.
 
-[Unreleased]: https://github.com/joaomnuno/coolship/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/joaomnuno/coolship/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/joaomnuno/coolship/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/joaomnuno/coolship/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joaomnuno/coolship/releases/tag/v0.1.0
