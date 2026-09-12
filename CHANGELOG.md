@@ -12,6 +12,7 @@ change command behavior; the changelog says when they do.
 - Fixed a second problem the same change had left behind: Cobra sorts a command's children the first time anything reads them with sorting enabled, and does so for good, so any unguarded read on a Coolship tree — an embedder calling `Commands()` directly, or Cobra's own `__complete` and help-completion paths — permanently alphabetized that tree's own help from then on. Coolship's help now carries its declared order on the tree itself and renders from that, never from Cobra's `Commands()`, so it survives any such read and never touches `cobra.EnableCommandSorting` at all; concurrent use of another Cobra tree needs no synchronization because there is no shared state left to race on.
 - `init` on an already-linked directory is refused immediately, before it inspects the repository, probes the remote for `--source auto`, or lists projects on the Coolify instance; it used to do all of that first and only then refuse.
 - `init` on an already-linked directory inspected the repository, probed the remote for `--source auto`, and listed projects on the Coolify instance before refusing; it now refuses before doing any of that.
+- `init --dockerfile PATH` or `--compose-file PATH` (or `--compose-domain SERVICE=URL`) now picks the matching build pack on its own when `--build-pack` is not given, instead of requiring both flags together. `--build-pack` still wins when it is given, and still conflicts loudly with a refinement that names a different pack.
 
 ## [0.3.0] - 2026-09-12
 

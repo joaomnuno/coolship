@@ -21,8 +21,9 @@ coolship.toml for it, exactly as link would.
 
 The repository and branch are read from Git (the origin remote and the
 checked-out branch) unless --repo and --branch say otherwise. The build pack
-is detected from the application root the way Coolify's own form would, or
-named with --build-pack:
+is detected from the application root the way Coolify's own form would, named
+with --build-pack, or picked by naming --dockerfile or --compose-file (or
+--compose-domain) alone:
 
   railpack       Coolify's default: detects the language and builds an
                  image. --install-command, --build-command, and
