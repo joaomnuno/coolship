@@ -19,6 +19,25 @@ Human output is colored only when the stream it goes to is a terminal, and each 
 
 Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
 
+## Verbosity
+
+A run shows one of three levels. **Normal** prints what the command prints. **Verbose** adds one line on stderr for every request Coolship sends to Coolify: the method, the URL, the status (or `no response`), the time taken, and `(retry N)` for a retried read. **Debug** adds each request's and response's headers and bodies under that line, curl-style, with the token masked to its last four characters and control characters removed.
+
+```text
+$ coolship status --verbose
+GET https://coolify.example.com/api/v1/applications/mm4c0zpbrzx8z96t0qiw3tff 200 OK 84ms
+…
+```
+
+The level comes from the first of these that is set:
+
+1. `--debug`, then `--verbose` (both long-only; `-v` is the version);
+2. `COOLSHIP_VERBOSITY=normal|verbose|debug`, for CI; any other value is invalid input;
+3. the `verbosity` key of the [preferences file](/docs/commands/config#preferences);
+4. normal.
+
+Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise, and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain status lines print instead. Debug output shows what the server returns, which for `env pull` includes variable values, so keep it out of shared CI logs.
+
 ## Prompts
 
 Commands that change something show their plan and ask for confirmation on stderr. When stdin is not a terminal there is no prompt: pass `--yes` (`--replace` for `link`) or the command refuses. `link` and `init` prompt for a choice only when it is genuinely ambiguous; `q` cancels a selection.

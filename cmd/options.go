@@ -4,12 +4,15 @@ import (
 	"fmt"
 
 	"github.com/joaomnuno/coolship/internal/service"
+	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 type commandOptions struct {
 	service.Options
 	format string
+	// verbosity is resolved once, before any command runs.
+	verbosity ui.Verbosity
 }
 
 func noArgs(command *cobra.Command, args []string) error {

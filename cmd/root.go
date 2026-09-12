@@ -83,6 +83,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		}
 	}
 	options := &commandOptions{format: "human"}
+	var verbosity verbosityFlags
 	// A file that could not be read left the zero value: no preference.
 	prefs := config.preferences.Preferences
 	root := &cobra.Command{
@@ -103,6 +104,15 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 			if options.format != "human" && options.format != "json" {
 				return inputError(fmt.Errorf("unsupported format %q; use human or json", options.format))
 			}
+			// Verbosity is decided before anything reaches the server, so
+			// the first request is already traced. A bad COOLSHIP_VERBOSITY
+			// fails a command, like a bad flag, but not help or completion.
+			level, err := resolveVerbosity(verbosity, config.environment, prefs.Verbosity)
+			if err != nil && !offline(command) {
+				return err
+			}
+			options.verbosity = level
+			streams.Trace.SetLevel(level)
 			// A typo in the preferences file is noticed once, here, and
 			// never stops a deploy; help and completion stay silent.
 			if err := config.preferences.Err; err != nil && !offline(command) {
@@ -131,6 +141,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	// tree exists, because styling is a stream capability decided with the
 	// streams; the flag is declared here so parsing accepts and documents it.
 	root.PersistentFlags().Bool("no-color", false, "Disable styled output (NO_COLOR does the same)")
+	verbosity.register(root.PersistentFlags())
 	// The help lists the commands in five task-shaped groups, each in the
 	// order a project moves through its verbs rather than alphabetically;
 	// every command stays a flat verb. Cobra's sorting switch is package-wide,

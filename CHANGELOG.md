@@ -7,6 +7,9 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Added
+- Verbosity: `--verbose` and `--debug`, both long-only since `-v` stays the version, set how much a run shows for one invocation; `COOLSHIP_VERBOSITY=normal|verbose|debug` sets it where flags are awkward, such as CI, and the `verbosity` key of the preferences file sets the default. A flag beats the variable, the variable beats the preference, and `--debug` beats `--verbose`. `--verbose` prints one line on stderr for every request Coolship sends, with the method, URL, status, time taken, and which retry it was; `--debug` adds each request's and response's headers and bodies, curl-style, with the token masked to its last four characters and control characters removed. Debug output shows what the server returns, including variable values `env pull` reads. A `COOLSHIP_VERBOSITY` value outside the three is invalid input (exit 2), except for help and completion. Above normal, the build log of `deploy`, `start`, `restart`, and `preview` streams unless `--no-logs` or the `build_logs` preference says otherwise, and no spinner or stage checklist is drawn, so the request lines are not overwritten; the plain status lines print instead. Stdout and `--format json` are unchanged at every level.
+
 ## [0.3.0] - 2026-09-12
 
 Coolship now covers an application's whole life from the terminal: create it, deploy it, watch the stages, manage its lifecycle and history, and read its logs, variables, and domains. A documentation site and a landing page came with it.
