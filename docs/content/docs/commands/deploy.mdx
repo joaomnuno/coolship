@@ -9,7 +9,7 @@ coolship deploy [target] [flags]
 
 `deploy` submits one deployment of the linked application and, by default, waits for it to finish. It does not upload your worktree or push local commits; Coolify deploys from its configured source and branch. [Deployments](/docs/concepts/deployments) explains the model.
 
-In a terminal, the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, container, cleanup — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. The build log stays collapsed; it is printed in full if the deployment fails.
+In a terminal, the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, container, cleanup — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. The build log stays collapsed at normal verbosity; it is printed in full if the deployment fails. With `--verbose` or `--debug` no checklist is drawn: the plain status lines print instead, and the build log streams unless `--no-logs` or the `build_logs` preference collapses it.
 
 ```text
 $ coolship deploy

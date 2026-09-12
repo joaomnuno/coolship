@@ -56,8 +56,9 @@ your worktree or push local commits.
 
 Use --no-wait to return the queued deployment UUID immediately. In a terminal
 the deployment is shown as a stage checklist with the build log collapsed, as
-deploy does; --logs streams the log, --no-logs keeps it collapsed, and the
-build_logs preference decides when neither is given.`,
+deploy does; --logs streams the log, --no-logs keeps it collapsed, the
+build_logs preference decides when neither is given, and without that the
+verbosity: collapsed when normal, streamed with --verbose or --debug.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if start.Timeout <= 0 {
@@ -94,8 +95,9 @@ the image already built for the commit when it still exists.
 The restart is confirmed first, or --yes skips the question. Use --no-wait to
 return the queued deployment UUID immediately. In a terminal the deployment is
 shown as a stage checklist with the build log collapsed, as deploy does;
---logs streams the log, --no-logs keeps it collapsed, and the build_logs
-preference decides when neither is given.`,
+--logs streams the log, --no-logs keeps it collapsed, the build_logs
+preference decides when neither is given, and without that the verbosity:
+collapsed when normal, streamed with --verbose or --debug.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if restart.Timeout <= 0 {

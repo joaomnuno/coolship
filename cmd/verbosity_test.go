@@ -75,3 +75,44 @@ func TestVerbositySetsTheTraceBeforeTheCommandRuns(t *testing.T) {
 		t.Fatalf("-v: %v", err)
 	}
 }
+
+// TestNoLogsStillCollapsesTheBuildLogAboveNormal checks that --no-logs wins
+// over --verbose on an interactive run, where no checklist is drawn: the
+// build log stays off stderr while the deployment succeeds, and prints in
+// full once the server says it failed.
+func TestNoLogsStillCollapsesTheBuildLogAboveNormal(t *testing.T) {
+	const log = "Building docker image started.\n"
+	for _, status := range []string{"finished", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			app := fakeApplication{deploy: func(_ context.Context, _ service.DeployOptions, emit service.Emitter) (service.DeployResult, error) {
+				for _, event := range []service.Event{
+					{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"},
+					{Type: "build", DeploymentUUID: "d-1", Logs: log},
+					{Type: "deployment", DeploymentUUID: "d-1", Status: status},
+				} {
+					if err := emit(event); err != nil {
+						return service.DeployResult{}, err
+					}
+				}
+				result := service.DeployResult{DeploymentUUID: "d-1", Status: status}
+				if status == "failed" {
+					return result, errors.New("deployment d-1 failed")
+				}
+				return result, nil
+			}}
+			var out, diagnostic bytes.Buffer
+			root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: true, Trace: ui.NewTrace(nil)}, "test-version")
+			root.SetArgs([]string{"deploy", "--verbose", "--no-logs"})
+			err := root.ExecuteContext(context.Background())
+			if (err != nil) != (status == "failed") {
+				t.Fatalf("err = %v", err)
+			}
+			if strings.Contains(diagnostic.String(), log) != (status == "failed") {
+				t.Fatalf("stderr = %q", diagnostic.String())
+			}
+			if !strings.Contains(diagnostic.String(), "Deployment d-1: "+status) {
+				t.Fatalf("status lines missing: %q", diagnostic.String())
+			}
+		})
+	}
+}

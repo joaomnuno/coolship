@@ -31,7 +31,9 @@ GitHub Actions pull_request workflow.
 
 In a terminal the deployment is shown as a stage checklist with the build log
 collapsed, as deploy does; --logs streams the log, --no-logs keeps it
-collapsed, and the build_logs preference decides when neither is given.`,
+collapsed, the build_logs preference decides when neither is given, and
+without that the verbosity: collapsed when normal, streamed with --verbose or
+--debug.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {
