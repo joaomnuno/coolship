@@ -30,7 +30,7 @@ type Application interface {
 	Init(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	Open(context.Context, service.OpenOptions) (service.OpenResult, error)
 	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
-	Config(context.Context, service.Options, preferences.Report) (service.ConfigResult, error)
+	Config(context.Context, service.Options) (service.ConfigResult, error)
 	Doctor(context.Context, service.Options) (service.DoctorResult, error)
 	EnvPull(context.Context, service.EnvOptions) (service.EnvPullResult, error)
 	EnvDiff(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
@@ -154,7 +154,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 		}},
 		{cobra.Group{ID: "configure", Title: "Configure"}, []*cobra.Command{
 			newEnvCommand(app, options, streams), newDomainCommand(app, options, streams),
-			newConfigCommand(app, options, streams, config.preferences), newDevCommand(app, options, streams),
+			newConfigCommand(app, options, streams), newDevCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
 			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),

@@ -551,6 +551,10 @@ type Dependencies struct {
 	// GenerateKey creates the pair a new deploy key is made of; the default
 	// is an Ed25519 pair in OpenSSH format.
 	GenerateKey func(comment string) (sshkey.Pair, error)
+	// Preferences is the developer's preferences file as the executable
+	// already loaded it, once, before the command tree ran; Config folds it
+	// into the result without a second read. The zero value reports no file.
+	Preferences preferences.Report
 }
 
 var ErrInput = errors.New("invalid command input")
