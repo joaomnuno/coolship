@@ -69,10 +69,15 @@ func run() int {
 	defer stop()
 	streams := ui.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Interactive: interactive(),
 		ColorOut: colorEnabled(isTerminal(os.Stdout), os.Getenv, os.Args[1:]),
-		ColorErr: colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:])}
+		ColorErr: colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:]),
+		// The command tree sets the level from --verbose, --debug,
+		// COOLSHIP_VERBOSITY, or the preferences before any backend exists.
+		Trace: ui.NewTrace(os.Stderr)}
 	runner := process.New(os.Stdin, os.Stdout, os.Stderr)
 	app := service.New(service.Dependencies{
-		NewBackend:      newBackend,
+		NewBackend: func(credentials auth.Credentials) (service.Backend, error) {
+			return newBackend(credentials, streams.Trace)
+		},
 		CredentialURL:   os.Getenv("COOLSHIP_URL"),
 		CredentialToken: os.Getenv("COOLSHIP_TOKEN"),
 		RunProcess: func(ctx context.Context, spec service.ProcessSpec) (int, error) {
@@ -94,8 +99,14 @@ func run() int {
 	return ui.ExitCode(err)
 }
 
-func newBackend(credentials auth.Credentials) (service.Backend, error) {
-	client, err := coolify.NewClient(credentials.URL, credentials.Token, coolify.WithUserAgent("coolship/"+userAgentVersion()))
+// newBackend builds the Coolify client. Above normal verbosity every request
+// attempt is reported to trace; at normal the client is given no trace at all.
+func newBackend(credentials auth.Credentials, trace *ui.Trace) (service.Backend, error) {
+	options := []coolify.Option{coolify.WithUserAgent("coolship/" + userAgentVersion())}
+	if trace.Level() != ui.VerbosityNormal {
+		options = append(options, coolify.WithTrace(func(exchange coolify.Exchange) { trace.Exchange(ui.Exchange(exchange)) }))
+	}
+	client, err := coolify.NewClient(credentials.URL, credentials.Token, options...)
 	if err != nil {
 		return nil, err
 	}

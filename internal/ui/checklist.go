@@ -30,7 +30,11 @@ type Checklist struct {
 	terminal *os.File // nil when the plain path is in use
 	style    palette
 	logs     bool
-	clock    func() time.Time
+	// hold keeps build log chunks back on the plain path: an interactive
+	// run above normal verbosity draws no checklist, yet --no-logs or a
+	// false build_logs still collapse the log until a failure prints it.
+	hold  bool
+	clock func() time.Time
 
 	program *tea.Program
 	done    chan struct{}
@@ -63,6 +67,7 @@ func NewChecklist(streams Streams, format string, logs bool) *Checklist {
 	c := &Checklist{streams: streams, renderer: NewRenderer(streams, format), style: streams.errPalette(), logs: logs, clock: time.Now}
 	if format != "json" {
 		c.terminal, _ = drawable(streams)
+		c.hold = c.terminal == nil && !logs && streams.Interactive && streams.Trace.Level() != VerbosityNormal
 	}
 	return c
 }
@@ -70,6 +75,10 @@ func NewChecklist(streams Streams, format string, logs bool) *Checklist {
 // Event is the Emitter a deployment workflow reports to.
 func (c *Checklist) Event(event service.Event) error {
 	if c.terminal == nil {
+		if c.hold && event.Type == "build" {
+			c.build.WriteString(event.Logs)
+			return nil
+		}
 		return c.renderer.DeploymentEvent(event)
 	}
 	now := c.clock()
@@ -153,6 +162,9 @@ func (c *Checklist) start(status string, now time.Time) {
 // was drawn.
 func (c *Checklist) Close(outcome Outcome) error {
 	if c.program == nil {
+		if c.hold && outcome == OutcomeFailed && c.build.Len() > 0 {
+			return writeLogs(c.streams.Err, c.build.String())
+		}
 		return nil
 	}
 	c.program.Send(endMsg{outcome: outcome, at: c.clock()})

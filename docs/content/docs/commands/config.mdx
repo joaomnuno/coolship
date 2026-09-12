@@ -49,7 +49,7 @@ build_logs = true      # true streams build logs, false collapses them; absent f
 color = "auto"         # auto | always | never
 ```
 
-The keys are read and checked today and take effect once the verbosity flags and the collapsed build log land. Credentials never go in this file: the Coolify URL and token stay in [Coolify CLI's file](/docs/concepts/credentials), so one login serves both tools.
+`verbosity` is the default when neither `--verbose`, `--debug`, nor `COOLSHIP_VERBOSITY` is given (see [verbosity](/docs/platform/output#verbosity)), and `build_logs` decides the build log when neither `--logs` nor `--no-logs` is given. `color` is read and checked today and takes effect in a later version. Credentials never go in this file: the Coolify URL and token stay in [Coolify CLI's file](/docs/concepts/credentials), so one login serves both tools.
 
 The `Preferences` line shows the path, then `(absent)` when there is no file or the keys it sets, such as `(verbosity verbose, build logs off, color auto)`. An unknown key, a value outside its list, or a file that cannot be read is warned about once at the start of every command and the file is ignored; the line then says `(ignored: …)` with the reason. A broken file never stops a deploy.
 

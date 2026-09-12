@@ -11,13 +11,32 @@ Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping
 
 `--format json` prints one result object per command. The shapes are documented on each command page, and every result that names an application carries the same `target` object (see the [command reference](/docs/commands)). `logs --format json` prints newline-delimited events, one object per line, for a single snapshot and when following. JSON mode never mixes human progress into stdout, and JSON output is never styled.
 
-Values that may be secrets are masked in JSON as well, unless `--show-values` is given. Tokens never appear in any output.
+Values that may be secrets are masked in JSON as well, unless `--show-values` is given. The token never appears in any output; at debug verbosity only its last four characters are shown.
 
 ## Styling
 
 Human output is colored only when the stream it goes to is a terminal, and each stream is decided on its own, so `coolship status | cat` prints plain text while a prompt on the terminal is still styled. Styled elements are `doctor` markers, deployment statuses, `Warning:` and `Error:` prefixes, prompt questions, `env diff` markers, and key/value labels, using plain ANSI sequences.
 
 Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
+
+## Verbosity
+
+A run shows one of three levels. **Normal** prints what the command prints. **Verbose** adds one line on stderr for every request Coolship sends to Coolify: the method, the URL, the status (or `no response`), the time taken, and `(retry N)` for a retried read. **Debug** adds each request's and response's headers and bodies under that line, curl-style, with the token masked to its last four characters and control characters removed.
+
+```text
+$ coolship status --verbose
+GET https://coolify.example.com/api/v1/applications/mm4c0zpbrzx8z96t0qiw3tff 200 OK 84ms
+…
+```
+
+The level comes from the first of these that is set:
+
+1. `--debug`, then `--verbose` (both long-only; `-v` is the version);
+2. `COOLSHIP_VERBOSITY=normal|verbose|debug`, for CI; any other value is invalid input;
+3. the `verbosity` key of the [preferences file](/docs/commands/config#preferences);
+4. normal.
+
+Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise (then it is held back and printed in full only if the deployment fails), and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain status lines print instead. Debug output shows request and response bodies in full, with only the token masked, so it includes the variable values `env set` and `env push` send and `env pull` returns, and any other secret a request or response carries; keep it out of shared CI logs.
 
 ## Prompts
 

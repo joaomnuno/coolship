@@ -40,6 +40,10 @@ Every command accepts these. Overrides apply to a single invocation and never re
 | `-t`, `--target NAME`    | Named target in a monorepo configuration (`[apps.<name>]`).                       |
 | `--format human\|json`   | Output format; `human` is the default, and `logs --format json` prints NDJSON.    |
 | `--no-color`             | Disable styled output (`NO_COLOR` does the same).                                 |
+| `--verbose`              | Print one line per request on stderr and stream build logs.                       |
+| `--debug`                | Print every request and response in full on stderr, token masked.                 |
+
+`COOLSHIP_VERBOSITY` and the preferences file set the verbosity when neither flag is given; see [Verbosity](/docs/platform/output#verbosity). `-v` is the version.
 
 `status`, `deploy`, `logs`, `open`, `dev`, and `domain` also take the target as a positional argument: `coolship deploy api`.
 

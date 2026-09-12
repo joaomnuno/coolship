@@ -218,3 +218,44 @@ func TestElapsed(t *testing.T) {
 		}
 	}
 }
+
+// TestChecklistHoldsTheBuildLogAboveNormalWhenCollapsed checks the plain
+// path of an interactive verbose run: status lines print as they arrive,
+// build log chunks are held when logs are off, and only a failed deployment
+// prints them. With logs on, or off an interactive run, nothing is held.
+func TestChecklistHoldsTheBuildLogAboveNormalWhenCollapsed(t *testing.T) {
+	const log = "Building docker image started.\n"
+	for _, test := range []struct {
+		name        string
+		interactive bool
+		logs        bool
+		outcome     Outcome
+		wantLog     bool
+	}{
+		{"collapsed while running", true, false, OutcomeSucceeded, false},
+		{"collapsed when stopped", true, false, OutcomeStopped, false},
+		{"printed on failure", true, false, OutcomeFailed, true},
+		{"streamed with logs on", true, true, OutcomeSucceeded, true},
+		{"streamed when not interactive", false, false, OutcomeSucceeded, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var diagnostic bytes.Buffer
+			checklist := NewChecklist(Streams{Err: &diagnostic, Interactive: test.interactive, Trace: leveled(VerbosityVerbose)}, "human", test.logs)
+			for _, event := range []service.Event{
+				{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"},
+				{Type: "build", DeploymentUUID: "d-1", Logs: log},
+			} {
+				if err := checklist.Event(event); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := checklist.Close(test.outcome); err != nil {
+				t.Fatal(err)
+			}
+			got := diagnostic.String()
+			if !strings.HasPrefix(got, "Deployment d-1: in_progress\n") || strings.Contains(got, log) != test.wantLog {
+				t.Fatalf("stderr = %q; log wanted %v", got, test.wantLog)
+			}
+		})
+	}
+}

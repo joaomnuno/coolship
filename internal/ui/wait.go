@@ -59,16 +59,23 @@ func (s *Spinner) Start(label string) {
 // stderr is not a terminal, or it is a pseudo-terminal that does not report
 // a size (unbuffer, script without a terminal behind it), which has no line
 // to draw on; drawing would only move the cursor over what was printed
-// before.
+// before. Verbose and debug runs draw nothing either: their request lines
+// share stderr, and a live view would redraw over them.
 func drawable(streams Streams) (*os.File, bool) {
 	terminal, ok := streams.Err.(*os.File)
-	if !streams.Interactive || !ok || !term.IsTerminal(int(terminal.Fd())) {
+	if !liveViewsAllowed(streams) || !ok || !term.IsTerminal(int(terminal.Fd())) {
 		return nil, false
 	}
 	if width, _, err := term.GetSize(int(terminal.Fd())); err != nil || width <= 0 {
 		return nil, false
 	}
 	return terminal, true
+}
+
+// liveViewsAllowed is the part of drawable that does not depend on the
+// terminal: the streams are interactive and the run is at normal verbosity.
+func liveViewsAllowed(streams Streams) bool {
+	return streams.Interactive && streams.Trace.Level() == VerbosityNormal
 }
 
 // Stop clears the spinner and waits until the terminal is restored. It is

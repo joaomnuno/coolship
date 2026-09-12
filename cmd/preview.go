@@ -31,7 +31,9 @@ GitHub Actions pull_request workflow.
 
 In a terminal the deployment is shown as a stage checklist with the build log
 collapsed, as deploy does; --logs streams the log, --no-logs keeps it
-collapsed, and the build_logs preference decides when neither is given.`,
+collapsed, the build_logs preference decides when neither is given, and
+without that the verbosity: collapsed when normal, streamed with --verbose or
+--debug.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {
@@ -43,7 +45,7 @@ collapsed, and the build_logs preference decides when neither is given.`,
 			if deploy.PullRequest <= 0 {
 				return inputError(errors.New("--pr is required outside a GitHub Actions pull_request workflow"))
 			}
-			showLogs, err := buildLogs(logs, prefs.BuildLogs)
+			showLogs, err := buildLogs(logs, prefs.BuildLogs, options.verbosity)
 			if err != nil {
 				return err
 			}
