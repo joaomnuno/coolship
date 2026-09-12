@@ -16,10 +16,9 @@ Select project
   Work
 ```
 
-Each choice is a picker: the arrow keys move, Enter picks, and Esc (or Ctrl-C) cancels without writing anything. Typing filters a list too long for the terminal; on a shorter one, `/` starts the filter. Choices show names only, and a detail such as the UUID appears only when two candidates share a name. When the directory is already linked, the cursor starts on the current project, environment, and application. Once a choice is made, the picker gives way to one line that records it:
+Each choice is a picker: the arrow keys move, Enter picks, and Esc (or Ctrl-C) cancels without writing anything. Typing filters a list too long for the terminal; on a shorter one, `/` starts the filter. Choices show names only, and a detail such as the UUID appears only when two candidates share a name. When the directory is already linked, the cursor starts on the current project, environment, and application. Once the last choice is made, the picker is erased and the result names what was linked:
 
 ```text
-Project: Personal
 Linked project in /home/you/my-app/coolship.toml
 Application: fenix-bot (9f8e7d6c)
 Environment: production

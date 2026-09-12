@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -75,8 +74,8 @@ func terminalInput(streams Streams) (*os.File, *os.File, bool) {
 }
 
 // pick runs the arrow-key selector on the terminal and returns the chosen ID.
-// Esc and Ctrl-C cancel; the picker is erased when it ends, and a chosen value
-// leaves one "Kind: name" line behind as the record of the answer.
+// Esc and Ctrl-C cancel. The picker is erased when it ends and leaves nothing
+// behind: the result that follows already names every chosen resource.
 func (p *Prompter) pick(ctx context.Context, kind string, choices []service.Choice, in, errTerminal *os.File) (string, error) {
 	height := 0
 	if _, rows, err := term.GetSize(int(errTerminal.Fd())); err == nil {
@@ -96,12 +95,8 @@ func (p *Prompter) pick(ctx context.Context, kind string, choices []service.Choi
 	case err != nil:
 		return "", fmt.Errorf("select %s: %w", singleLine(kind), err)
 	}
-	labels := choiceLabels(choices)
-	for i, choice := range choices {
+	for _, choice := range choices {
 		if choice.ID == *value {
-			if _, err := fmt.Fprintln(p.streams.Err, p.style.key(capitalize(singleLine(kind)))+" "+labels[i]); err != nil {
-				return "", err
-			}
 			return choice.ID, nil
 		}
 	}
@@ -147,11 +142,4 @@ func pickerTheme(style palette) huh.Theme {
 		theme.Focused.Description = style.styles[dim]
 		return theme
 	})
-}
-
-func capitalize(text string) string {
-	if text == "" {
-		return text
-	}
-	return strings.ToUpper(text[:1]) + text[1:]
 }
