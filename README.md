@@ -48,7 +48,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover. `domain` is implemented and tested too; `scripts/e2e` reads it and exercises a no-op `domain set`, but no run against a live instance has confirmed either yet.
 
-Ideas, feedback, and contributions are welcome.
+Ideas, feedback, and contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Install
 
