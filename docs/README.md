@@ -13,7 +13,7 @@ The app is a standard Next.js App Router project, built and served by [vinext](h
 | dev server | `npm run dev` | `npm run dev:next` |
 | image | `Dockerfile` | `Dockerfile.next` |
 
-`vite.config.ts` is the one vinext-specific file. Its `plugins: [fumadocsMdx(), vinext()]` line is required: vinext reads `next.config.mjs` but does not run the webpack loaders that `fumadocs-mdx/next` installs there, so Fumadocs' Vite plugin must expand the `defineDocs` macro in `lib/source.ts`. Without it the build passes and every MDX-backed route answers 500 at runtime, which is why the CI smoke test curls the built container.
+`vite.config.ts` is the one vinext-specific file. Its `plugins: [tailwindcss(), fumadocsMdx(), vinext()]` line is required: Tailwind compiles `app/global.css` before Vite's pipeline, and vinext reads `next.config.mjs` but does not run the webpack loaders that `fumadocs-mdx/next` installs there, so Fumadocs' Vite plugin must expand the `defineDocs` macro in `lib/source.ts`. The config also sets `css.postcss.plugins` to an empty list to skip the PostCSS plugin from `postcss.config.mjs`, which would break Fumadocs' inlining of generated candidate lists. Without these settings the build passes and every MDX-backed route answers 500 at runtime, which is why the CI smoke test curls the built container.
 
 **Switching to the fallback** is a one-line change in Coolify: set the application's *Dockerfile Location* to `/Dockerfile.next` instead of `/Dockerfile` (Coolify joins it to the base directory, `/docs`) and redeploy. Nothing in the app changes; both images listen on port 3000, run as a non-root user, and carry the same `HEALTHCHECK`. Switch back the same way. The known differences: vinext renders docs pages per request (Next.js pre-renders them at build time, and serves them with `s-maxage=31536000`), and vinext is a beta, so a regression after a dependency update is the reason to switch. `instrumentation.ts` exists for the Next.js build alone: its compiled page runtime overwrites the `Vary` header while sending a page, which would drop the `Vary: Accept` that `proxy.ts` sets on a page URL; the hook keeps the token, and does nothing under vinext, which merges the header itself.
 
@@ -70,6 +70,6 @@ Content is derived from the repository's `README.md`, `ARCHITECTURE.md`, `CHANGE
 | `lib/source.ts` | The content source, the components kept for `lib/llm.ts`, and the Markdown URL helpers |
 | `lib/llm.ts` | Markdown renditions of pages and the `llms.txt` index |
 | `site.config.mjs` | Public URL (`SITE_URL`) and repository |
-| `vite.config.ts` | The vinext build, with the required `fumadocsMdx()` plugin |
+| `vite.config.ts` | The vinext build, with `tailwindcss()`, `fumadocsMdx()`, and `vinext()` plugins, and a postcss override |
 | `Dockerfile`, `Dockerfile.next` | The vinext image and the Next.js fallback image |
 | `scripts/smoke.sh` | Route checks against a running server, used by CI |
