@@ -59,6 +59,8 @@ change command behavior; the changelog says when they do.
 - Bare `coolship` printed the preferences warning even though it shows the help page exactly like `coolship help`, which stayed silent; a bare invocation is now treated the same as `help`.
 - `scripts/install.sh` replaced a working `coolship` before checking that the new one runs, so a binary that could not execute on the machine left no install at all. The downloaded binary is now run with `--version` from a staging file next to the target, and only a binary that runs is renamed into place; when it does not, the script says so, leaves the existing install untouched, removes the staging file, and exits 1.
 - `status` interrupted while reading the deployment history reported success with a warning; it now exits as cancelled, like every other command.
+- A remote that carries a login, such as `https://user:token@github.com/owner/repo`, had it quoted back verbatim when the URL was rejected, so a token could end up in terminal output, logs, and CI transcripts. The credentials are now stripped from the quoted remote in every one of those errors, for URL and `user@host:path` remotes alike.
+- A repository URL on a port of its own, such as `https://gitea.example.com:8443/owner/repo`, lost the port when it was normalized, so a self-hosted forge was linked to the wrong address. The port is kept now; an SSH port still does not carry over to the https form, since it addresses a different service.
 
 ### Changed
 
