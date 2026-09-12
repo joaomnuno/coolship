@@ -960,10 +960,15 @@ func TestEnvPushPromptShowsWhatItLeavesAlone(t *testing.T) {
 }
 
 func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
-	app := fakeApplication{config: func(context.Context, service.Options) (service.ConfigResult, error) {
-		return service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file"}, nil
-	}}
-	run := func(report preferences.Report, args ...string) (string, string, error) {
+	base := service.ConfigResult{ConfigPath: "/p/coolship.toml", Target: "default", AppRoot: "/p", CredentialSource: "file"}
+	// The command only renders; how Config assembles a preferences.Report
+	// into service.PreferencesReport is covered by internal/service, so
+	// each case below hands the fake the already-assembled result it
+	// expects the real service to have produced for that report.
+	run := func(report preferences.Report, result service.ConfigResult, args ...string) (string, string, error) {
+		app := fakeApplication{config: func(context.Context, service.Options) (service.ConfigResult, error) {
+			return result, nil
+		}}
 		var out, diagnostic bytes.Buffer
 		root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic}, "test-version", cmd.WithPreferences(report))
 		root.SetArgs(args)
@@ -971,17 +976,24 @@ func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
 		return out.String(), diagnostic.String(), err
 	}
 	path := "/home/u/.config/coolship/preferences.toml"
-	out, diagnostic, err := run(preferences.Report{Path: path}, "config")
+
+	absent := base
+	absent.Preferences = &service.PreferencesReport{Path: path}
+	out, diagnostic, err := run(preferences.Report{Path: path}, absent, "config")
 	if err != nil || diagnostic != "" || !strings.Contains(out, "Preferences:      "+path+" (absent)\n") {
 		t.Fatalf("absent file: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
+
 	off := false
-	present := preferences.Report{Path: path, Present: true, Preferences: preferences.Preferences{Verbosity: "debug", BuildLogs: &off, Color: "auto"}}
-	out, _, err = run(present, "config")
+	presentPrefs := preferences.Preferences{Verbosity: "debug", BuildLogs: &off, Color: "auto"}
+	presentReport := preferences.Report{Path: path, Present: true, Preferences: presentPrefs}
+	present := base
+	present.Preferences = &service.PreferencesReport{Path: path, Present: true, Preferences: presentPrefs}
+	out, _, err = run(presentReport, present, "config")
 	if err != nil || !strings.Contains(out, "Preferences:      "+path+" (verbosity debug, build logs off, color auto)\n") {
 		t.Fatalf("present file: out=%q err=%v", out, err)
 	}
-	out, _, err = run(present, "config", "--format", "json")
+	out, _, err = run(presentReport, present, "config", "--format", "json")
 	var decoded struct {
 		ConfigPath  string `json:"config_path"`
 		Preferences struct {
@@ -1000,25 +1012,28 @@ func TestConfigShowsPreferencesAndBrokenFileWarnsOnce(t *testing.T) {
 	if decoded.ConfigPath != "/p/coolship.toml" || p.Path != path || !p.Present || p.Verbosity != "debug" || p.BuildLogs == nil || *p.BuildLogs || p.Color != "auto" || p.Error != "" {
 		t.Fatalf("json preferences = %+v", decoded)
 	}
+
 	// A broken file is one warning on stderr, then the command runs; config
 	// says the file is ignored and why.
-	broken := preferences.Report{Path: path, Present: true, Err: &preferences.Error{Path: path, Err: errors.New(`unknown key "verbosty"`)}}
-	out, diagnostic, err = run(broken, "config")
+	brokenReport := preferences.Report{Path: path, Present: true, Err: &preferences.Error{Path: path, Err: errors.New(`unknown key "verbosty"`)}}
+	broken := base
+	broken.Preferences = &service.PreferencesReport{Path: path, Present: true, Error: `unknown key "verbosty"`}
+	out, diagnostic, err = run(brokenReport, broken, "config")
 	want := "Warning: Ignoring preferences file " + path + `: unknown key "verbosty"` + "\n"
 	if err != nil || diagnostic != want || !strings.Contains(out, "Preferences:      "+path+` (ignored: unknown key "verbosty")`+"\n") {
 		t.Fatalf("broken file: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
-	out, diagnostic, err = run(broken, "config", "--format", "json")
+	out, diagnostic, err = run(brokenReport, broken, "config", "--format", "json")
 	if err != nil || diagnostic != want || json.Unmarshal([]byte(out), &decoded) != nil || decoded.Preferences.Error != `unknown key "verbosty"` || !decoded.Preferences.Present {
 		t.Fatalf("broken file json: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
 	for _, args := range [][]string{nil, {"--help"}, {"--version"}, {"help", "config"}, {"config", "--help"}, {"completion", "bash"}} {
-		if out, diagnostic, err := run(broken, args...); err != nil || out == "" || diagnostic != "" {
+		if out, diagnostic, err := run(brokenReport, broken, args...); err != nil || out == "" || diagnostic != "" {
 			t.Fatalf("%v with a broken file: out=%q stderr=%q err=%v", args, out, diagnostic, err)
 		}
 	}
 	// Without the option there is no line and no field, as before.
-	out, _, err = run(preferences.Report{}, "config", "--format", "json")
+	out, _, err = run(preferences.Report{}, base, "config", "--format", "json")
 	if err != nil || strings.Contains(out, "preferences") {
 		t.Fatalf("no report: out=%q err=%v", out, err)
 	}
