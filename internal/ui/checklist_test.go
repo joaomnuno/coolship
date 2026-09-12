@@ -77,7 +77,7 @@ func TestChecklistViewFollowsAScriptedDeployment(t *testing.T) {
 	update(stageMsg{stage: service.StageCleanup, status: service.StageDone, at: at(59)})
 	update(stageMsg{stage: service.StageRollingUpdate, status: service.StageDone, at: at(60)})
 	update(deploymentMsg{status: "finished", at: at(61)})
-	update(endMsg{at: at(61)})
+	update(endMsg{outcome: OutcomeSucceeded, at: at(61)})
 	if got, want := view(), frame(
 		"✓ Deployed                      1:01",
 		"  ✓ build                       0:41",
@@ -106,7 +106,7 @@ func TestChecklistViewMarksFailures(t *testing.T) {
 	// interrupt) is not a failed deployment: the open stage is left as it
 	// was, and the line says what happened.
 	stopped := model
-	stopped, _ = stopped.Update(endMsg{failed: true, at: start.Add(time.Hour + 2*time.Minute + 3*time.Second)})
+	stopped, _ = stopped.Update(endMsg{outcome: OutcomeStopped, at: start.Add(time.Hour + 2*time.Minute + 3*time.Second)})
 	want := strings.Join([]string{
 		"✗ Observation stopped           1:02:03",
 		"  ✗ build                       0:07",
@@ -118,7 +118,7 @@ func TestChecklistViewMarksFailures(t *testing.T) {
 		t.Fatalf("stopped view\n got %q\nwant %q", got, want)
 	}
 	update(deploymentMsg{status: "failed", at: start.Add(10 * time.Second)})
-	update(endMsg{failed: true, at: start.Add(10 * time.Second)})
+	update(endMsg{outcome: OutcomeFailed, at: start.Add(10 * time.Second)})
 	want = strings.Join([]string{
 		"✗ Deployment failed             0:10",
 		"  ✗ build                       0:07",
@@ -131,7 +131,7 @@ func TestChecklistViewMarksFailures(t *testing.T) {
 	}
 	var cancelled tea.Model = newChecklistModel(newPalette(false), "in_progress", start, time.Now)
 	cancelled, _ = cancelled.Update(deploymentMsg{status: "cancelled-by-user", at: start.Add(3 * time.Second)})
-	cancelled, _ = cancelled.Update(endMsg{failed: true, at: start.Add(3 * time.Second)})
+	cancelled, _ = cancelled.Update(endMsg{outcome: OutcomeFailed, at: start.Add(3 * time.Second)})
 	if got := cancelled.(checklistModel).render(); !strings.HasPrefix(got, "✗ Deployment cancelled          0:03\n") {
 		t.Fatalf("cancelled view %q", got)
 	}
@@ -157,13 +157,47 @@ func TestChecklistIsPlainOffATerminal(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := checklist.Close(true); err != nil {
+		if err := checklist.Close(OutcomeFailed); err != nil {
 			t.Fatal(err)
 		}
 		want := "Warning: proxy will learn the domain later\nDeployment d-1: queued\nBuilding docker image started.\nStage build: started\nDeployment d-1: failed\n"
 		if diagnostic.String() != want {
 			t.Fatalf("%s stderr\n got %q\nwant %q", format, diagnostic.String(), want)
 		}
+	}
+}
+
+// TestChecklistPrintsTheBuildLogOnlyForAFailedDeployment checks what
+// replaces the live view when observation ends: the final checklist always,
+// and the buffered build log only when the server said the deployment
+// failed. Observation that stopped while the deployment was still running
+// (a timeout, an interrupt, a poll that failed) keeps the log collapsed.
+func TestChecklistPrintsTheBuildLogOnlyForAFailedDeployment(t *testing.T) {
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	log := "Building docker image started.\nBuilding docker image completed.\n"
+	for _, test := range []struct {
+		name    string
+		outcome Outcome
+		wantLog bool
+	}{
+		{"failed prints the log", OutcomeFailed, true},
+		{"stopped keeps it collapsed", OutcomeStopped, false},
+		{"succeeded keeps it collapsed", OutcomeSucceeded, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			checklist := &Checklist{style: newPalette(false), clock: func() time.Time { return start }}
+			checklist.build.WriteString(log)
+			model := newChecklistModel(checklist.style, "in_progress", start, func() time.Time { return start })
+			model.end(test.outcome, start)
+			checklist.final = model
+			got := checklist.closing(test.outcome)
+			if !strings.HasPrefix(got, model.render()+"\n") {
+				t.Fatalf("closing lost the final checklist: %q", got)
+			}
+			if strings.Contains(got, log) != test.wantLog {
+				t.Fatalf("closing(%v) = %q; log present %v, want %v", test.outcome, got, !test.wantLog, test.wantLog)
+			}
+		})
 	}
 }
 

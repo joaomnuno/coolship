@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/joaomnuno/coolship/internal/service"
+	"github.com/joaomnuno/coolship/internal/ui"
 )
 
 // TestBuildLogsResolvesFlagThenPreferenceThenDefault covers the three
@@ -35,5 +36,24 @@ func TestBuildLogsResolvesFlagThenPreferenceThenDefault(t *testing.T) {
 	}
 	if _, err := buildLogs(logFlags{logs: true, noLogs: true}, &yes); !errors.Is(err, service.ErrInput) || err.Error() != "--logs and --no-logs cannot be combined" {
 		t.Fatalf("both flags: %v", err)
+	}
+}
+
+// TestDeploymentOutcomeFailsOnlyOnTheServersVerdict covers the decision that
+// gates the build log dump: the deployment's last observed status, not the
+// error the run returned. A timeout, an interrupt, or a failed poll leaves
+// the deployment queued or running, which stops observation without failing
+// the deployment, so its log must stay collapsed.
+func TestDeploymentOutcomeFailsOnlyOnTheServersVerdict(t *testing.T) {
+	for status, want := range map[string]ui.Outcome{
+		"failed":            ui.OutcomeFailed,
+		"cancelled-by-user": ui.OutcomeFailed,
+		"queued":            ui.OutcomeStopped,
+		"in_progress":       ui.OutcomeStopped,
+		"":                  ui.OutcomeStopped,
+	} {
+		if got := deploymentOutcome(status); got != want {
+			t.Errorf("deploymentOutcome(%q) = %v, want %v", status, got, want)
+		}
 	}
 }

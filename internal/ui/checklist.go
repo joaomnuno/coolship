@@ -38,6 +38,23 @@ type Checklist struct {
 	build   strings.Builder
 }
 
+// Outcome is how observation of a deployment ended, which is not the same
+// question as whether the command failed: a timeout, an interrupt, or a
+// poll that failed all end observation while the deployment carries on, and
+// none of them is the deployment failing.
+type Outcome int
+
+const (
+	// OutcomeSucceeded is the server reporting the deployment finished.
+	OutcomeSucceeded Outcome = iota
+	// OutcomeFailed is the server's verdict that the deployment failed or
+	// was cancelled. It is the only outcome that prints the build log.
+	OutcomeFailed
+	// OutcomeStopped is observation ending before the server pronounced
+	// anything; the deployment is still queued or running.
+	OutcomeStopped
+)
+
 // NewChecklist prepares the view for one deployment. logs streams the build
 // log lines above the checklist as they arrive; otherwise they are kept for
 // a failure. Nothing is drawn until the first deployment event.
@@ -130,32 +147,41 @@ func (c *Checklist) start(status string, now time.Time) {
 	}(c.program, c.done)
 }
 
-// Close ends the view once the deployment has ended, failed says how. The
+// Close ends the view once observation has ended, outcome says how. The
 // live view is cleared by Bubble Tea, so the final checklist is printed
-// plainly in its place and stays on screen; on a failure the build log
-// gathered so far follows it, so the log's tail is the last thing before the
-// result. It is safe to call when nothing was drawn.
-func (c *Checklist) Close(failed bool) error {
+// plainly in its place and stays on screen. It is safe to call when nothing
+// was drawn.
+func (c *Checklist) Close(outcome Outcome) error {
 	if c.program == nil {
 		return nil
 	}
-	c.program.Send(endMsg{failed: failed, at: c.clock()})
+	c.program.Send(endMsg{outcome: outcome, at: c.clock()})
 	c.program.Quit()
 	<-c.done
 	c.program, c.done = nil, nil
+	_, err := io.WriteString(c.streams.Err, c.closing(outcome))
+	return err
+}
+
+// closing is what Close prints in place of the live view: the final
+// checklist, and, when the deployment itself failed, the build log gathered
+// so far, so the log's tail is the last thing before the result, since no
+// command can fetch a past build log. Observation that merely stopped
+// leaves the log collapsed: the deployment has not failed, and dumping
+// thousands of lines over an interrupt is what a reader least wants.
+func (c *Checklist) closing(outcome Outcome) string {
 	var out strings.Builder
 	if model, ok := c.final.(checklistModel); ok {
 		out.WriteString(model.render() + "\n")
 	}
-	if failed && c.build.Len() > 0 {
+	if outcome == OutcomeFailed && c.build.Len() > 0 {
 		out.WriteString("\n")
 		out.WriteString(c.build.String())
 		if !strings.HasSuffix(c.build.String(), "\n") {
 			out.WriteString("\n")
 		}
 	}
-	_, err := io.WriteString(c.streams.Err, out.String())
-	return err
+	return out.String()
 }
 
 // Messages the Checklist sends its model. Each carries the time it happened,
@@ -170,8 +196,8 @@ type (
 		at            time.Time
 	}
 	endMsg struct {
-		failed bool
-		at     time.Time
+		outcome Outcome
+		at      time.Time
 	}
 	// printMsg is a line to print above the view, where it stays.
 	printMsg string
@@ -226,7 +252,7 @@ func (m checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stage(msg)
 	case endMsg:
 		m.now = msg.at
-		m.end(msg.failed, msg.at)
+		m.end(msg.outcome, msg.at)
 	}
 	return m, nil
 }
@@ -257,13 +283,14 @@ func (m *checklistModel) stage(msg stageMsg) {
 const stageStopped = "stopped"
 
 // end freezes the view: an open stage ends with the deployment, the way the
-// deployment did, since no marker will arrive for it any more. A failure the
-// server did not pronounce (a timeout, an interrupt, a lost connection) is
-// observation stopping, not the deployment failing, and its open stages are
-// left as they were.
-func (m *checklistModel) end(failed bool, at time.Time) {
-	m.ended, m.failed = true, failed
-	m.stopped = failed && m.status != "failed" && m.status != "cancelled-by-user"
+// deployment did, since no marker will arrive for it any more. Observation
+// that stopped before the server's verdict (a timeout, an interrupt, a lost
+// connection) is not the deployment failing, and its open stages are left
+// as they were.
+func (m *checklistModel) end(outcome Outcome, at time.Time) {
+	m.ended = true
+	m.failed = outcome != OutcomeSucceeded
+	m.stopped = outcome == OutcomeStopped
 	m.stages = slices.Clone(m.stages)
 	for index := range m.stages {
 		if m.stages[index].status != service.StageStarted {
@@ -273,7 +300,7 @@ func (m *checklistModel) end(failed bool, at time.Time) {
 		switch {
 		case m.stopped:
 			m.stages[index].status = stageStopped
-		case failed:
+		case m.failed:
 			m.stages[index].status = service.StageFailed
 		default:
 			m.stages[index].status = service.StageDone
