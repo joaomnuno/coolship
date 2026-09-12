@@ -28,6 +28,7 @@ func TestNormalizeRemote(t *testing.T) {
 		// A forge on a port of its own keeps it; an SSH port addresses a
 		// different service and never becomes part of the https URL.
 		{"https://gitea.example.com:8443/owner/repo.git", "https://gitea.example.com:8443/owner/repo"},
+		{"https://gitea.example.com:8443/owner/repo", "https://gitea.example.com:8443/owner/repo"},
 		{"http://gitea.example.com:3000/owner/repo", "https://gitea.example.com:3000/owner/repo"},
 		{"https://github.com:443/owner/repo", "https://github.com/owner/repo"},
 		{"http://gitea.example.com:80/owner/repo", "https://gitea.example.com/owner/repo"},
