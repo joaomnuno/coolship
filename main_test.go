@@ -48,6 +48,16 @@ func TestColorEnabledNeedsTerminalAndNoOptOut(t *testing.T) {
 		{"CI", true, map[string]string{"CI": "true"}, nil, false},
 		{"--no-color", true, nil, []string{"deploy", "--no-color"}, false},
 		{"--no-color=true", true, nil, []string{"--no-color=true", "status"}, false},
+		{"--no-color=1", true, nil, []string{"--no-color=1", "status"}, false},
+		{"--no-color=TRUE", true, nil, []string{"--no-color=TRUE", "status"}, false},
+		{"--no-color=T", true, nil, []string{"--no-color=T", "status"}, false},
+		{"--no-color=True", true, nil, []string{"--no-color=True", "status"}, false},
+		{"--no-color=false", true, nil, []string{"--no-color=false", "status"}, true},
+		{"--no-color=0", true, nil, []string{"--no-color=0", "status"}, true},
+		{"--no-color=FALSE", true, nil, []string{"--no-color=FALSE", "status"}, true},
+		{"--no-color=garbage is ignored", true, nil, []string{"--no-color=garbage", "status"}, true},
+		{"later --no-color=false overrides earlier --no-color", true, nil, []string{"--no-color", "--no-color=false"}, true},
+		{"later --no-color overrides earlier --no-color=false", true, nil, []string{"--no-color=false", "--no-color"}, false},
 		{"--no-color after --", true, nil, []string{"dev", "--", "npm", "--no-color"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

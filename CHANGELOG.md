@@ -54,6 +54,7 @@ change command behavior; the changelog says when they do.
 - `/dev/null` counted as a terminal, so `coolship open </dev/null` tried to launch a browser and `unlink </dev/null` reported a cancelled prompt (exit 130); both now treat that input as noninteractive (`open` prints the URL only; `unlink` requires `--yes`, exit 2).
 - A binary installed with `go install …@vX.Y.Z` reported `coolship dev`; it now reports the module version.
 - `doctor`'s server check and `login`'s failure keep the `HTTP 401`/`403` status text alongside the explanation.
+- `--no-color=1`, `--no-color=TRUE`, `--no-color=T`, and other true forms pflag accepts left colour on; the opt-out is now decoded with the same rule as the flag itself, so every true form turns colour off and every false form (`--no-color=false`, `--no-color=0`, and so on) leaves it as it was.
 
 ### Changed
 
