@@ -58,17 +58,23 @@ func summarize(record models.DeploymentRecord) DeploymentSummary {
 }
 
 // lastDeployment reads the newest history row for status. History is an
-// addition to the status, so a failure becomes a warning, not an error.
-func (a *App) lastDeployment(ctx context.Context, s session) (*DeploymentSummary, string) {
+// addition to the status, so most failures become a warning, not an error.
+// A cancelled or timed-out read is propagated instead, so the executable
+// boundary classifies it like every other interrupted command rather than
+// reporting a successful status with a note.
+func (a *App) lastDeployment(ctx context.Context, s session) (*DeploymentSummary, string, error) {
 	page, err := s.backend.ListDeployments(ctx, s.project.Application.UUID, 1)
 	if err != nil {
-		return nil, "Deployment history could not be read: " + err.Error()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, "", err
+		}
+		return nil, "Deployment history could not be read: " + err.Error(), nil
 	}
 	if len(page.Deployments) == 0 {
-		return nil, ""
+		return nil, "", nil
 	}
 	last := summarize(page.Deployments[0])
-	return &last, ""
+	return &last, "", nil
 }
 
 // Cancel cancels one deployment of the linked application: the named one,

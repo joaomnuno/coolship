@@ -58,6 +58,7 @@ change command behavior; the changelog says when they do.
 - `init --create-deploy-key` now suggests `--repo` in the follow-up command it prints, quoted when the repository or key name needs it; re-running the suggested command targets the repository the key was registered against instead of whatever the git origin remote says.
 - Bare `coolship` printed the preferences warning even though it shows the help page exactly like `coolship help`, which stayed silent; a bare invocation is now treated the same as `help`.
 - `scripts/install.sh` replaced a working `coolship` before checking that the new one runs, so a binary that could not execute on the machine left no install at all. The downloaded binary is now run with `--version` from a staging file next to the target, and only a binary that runs is renamed into place; when it does not, the script says so, leaves the existing install untouched, removes the staging file, and exits 1.
+- `status` interrupted while reading the deployment history reported success with a warning; it now exits as cancelled, like every other command.
 
 ### Changed
 

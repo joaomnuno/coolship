@@ -122,7 +122,10 @@ func (a *App) Status(ctx context.Context, options Options) (StatusResult, error)
 	}
 	result := StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
 		URL: s.project.Application.FQDN, Warnings: s.warnings}
-	last, warning := a.lastDeployment(ctx, s)
+	last, warning, err := a.lastDeployment(ctx, s)
+	if err != nil {
+		return StatusResult{}, err
+	}
 	result.LastDeployment = last
 	if warning != "" {
 		result.Warnings = append(result.Warnings, warning)

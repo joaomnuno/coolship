@@ -255,6 +255,18 @@ func TestStatusAddsTheLastDeploymentWhenReadable(t *testing.T) {
 	if err != nil || result.LastDeployment != nil || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "boom") || result.Status != "running:healthy" {
 		t.Fatalf("unreadable history must warn, not fail: result=%+v err=%v", result, err)
 	}
+	// A cancelled or timed-out history read is a real error, not a warning:
+	// Ctrl-C during status must exit 130, not report success with a note.
+	f.historyError = context.Canceled
+	result, err = app.Status(context.Background(), options)
+	if !errors.Is(err, context.Canceled) || result.LastDeployment != nil || len(result.Warnings) != 0 {
+		t.Fatalf("cancelled history read must propagate, not warn: result=%+v err=%v", result, err)
+	}
+	f.historyError = context.DeadlineExceeded
+	result, err = app.Status(context.Background(), options)
+	if !errors.Is(err, context.DeadlineExceeded) || result.LastDeployment != nil || len(result.Warnings) != 0 {
+		t.Fatalf("timed-out history read must propagate, not warn: result=%+v err=%v", result, err)
+	}
 }
 
 func TestCancelRefusesNoneOrSeveralAndConfirmsOne(t *testing.T) {
