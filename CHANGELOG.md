@@ -9,6 +9,7 @@ change command behavior; the changelog says when they do.
 
 ### Fixed
 - The help groups (Get started, Ship, Run, Configure, Maintain) and each group's own workflow order no longer come from turning off Cobra's command sorting for the whole process. `NewRootCommand` used to set the package-global `cobra.EnableCommandSorting` and never restore it, so any other Cobra command tree built in the same process — for instance an embedder running Coolship's constructor alongside its own — had its help silently reordered too, with no synchronization if two such trees rendered help at the same time. Coolship's own help output is unchanged.
+- Fixed a second problem the same change had left behind: Cobra sorts a command's children the first time anything reads them with sorting enabled, and does so for good, so any unguarded read on a Coolship tree — an embedder calling `Commands()` directly, or Cobra's own `__complete` and help-completion paths — permanently alphabetized that tree's own help from then on. Coolship's help now carries its declared order on the tree itself and renders from that, never from Cobra's `Commands()`, so it survives any such read and never touches `cobra.EnableCommandSorting` at all; concurrent use of another Cobra tree needs no synchronization because there is no shared state left to race on.
 
 ## [0.3.0] - 2026-09-12
 

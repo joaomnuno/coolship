@@ -9,6 +9,7 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,6 +236,86 @@ func TestHelpOrderStaysLocalToTheTree(t *testing.T) {
 		index := strings.Index(out.String()[position:], "\n  "+name+" ")
 		if index < 0 {
 			t.Fatalf("sibling tree lost Cobra's default alphabetical order: %s", out.String())
+		}
+		position += index
+	}
+}
+
+// TestConcurrentTreesDoNotRace builds and renders a Coolship tree's help
+// concurrently with a plain sibling Cobra tree's help, under go test -race.
+// Coolship's ordering must never touch any package-global Cobra state
+// (issue #30 again: the original fix's own mutex only serialized
+// Coolship's own writes, so it still raced against a sibling's unguarded
+// read of cobra.EnableCommandSorting). With ordering carried entirely on
+// each tree's own commands, there is nothing left to race on, and the
+// sibling's help stays alphabetical throughout.
+func TestConcurrentTreesDoNotRace(t *testing.T) {
+	var group sync.WaitGroup
+	group.Add(2)
+
+	var siblingOut bytes.Buffer
+	go func() {
+		defer group.Done()
+		if _, _, err := execute(t, nil, "--help"); err != nil {
+			t.Errorf("coolship --help: %v", err)
+		}
+	}()
+	go func() {
+		defer group.Done()
+		sibling := &cobra.Command{Use: "sibling"}
+		for _, name := range []string{"zebra", "mango", "apple"} {
+			sibling.AddCommand(&cobra.Command{Use: name, Run: func(*cobra.Command, []string) {}})
+		}
+		sibling.SetOut(&siblingOut)
+		sibling.SetArgs([]string{"--help"})
+		if err := sibling.Execute(); err != nil {
+			t.Errorf("sibling --help: %v", err)
+		}
+	}()
+	group.Wait()
+
+	names := []string{"apple", "mango", "zebra"} // alphabetical: Cobra's own default, undisturbed
+	position := 0
+	for _, name := range names {
+		index := strings.Index(siblingOut.String()[position:], "\n  "+name+" ")
+		if index < 0 {
+			t.Fatalf("sibling tree lost Cobra's default alphabetical order: %s", siblingOut.String())
+		}
+		position += index
+	}
+}
+
+// TestHelpOrderSurvivesUnguardedCommandsCall reproduces the failure mode
+// left in place after the original fix for issue #30: Cobra's own
+// Commands() sorts a tree's children in place, permanently, the first
+// time anything reads it while cobra.EnableCommandSorting is on — and a
+// tree built with NewRootCommand can reach that unguarded, for instance
+// through an embedder calling root.Commands() directly, or through
+// Cobra's own __complete and help-completion paths (completions.go and
+// the default help command's ValidArgsFunction both call Commands()
+// without going through this package's usage renderer at all). Help
+// order must stay exactly as declared no matter what already touched the
+// tree's commands before --help runs.
+func TestHelpOrderSurvivesUnguardedCommandsCall(t *testing.T) {
+	root := cmd.NewRootCommand(nil, ui.Streams{Out: io.Discard, Err: io.Discard}, "test-version")
+
+	// An unguarded read, exactly like an embedder's own tooling (cobra/doc,
+	// a completion path) or Cobra's internal machinery would do: it sorts
+	// root's children in place and marks them sorted for good.
+	root.Commands()
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("coolship --help: %v", err)
+	}
+	names := []string{"login", "init", "link"} // declared order, not alphabetical
+	position := 0
+	for _, name := range names {
+		index := strings.Index(out.String()[position:], "\n  "+name+" ")
+		if index < 0 {
+			t.Fatalf("help order did not survive an earlier Commands() call: %s", out.String())
 		}
 		position += index
 	}
