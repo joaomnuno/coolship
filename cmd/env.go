@@ -13,7 +13,7 @@ import (
 // already printed, so the boundary adds no diagnostic for it.
 var ErrDifferences = errors.New("variables differ")
 
-func newEnvCommand(app Application, options *commandOptions, streams ui.Streams) *cobra.Command {
+func newEnvCommand(app Application, options *commandOptions, streams ui.Streams, order declaredOrder) *cobra.Command {
 	var env service.EnvOptions
 	group := &cobra.Command{
 		Use:   "env",
@@ -96,5 +96,6 @@ deployment.`,
 	pushCommand.Flags().BoolVarP(&push.Yes, "yes", "y", false, "Push without confirmation")
 
 	group.AddCommand(pull, diff, pushCommand)
+	order[group] = []*cobra.Command{pull, diff, pushCommand}
 	return group
 }
