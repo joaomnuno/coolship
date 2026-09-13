@@ -129,10 +129,11 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	}
 	warnings = append(warnings, serverWarnings...)
 
-	// project.Linked already refused an already-linked target before any of
-	// the work above ran; proposing the binding here still catches it in the
-	// rare case the file changed underneath this run, before anything is
-	// created.
+	// Propose builds the plan from the same in-memory config project.Linked
+	// already checked above, so its Review branch can no longer fire here; it
+	// stays only as a defensive check against that same snapshot. A real
+	// change to the file on disk during this run is caught later, when
+	// WriteBinding compares the original's fingerprint.
 	binding := config.Binding{Context: credentials.Name, Project: remoteProject.Name, Environment: environmentName, Application: name, Root: root}
 	if authOptions.URL != "" {
 		binding.Context = ""
