@@ -24,6 +24,8 @@ import (
 //
 // Off a terminal, or with JSON output, every event goes through
 // Renderer.DeploymentEvent exactly as before, so pipes and CI see no change.
+// Above normal verbosity no live view is drawn, so the plain stage and
+// status lines carry the timings the checklist would have shown instead.
 type Checklist struct {
 	streams  Streams
 	renderer *Renderer
@@ -33,8 +35,14 @@ type Checklist struct {
 	// hold keeps build log chunks back on the plain path: an interactive
 	// run above normal verbosity draws no checklist, yet --no-logs or a
 	// false build_logs still collapse the log until a failure prints it.
-	hold  bool
-	clock func() time.Time
+	hold bool
+	// timed appends durations to the plain lines above normal verbosity:
+	// a finished stage's own, and the time since the first event on every
+	// deployment status line.
+	timed        bool
+	started      time.Time
+	stageStarted map[string]time.Time
+	clock        func() time.Time
 
 	program *tea.Program
 	done    chan struct{}
@@ -67,7 +75,9 @@ func NewChecklist(streams Streams, format string, logs bool) *Checklist {
 	c := &Checklist{streams: streams, renderer: NewRenderer(streams, format), style: streams.errPalette(), logs: logs, clock: time.Now}
 	if format != "json" {
 		c.terminal, _ = drawable(streams)
-		c.hold = c.terminal == nil && !logs && streams.Interactive && streams.Trace.Level() != VerbosityNormal
+		above := streams.Trace.Level() != VerbosityNormal
+		c.hold = c.terminal == nil && !logs && streams.Interactive && above
+		c.timed = c.terminal == nil && above
 	}
 	return c
 }
@@ -78,6 +88,9 @@ func (c *Checklist) Event(event service.Event) error {
 		if c.hold && event.Type == "build" {
 			c.build.WriteString(event.Logs)
 			return nil
+		}
+		if c.timed {
+			return c.renderer.deploymentEvent(event, c.timing(event))
 		}
 		return c.renderer.DeploymentEvent(event)
 	}
@@ -117,6 +130,33 @@ func (c *Checklist) Event(event service.Event) error {
 		}
 	}
 	return nil
+}
+
+// timing is the duration a plain line carries above normal verbosity, in
+// the checklist's m:ss form: a finished stage's own duration (0:00 when it
+// never reported starting, as the checklist shows it), and the time since
+// the first event on a deployment status line. Other lines carry nothing.
+func (c *Checklist) timing(event service.Event) string {
+	now := c.clock()
+	if c.started.IsZero() {
+		c.started = now
+	}
+	switch {
+	case event.Type == "stage" && event.Status == service.StageStarted:
+		if c.stageStarted == nil {
+			c.stageStarted = map[string]time.Time{}
+		}
+		c.stageStarted[event.Stage] = now
+	case event.Type == "stage" && (event.Status == service.StageDone || event.Status == service.StageFailed):
+		started, ok := c.stageStarted[event.Stage]
+		if !ok {
+			started = now
+		}
+		return " (" + elapsed(now.Sub(started)) + ")"
+	case event.Type == "deployment" && event.Message == "" && event.Status != "":
+		return " (" + elapsed(now.Sub(c.started)) + ")"
+	}
+	return ""
 }
 
 // header names the target above the checklist: the target when it is a

@@ -329,6 +329,12 @@ func (r *Renderer) DeploymentPage(url string) error {
 
 // DeploymentEvent renders observation and build logs on stderr in both formats.
 func (r *Renderer) DeploymentEvent(event service.Event) error {
+	return r.deploymentEvent(event, "")
+}
+
+// deploymentEvent is DeploymentEvent with a suffix, such as a duration,
+// appended to stage and deployment status lines only.
+func (r *Renderer) deploymentEvent(event service.Event, suffix string) error {
 	if event.Type == "warning" {
 		return r.warnings([]string{event.Message})
 	}
@@ -339,7 +345,7 @@ func (r *Renderer) DeploymentEvent(event service.Event) error {
 	switch {
 	case event.Type == "stage":
 		// A stage line reads like a status line: what, then its state.
-		message = "Stage " + singleLine(event.Stage) + ": " + singleLine(event.Status)
+		message = "Stage " + singleLine(event.Stage) + ": " + singleLine(event.Status) + suffix
 	case event.Type == "application":
 		// Stop reports the server's receipt once, then each status it observes.
 		if message == "" {
@@ -347,7 +353,7 @@ func (r *Renderer) DeploymentEvent(event service.Event) error {
 		}
 	case message == "" && event.Status != "":
 		status := singleLine(event.Status)
-		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status)
+		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status) + suffix
 	}
 	if message == "" {
 		return nil
