@@ -21,7 +21,7 @@ Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off 
 
 ## Verbosity
 
-A run shows one of three levels. **Normal** prints what the command prints. **Verbose** adds one line on stderr for every request Coolship sends to Coolify: the method, the URL, the status (or `no response`), the time taken, and `(retry N)` for a retried read. **Debug** adds each request's and response's headers and bodies under that line, curl-style, with the token masked to its last four characters and control characters removed.
+A run shows one of three levels. **Normal** is the default; for now, results name applications and deployments with their UUIDs at every level. **Verbose** adds one line on stderr for every request Coolship sends to Coolify: the method, the URL, the status (or `no response`), the time taken, and `(retry N)` for a retried read. **Debug** adds each request's and response's headers and bodies under that line, curl-style, with the token masked to its last four characters and control characters removed.
 
 ```text
 $ coolship status --verbose
@@ -36,7 +36,7 @@ The level comes from the first of these that is set:
 3. the `verbosity` key of the [preferences file](/docs/commands/config#preferences);
 4. normal.
 
-Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise (then it is held back and printed in full only if the deployment fails), and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain status lines print instead. Debug output shows request and response bodies in full, with only the token masked, so it includes the variable values `env set` and `env push` send and `env pull` returns, and any other secret a request or response carries; keep it out of shared CI logs.
+Verbose and debug output goes to stderr only, so stdout and `--format json` are the same at every level. Above normal, `deploy`, `start`, `restart`, and `preview` stream the build log unless `--no-logs` or the `build_logs` preference says otherwise (then it is held back and printed in full only if the deployment fails), and no spinner or stage checklist is drawn, so the request lines are never overwritten; the plain stage and status lines print instead, each finished stage with its duration and each status line with the time since the deployment was queued. Debug output shows request and response bodies in full, with only the token masked, so it includes the variable values `env set` and `env push` send and `env pull` returns, and any other secret a request or response carries; keep it out of shared CI logs.
 
 ## Prompts
 

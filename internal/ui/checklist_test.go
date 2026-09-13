@@ -253,8 +253,59 @@ func TestChecklistHoldsTheBuildLogAboveNormalWhenCollapsed(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := diagnostic.String()
-			if !strings.HasPrefix(got, "Deployment d-1: in_progress\n") || strings.Contains(got, log) != test.wantLog {
+			if !strings.HasPrefix(got, "Deployment d-1: in_progress (0:00)\n") || strings.Contains(got, log) != test.wantLog {
 				t.Fatalf("stderr = %q; log wanted %v", got, test.wantLog)
+			}
+		})
+	}
+}
+
+// TestChecklistShowsTimingsAboveNormal checks that a verbose or debug run,
+// which draws no checklist, still shows what the checklist would have
+// timed: each finished stage's duration and the elapsed time on every
+// deployment status line. JSON and normal runs print the lines unchanged.
+func TestChecklistShowsTimingsAboveNormal(t *testing.T) {
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	events := []struct {
+		seconds int
+		event   service.Event
+	}{
+		{0, service.Event{Type: "deployment", DeploymentUUID: "d-1", Status: "queued"}},
+		{5, service.Event{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"}},
+		{6, service.Event{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageBuild, Status: service.StageStarted}},
+		{47, service.Event{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageBuild, Status: service.StageDone}},
+		{59, service.Event{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageCleanup, Status: service.StageDone}},
+		{61, service.Event{Type: "warning", Message: "slow proxy"}},
+		{61, service.Event{Type: "deployment", DeploymentUUID: "d-1", Status: "finished"}},
+	}
+	plain := "Deployment d-1: queued\nDeployment d-1: in_progress\nStage build: started\nStage build: done\nStage cleanup: done\nWarning: slow proxy\nDeployment d-1: finished\n"
+	for _, test := range []struct {
+		name   string
+		level  Verbosity
+		format string
+		want   string
+	}{
+		{"verbose", VerbosityVerbose, "human", "Deployment d-1: queued (0:00)\nDeployment d-1: in_progress (0:05)\nStage build: started\nStage build: done (0:41)\nStage cleanup: done (0:00)\nWarning: slow proxy\nDeployment d-1: finished (1:01)\n"},
+		{"debug", VerbosityDebug, "human", "Deployment d-1: queued (0:00)\nDeployment d-1: in_progress (0:05)\nStage build: started\nStage build: done (0:41)\nStage cleanup: done (0:00)\nWarning: slow proxy\nDeployment d-1: finished (1:01)\n"},
+		{"normal", VerbosityNormal, "human", plain},
+		{"json", VerbosityVerbose, "json", plain},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var diagnostic bytes.Buffer
+			now := start
+			checklist := NewChecklist(Streams{Err: &diagnostic, Trace: leveled(test.level)}, test.format, true)
+			checklist.clock = func() time.Time { return now }
+			for _, step := range events {
+				now = start.Add(time.Duration(step.seconds) * time.Second)
+				if err := checklist.Event(step.event); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := checklist.Close(OutcomeSucceeded); err != nil {
+				t.Fatal(err)
+			}
+			if got := diagnostic.String(); got != test.want {
+				t.Fatalf("stderr\n got %q\nwant %q", got, test.want)
 			}
 		})
 	}
