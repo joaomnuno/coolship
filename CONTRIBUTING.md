@@ -16,7 +16,7 @@ Never paste a token. Coolship does not print tokens or secret values, but check 
 
 ## Reporting a security problem
 
-Do not open a public issue for a vulnerability. Use the "Report a vulnerability" button under the repository's Security tab, which sends the report to the maintainer privately. A problem in Coolify itself should go to Coolify through [its own security policy](https://github.com/coollabsio/coolify/security/policy).
+Do not open a public issue for a vulnerability. [SECURITY.md](SECURITY.md) explains how to report one privately and which versions receive fixes.
 
 ## Setting up
 
