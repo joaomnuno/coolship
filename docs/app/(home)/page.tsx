@@ -99,19 +99,19 @@ function Replay() {
     <Section aria-labelledby="replay-title">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-center">
         <div>
-          <Heading id="replay-title">The whole loop, one binding</Heading>
+          <Heading id="replay-title">Link, deploy, and read the logs</Heading>
           <Lede>
             After <code className="font-mono text-fd-foreground">link</code>, no
             command needs a resource identifier.{" "}
             <code className="font-mono text-fd-foreground">deploy</code> submits
-            one deployment and follows the UUID that submission returned,
-            relaying the server&apos;s build log while it waits.
+            one deployment, waits for the UUID the server returned, and prints
+            the build log until that deployment finishes.
           </Lede>
           <ul className="mt-6 space-y-3 text-sm text-fd-muted-foreground">
             {[
-              "Interrupting stops local waiting only; the deployment continues and its UUID is reported.",
-              "Results go to stdout, progress and prompts to stderr, so piping stays useful.",
-              "This replay is a real session against the example application, typed back at typing speed.",
+              "Ctrl-C stops the wait, not the deployment. Coolship prints the deployment UUID so you can check on it later.",
+              "Results go to stdout and progress and prompts go to stderr, so you can pipe a result into jq.",
+              "The commands and their output come from real runs against the example application.",
             ].map((item) => (
               <li key={item} className="flex gap-3">
                 <Check
@@ -135,10 +135,12 @@ function Features() {
   return (
     <Section aria-labelledby="features-title">
       <div>
-        <Heading id="features-title">Four verbs, one project</Heading>
+        <Heading id="features-title">The four commands you run most</Heading>
         <Lede>
-          Everything reads the binding that link wrote. Every command takes
-          --format json.
+          Each one reads the binding that{" "}
+          <code className="font-mono text-fd-foreground">link</code> wrote, and
+          each one accepts{" "}
+          <code className="font-mono text-fd-foreground">--format json</code>.
         </Lede>
       </div>
       <ul className="mt-10 grid gap-px overflow-hidden rounded-2xl border border-fd-border bg-fd-border sm:grid-cols-2 lg:grid-cols-4">
@@ -177,9 +179,10 @@ function Minute() {
   return (
     <Section aria-labelledby="minute-title">
       <div>
-        <Heading id="minute-title">A minute with Coolship</Heading>
+        <Heading id="minute-title">From login to a pull request preview</Heading>
         <Lede>
-          Five commands from a fresh terminal to a pull-request preview.
+          Five commands take a new machine from no credentials to a deployed
+          application and a pull request preview.
         </Lede>
       </div>
       <ol className="mt-10 grid gap-x-8 gap-y-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -227,7 +230,7 @@ function Comparison() {
     <Section aria-labelledby="comparison-title">
       <div>
         <Heading id="comparison-title">
-          Complementary to coolify-cli, not a replacement
+          Where Coolship and coolify-cli differ
         </Heading>
         <Lede>
           <a
@@ -236,9 +239,9 @@ function Comparison() {
           >
             coolify-cli
           </a>{" "}
-          manages Coolify resources. Coolship manages the developer workflow
-          around the project you are in. They share one login: both read the
-          same credentials file.
+          manages the resources on a Coolify instance. Coolship works on the
+          application linked to the repository you are in. Both read the same
+          credentials file, so logging in with one logs you in to the other.
         </Lede>
       </div>
       <div className="mt-10 overflow-x-auto rounded-2xl border border-fd-border">
@@ -314,10 +317,10 @@ function BuiltIns() {
   return (
     <Section aria-labelledby="builtins-title">
       <div>
-        <Heading id="builtins-title">The parts around deploy</Heading>
+        <Heading id="builtins-title">Monorepos, previews, and more</Heading>
         <Lede>
-          Real samples from the reference. Each one is a command you can run
-          today.
+          The samples below come from the command reference and work with the
+          current release.
         </Lede>
       </div>
       <Tabs
@@ -374,8 +377,8 @@ function Verified() {
               Verified against Coolify {verifiedCoolifyVersion}.
             </strong>{" "}
             <span className="text-fd-muted-foreground">
-              Every command was run end to end against a live instance; 4.3.19
-              changes none of the endpoints Coolship uses.
+              The end-to-end suite ran every command against a live instance.
+              Coolify 4.3.19 changes none of the endpoints Coolship calls.
             </span>
           </span>
         </p>
@@ -400,12 +403,12 @@ function ClosingCta() {
         />
         <div className="relative mx-auto flex max-w-2xl flex-col items-center">
           <Heading id="cta-title" className="sm:text-5xl">
-            Try it on the repository you have open right now
+            Try it on the repository you have open
           </Heading>
           <Lede className="text-center">
-            One line installs {latestVersion} into{" "}
-            <code className="font-mono">~/.local/bin</code>, checksum verified,
-            never with sudo. Then{" "}
+            The install script checks the SHA-256 checksum of {latestVersion},
+            puts it in <code className="font-mono">~/.local/bin</code>, and
+            never runs sudo. Then run{" "}
             <code className="font-mono">coolship link</code>.
           </Lede>
           <InstallBlock className="mt-8 w-full text-left" />

@@ -80,28 +80,28 @@ export const features: Feature[] = [
     name: "Link",
     command: "coolship link",
     description:
-      "Bind the repository to its Coolify application once: a small, credential-free coolship.toml you commit.",
+      "Bind the repository to its Coolify application in coolship.toml. The file holds no credentials, so you commit it.",
     href: "/docs/commands/link",
   },
   {
     name: "Deploy",
     command: "coolship deploy",
     description:
-      "Submit one deployment, follow exactly that UUID, and stream the build log while it runs.",
+      "Start one deployment and print its build log until that deployment finishes.",
     href: "/docs/commands/deploy",
   },
   {
     name: "Env",
     command: "coolship env pull",
     description:
-      "Pull, diff, and push .env against one scope of the variables, never inventing withheld values.",
+      "Pull, diff, and push .env for one variable scope. Coolship never fills in a value Coolify withholds.",
     href: "/docs/commands/env",
   },
   {
     name: "Dev",
     command: "coolship dev -- npm run dev",
     description:
-      "Run a local command with the application's runtime variables injected over your environment.",
+      "Run a local command with the application's runtime variables set on top of your environment.",
     href: "/docs/commands/dev",
   },
 ];
@@ -118,35 +118,35 @@ export const minute: Step[] = [
     title: "Log in once",
     command: "coolship login",
     description:
-      "Coolship verifies the URL and token against the server, then stores them in the same file coolify-cli uses, so a login in either tool is a login in both.",
+      "Coolship checks the URL and token against the server and stores them in the file coolify-cli uses, so logging in with either tool logs you in to both.",
     href: "/docs/commands/login",
   },
   {
     title: "Link the repository",
     command: "coolship link",
     description:
-      "It walks project, environment, and application, asking only when a choice is genuinely ambiguous, and writes coolship.toml. Every later command reads that binding.",
+      "Coolship picks the project, environment, and application, and asks only when there is more than one to choose from. It writes the result to coolship.toml, which every later command reads.",
     href: "/docs/commands/link",
   },
   {
     title: "Deploy",
     command: "coolship deploy",
     description:
-      "Deploy the source and branch already configured in Coolify, wait for exactly that deployment, and watch the build log stream while it runs.",
+      "Coolship deploys the source and branch set in Coolify, waits for that deployment, and prints its build log as it runs.",
     href: "/docs/commands/deploy",
   },
   {
     title: "Pull the variables",
     command: "coolship env pull",
     description:
-      "Write the application's variables into .env, keeping local-only keys and comments, and noting withheld values as comments rather than writing them empty.",
+      "Coolship writes the application's variables into .env and keeps your local-only keys and comments. A value Coolify withholds becomes a comment, not an empty entry.",
     href: "/docs/commands/env",
   },
   {
     title: "Preview a pull request",
     command: "coolship preview --pr 42",
     description:
-      "Deploy the preview Coolify already holds for the pull request and observe it like deploy; in a GitHub Actions pull_request job the number comes from GITHUB_REF.",
+      "Coolship deploys the preview Coolify has for the pull request and waits for it the way deploy does. In a GitHub Actions pull_request job, it reads the number from GITHUB_REF.",
     href: "/docs/commands/preview",
   },
 ];
@@ -165,13 +165,13 @@ export const comparison: ComparisonRow[] = [
     task: "Deploy",
     coolify: ["coolify deploy uuid <application-uuid>"],
     coolship: ["coolship deploy"],
-    note: "Waits for that exact deployment and streams its build log.",
+    note: "Coolship waits for the deployment it started and prints its build log.",
   },
   {
     task: "Logs",
     coolify: ["coolify app logs <uuid> --follow"],
     coolship: ["coolship logs --follow"],
-    note: "Polls snapshots and reports a gap instead of hiding it.",
+    note: "Coolship polls log snapshots and warns when lines may be missing.",
   },
   {
     task: "Variables",
@@ -180,7 +180,7 @@ export const comparison: ComparisonRow[] = [
       "coolify app env sync <app-uuid>",
     ],
     coolship: ["coolship env pull", "coolship env diff", "coolship env push"],
-    note: "One scope at a time; withheld values are never invented.",
+    note: "Coolship works on one scope at a time and never fills in a withheld value.",
   },
   {
     task: "Status",
@@ -196,7 +196,7 @@ export const comparison: ComparisonRow[] = [
     task: "Servers, keys, teams",
     coolify: ["coolify server …", "coolify private-key …", "coolify teams …"],
     coolship: [],
-    note: "Out of scope on purpose. coolify-cli remains the right tool for administering the instance.",
+    note: "Coolship does not administer the instance. Use coolify-cli for these.",
     theirs: true,
   },
 ];
@@ -254,7 +254,7 @@ coolship logs web --follow`,
     label: "Previews",
     title: "Pull request previews, from the terminal or CI",
     description:
-      "Coolify must already know the pull request (enable Preview Deployments and let its GitHub webhook register it); preview deploys the preview it holds and observes it exactly like deploy.",
+      "Coolify must already know about the pull request. Turn on Preview Deployments and let Coolify's GitHub webhook register it. preview then deploys that preview and waits for it the way deploy does.",
     href: "/docs/concepts/previews",
     linkLabel: "Preview deployments",
     samples: [
@@ -291,9 +291,9 @@ jobs:
   {
     value: "doctor",
     label: "doctor",
-    title: "Every step a command performs, reported",
+    title: "Check the setup before a command fails",
     description:
-      "Configuration, Git boundary, binding, credentials, context, server reachability and version, and whether the binding resolves to a running application. Exit status 1 when any check fails.",
+      "doctor checks the project configuration, the Git repository, the binding, and your credentials and context. It then confirms the server responds, reports its version, and checks that the binding points at a running application. It exits with status 1 when any check fails.",
     href: "/docs/commands/doctor",
     linkLabel: "doctor reference",
     samples: [
@@ -316,7 +316,7 @@ jobs:
     label: "dev",
     title: "Run locally with the application's variables",
     description:
-      "The runtime variables are injected over your environment, shared references resolved, so a process sees what it would see on Coolify without pulling a .env first. The child's exit status becomes Coolship's.",
+      "dev sets the application's runtime variables on top of your environment and resolves shared references, so the process gets the values it gets on Coolify. You don't need to pull a .env first. Coolship exits with the command's exit status.",
     href: "/docs/commands/dev",
     linkLabel: "dev reference",
     samples: [
@@ -339,7 +339,7 @@ dev = "npm run dev"`,
     label: "domain",
     title: "Show and replace the application's domains",
     description:
-      "Coolify generates a domain from the application UUID until you set your own. domain set shows the change, asks first, refuses a domain in use elsewhere unless forced, and reads the application back to confirm what the server kept.",
+      "Coolify generates a domain from the application UUID until you set your own. domain set shows the change and asks before applying it. It refuses a domain used elsewhere on the server unless you pass --force, then reads the application back to show which domains Coolify kept.",
     href: "/docs/commands/domain",
     linkLabel: "domain reference",
     samples: [
@@ -369,7 +369,7 @@ coolship domain set https://app.example.com https://www.example.com --redirect n
     label: "JSON output",
     title: "One result object per command",
     description:
-      "Results go to stdout and progress to stderr, so --format json composes with jq and scripts. Every result that names an application carries the same target object; logs prints newline-delimited events.",
+      "Results go to stdout and progress goes to stderr, so you can pipe --format json output into jq or a script. Every result that names an application has the same target object. logs prints one JSON event per line.",
     href: "/docs/platform/output",
     linkLabel: "Output and exit codes",
     samples: [
