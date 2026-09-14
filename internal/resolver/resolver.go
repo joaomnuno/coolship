@@ -2,7 +2,9 @@ package resolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
@@ -12,6 +14,7 @@ import (
 // establish an application binding in its project and environment.
 type Catalog interface {
 	ListProjects(context.Context) ([]models.Project, error)
+	GetProject(context.Context, string) (models.Project, error)
 	ListEnvironments(context.Context, string) ([]models.Environment, error)
 	GetEnvironment(context.Context, string, string) (models.Environment, error)
 	GetApplication(context.Context, string) (models.Application, error)
@@ -24,47 +27,122 @@ type Binding struct {
 	Warnings    []string
 }
 
+// Alongside is a read that needs only the application's UUID, such as the
+// deployment history status shows. Resolve calls it once, as soon as the UUID
+// is known, so the caller can run it concurrently with the application read.
+// It must not block; the caller owns its goroutine and discards its result
+// when resolution fails.
+type Alongside func(applicationUUID string)
+
 // Resolve validates each child against its selected parent before inspecting the
 // application. A missing pinned resource never falls back to a matching name.
 func Resolve(ctx context.Context, catalog Catalog, target project.Target) (Binding, error) {
+	return ResolveAlongside(ctx, catalog, target, nil)
+}
+
+// ResolveAlongside is Resolve with a read started beside the application read.
+//
+// A pinned UUID is read directly instead of being found in its parent's list:
+// a pinned project with GET /projects/{uuid}, a pinned environment with the
+// project-scoped GET /projects/{uuid}/{environment_uuid}, and a pinned
+// application with GET /applications/{uuid}. Each read starts as soon as its
+// UUID is known, so a fully pinned binding costs one round of concurrent
+// requests. Results are still examined parent first, so the first failure in
+// the hierarchy is the one reported, and membership is checked exactly as
+// before: the environment read is scoped to the project, and the application
+// must be listed in the environment.
+func ResolveAlongside(ctx context.Context, catalog Catalog, target project.Target, alongside Alongside) (Binding, error) {
 	if err := ctx.Err(); err != nil {
 		return Binding{}, err
 	}
+	// Reads still running when resolution returns, which only happens on
+	// failure, are cancelled rather than left to finish.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	selectors := target.Binding
-	projects, err := catalog.ListProjects(ctx)
-	if err != nil {
-		return Binding{}, fmt.Errorf("list projects for binding: %w", err)
+
+	var projectRead *future[models.Project]
+	var projectList *future[[]models.Project]
+	if selectors.ProjectUUID != "" {
+		projectRead = start(ctx, func(ctx context.Context) (models.Project, error) {
+			return catalog.GetProject(ctx, selectors.ProjectUUID)
+		})
+	} else {
+		projectList = start(ctx, catalog.ListProjects)
 	}
-	selectedProject, err := choose(projects, projectChoice, "project", "the selected instance", selectors.Project, selectors.ProjectUUID)
+	var environmentRead *future[models.Environment]
+	if selectors.ProjectUUID != "" && selectors.EnvironmentUUID != "" {
+		environmentRead = start(ctx, func(ctx context.Context) (models.Environment, error) {
+			return catalog.GetEnvironment(ctx, selectors.ProjectUUID, selectors.EnvironmentUUID)
+		})
+	}
+	var applicationRead *future[models.Application]
+	startApplication := func(uuid string) {
+		applicationRead = start(ctx, func(ctx context.Context) (models.Application, error) { return catalog.GetApplication(ctx, uuid) })
+		if alongside != nil {
+			alongside(uuid)
+		}
+	}
+	if selectors.ApplicationUUID != "" {
+		startApplication(selectors.ApplicationUUID)
+	}
+
+	selectedProject, err := selectProject(projectRead, projectList, selectors.Project, selectors.ProjectUUID)
 	if err != nil {
 		return Binding{}, err
 	}
-	environments, err := catalog.ListEnvironments(ctx, selectedProject.UUID)
-	if err != nil {
-		return Binding{}, fmt.Errorf("list environments for project %q: %w", selectedProject.Name, err)
+	projectScope := fmt.Sprintf("project %q", selectedProject.Name)
+	var selectedEnvironment models.Environment
+	pinnedEnvironment := selectors.EnvironmentUUID != ""
+	switch {
+	case pinnedEnvironment:
+		if environmentRead == nil {
+			environmentRead = start(ctx, func(ctx context.Context) (models.Environment, error) {
+				return catalog.GetEnvironment(ctx, selectedProject.UUID, selectors.EnvironmentUUID)
+			})
+		}
+		selectedEnvironment = models.Environment{UUID: selectors.EnvironmentUUID, Name: selectors.Environment}
+	default:
+		environments := selectedProject.Environments
+		if environments == nil {
+			environments, err = catalog.ListEnvironments(ctx, selectedProject.UUID)
+			if err != nil {
+				return Binding{}, fmt.Errorf("list environments for project %q: %w", selectedProject.Name, err)
+			}
+		}
+		selectedEnvironment, err = choose(environments, environmentChoice, "environment", projectScope, selectors.Environment, "")
+		if err != nil {
+			return Binding{}, err
+		}
+		environmentRead = start(ctx, func(ctx context.Context) (models.Environment, error) {
+			return catalog.GetEnvironment(ctx, selectedProject.UUID, selectedEnvironment.UUID)
+		})
 	}
-	selectedEnvironment, err := choose(environments, environmentChoice, "environment", fmt.Sprintf("project %q", selectedProject.Name), selectors.Environment, selectors.EnvironmentUUID)
+	environment, err := environmentRead.wait()
 	if err != nil {
-		return Binding{}, err
-	}
-	environment, err := catalog.GetEnvironment(ctx, selectedProject.UUID, selectedEnvironment.UUID)
-	if err != nil {
+		if pinnedEnvironment && notFound(err) {
+			return Binding{}, &MissingError{Resource: "environment", Scope: projectScope, Name: selectors.Environment, UUID: selectors.EnvironmentUUID}
+		}
 		return Binding{}, fmt.Errorf("read selected environment: %w", err)
 	}
-	if err := verifyIdentity("environment", environmentChoice(selectedEnvironment), environmentChoice(environment), selectors.EnvironmentUUID != ""); err != nil {
+	if err := verifyIdentity("environment", environmentChoice(selectedEnvironment), environmentChoice(environment), pinnedEnvironment); err != nil {
 		return Binding{}, err
 	}
 	selectedApplication, err := choose(environment.Applications, applicationChoice, "application", fmt.Sprintf("environment %q of project %q", environment.Name, selectedProject.Name), selectors.Application, selectors.ApplicationUUID)
 	if err != nil {
 		return Binding{}, err
 	}
-	application, err := catalog.GetApplication(ctx, selectedApplication.UUID)
+	if applicationRead == nil {
+		startApplication(selectedApplication.UUID)
+	}
+	application, err := applicationRead.wait()
 	if err != nil {
 		return Binding{}, fmt.Errorf("read selected application: %w", err)
 	}
 	if err := verifyIdentity("application", applicationChoice(selectedApplication), applicationChoice(application), selectors.ApplicationUUID != ""); err != nil {
 		return Binding{}, err
 	}
+	selectedProject.Environments = nil
 	result := Binding{Project: selectedProject, Environment: environment, Application: application}
 	for _, label := range []struct{ resource, configured, observed, uuid string }{
 		{"project", selectors.Project, selectedProject.Name, selectors.ProjectUUID},
@@ -76,6 +154,59 @@ func Resolve(ctx context.Context, catalog Catalog, target project.Target) (Bindi
 		}
 	}
 	return result, nil
+}
+
+// selectProject finishes whichever project read Resolve started: the direct
+// read of a pinned UUID, where a 404 is the pin going missing, or the list.
+func selectProject(read *future[models.Project], list *future[[]models.Project], name, uuid string) (models.Project, error) {
+	const scope = "the selected instance"
+	if read == nil {
+		projects, err := list.wait()
+		if err != nil {
+			return models.Project{}, fmt.Errorf("list projects for binding: %w", err)
+		}
+		return choose(projects, projectChoice, "project", scope, name, uuid)
+	}
+	value, err := read.wait()
+	if err != nil {
+		if notFound(err) {
+			return models.Project{}, &MissingError{Resource: "project", Scope: scope, Name: name, UUID: uuid}
+		}
+		return models.Project{}, fmt.Errorf("read project for binding: %w", err)
+	}
+	if err := verifyIdentity("project", Choice{UUID: uuid, Name: name}, projectChoice(value), true); err != nil {
+		return models.Project{}, err
+	}
+	return value, nil
+}
+
+// notFound reports an HTTP 404 without importing the client: Coolify answers
+// 404 for a UUID that does not exist or belongs to another team, the same
+// cases in which a list would not contain it.
+func notFound(err error) bool {
+	var status interface{ HTTPStatusCode() int }
+	return errors.As(err, &status) && status.HTTPStatusCode() == http.StatusNotFound
+}
+
+// future is one read running in its own goroutine.
+type future[T any] struct {
+	done  chan struct{}
+	value T
+	err   error
+}
+
+func start[T any](ctx context.Context, read func(context.Context) (T, error)) *future[T] {
+	f := &future[T]{done: make(chan struct{})}
+	go func() {
+		defer close(f.done)
+		f.value, f.err = read(ctx)
+	}()
+	return f
+}
+
+func (f *future[T]) wait() (T, error) {
+	<-f.done
+	return f.value, f.err
 }
 
 // SelectProject applies the same identity rules to link candidates as Resolve.

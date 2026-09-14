@@ -20,6 +20,13 @@ func (c *Client) ListProjects(ctx context.Context) ([]models.Project, error) {
 	return projects, err
 }
 
+// GetProject reads one project by UUID, with its environments embedded.
+func (c *Client) GetProject(ctx context.Context, uuid string) (models.Project, error) {
+	var project models.Project
+	err := c.request(ctx, http.MethodGet, []string{"projects", uuid}, nil, nil, &project)
+	return project, err
+}
+
 func (c *Client) ListEnvironments(ctx context.Context, projectUUID string) ([]models.Environment, error) {
 	var environments []models.Environment
 	err := c.request(ctx, http.MethodGet, []string{"projects", projectUUID, "environments"}, nil, nil, &environments)

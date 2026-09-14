@@ -88,13 +88,19 @@ func TestLoadMissingFileYieldsDefaults(t *testing.T) {
 
 func TestLoadReadsEveryKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "preferences.toml")
-	content := "verbosity = \"verbose\"\nbuild_logs = false\ncolor = \"always\"\n"
+	content := "verbosity = \"verbose\"\nbuild_logs = false\ncolor = \"always\"\nupdate_check = false\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)
-	if err != nil || got.Verbosity != VerbosityVerbose || got.Color != ColorAlways || got.BuildLogs == nil || *got.BuildLogs {
+	if err != nil || got.Verbosity != VerbosityVerbose || got.Color != ColorAlways || got.BuildLogs == nil || *got.BuildLogs || got.UpdateCheck == nil || *got.UpdateCheck {
 		t.Fatalf("Load() = %+v, %v", got, err)
+	}
+	if _, err := Parse([]byte("update_check = \"no\"\n")); err == nil || !strings.Contains(err.Error(), `"update_check"`) {
+		t.Fatalf("a non-boolean update_check = %v, want an error naming the key", err)
+	}
+	if _, err := Parse([]byte("updates = false\n")); err == nil || !strings.Contains(err.Error(), "update_check") {
+		t.Fatalf("unknown key error = %v, want the key list to include update_check", err)
 	}
 	if err := os.WriteFile(path, []byte("verbosity = \"debug\"\n"), 0o600); err != nil {
 		t.Fatal(err)

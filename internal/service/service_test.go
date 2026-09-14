@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,9 @@ import (
 )
 
 type fakeBackend struct {
+	// mu guards the reads status runs concurrently: resolution's and the
+	// deployment history.
+	mu           sync.Mutex
 	projects     []models.Project
 	environments []models.Environment
 	application  models.Application
@@ -108,6 +112,8 @@ func newBackend() *fakeBackend {
 }
 
 func (f *fakeBackend) ListDeployments(_ context.Context, id string, take int) (models.DeploymentPage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["history"]++
 	if id != "app-1" {
 		return models.DeploymentPage{}, errors.New("wrong application")
@@ -285,8 +291,25 @@ func (f *fakeBackend) Version(context.Context) (string, error) {
 }
 
 func (f *fakeBackend) ListProjects(context.Context) ([]models.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["projects"]++
 	return f.projects, nil
+}
+
+// GetProject answers like Coolify: the project with its environments, or a
+// 404 for a UUID it does not hold.
+func (f *fakeBackend) GetProject(_ context.Context, id string) (models.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls["project"]++
+	for _, project := range f.projects {
+		if project.UUID == id {
+			project.Environments = f.environments
+			return project, nil
+		}
+	}
+	return models.Project{}, statusError{code: 404}
 }
 
 // knownProject reports whether the fake lists a project; every listed project
@@ -301,6 +324,8 @@ func (f *fakeBackend) knownProject(id string) bool {
 }
 
 func (f *fakeBackend) ListEnvironments(_ context.Context, id string) ([]models.Environment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["environments"]++
 	if !f.knownProject(id) {
 		return nil, errors.New("wrong project")
@@ -308,6 +333,8 @@ func (f *fakeBackend) ListEnvironments(_ context.Context, id string) ([]models.E
 	return f.environments, nil
 }
 func (f *fakeBackend) GetEnvironment(_ context.Context, projectID, id string) (models.Environment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["environment"]++
 	if !f.knownProject(projectID) || id != "env-1" {
 		return models.Environment{}, errors.New("wrong environment")
@@ -315,6 +342,8 @@ func (f *fakeBackend) GetEnvironment(_ context.Context, projectID, id string) (m
 	return f.environments[0], nil
 }
 func (f *fakeBackend) GetApplication(_ context.Context, id string) (models.Application, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["application"]++
 	if id == "app-1" {
 		if f.stopped {

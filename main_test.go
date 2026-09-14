@@ -2,9 +2,61 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"testing"
+
+	"github.com/joaomnuno/coolship/internal/preferences"
+	"github.com/joaomnuno/coolship/internal/update"
 )
+
+func TestJSONFormatReadsRawArguments(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"status"}, false},
+		{[]string{"status", "--format", "json"}, true},
+		{[]string{"--format=json", "status"}, true},
+		{[]string{"status", "--format", "human"}, false},
+		{[]string{"status", "--format=json", "--format=human"}, false},
+		{[]string{"status", "--format"}, false},
+		{[]string{"dev", "--", "--format", "json"}, false},
+	} {
+		if got := jsonFormat(test.args); got != test.want {
+			t.Errorf("jsonFormat(%q) = %v, want %v", test.args, got, test.want)
+		}
+	}
+}
+
+func TestUpdateNotifierGates(t *testing.T) {
+	prefs := preferences.Report{Path: filepath.Join("home", "coolship", "preferences.toml")}
+	none := func(string) string { return "" }
+	n := updateNotifier(prefs, "v0.3.0", none, true, []string{"status"})
+	if n == nil || n.StatePath != filepath.Join("home", "coolship", "state.json") || n.Current != "v0.3.0" || n.UserAgent != "coolship/v0.3.0" {
+		t.Fatalf("notifier = %+v", n)
+	}
+	off := false
+	for name, got := range map[string]any{
+		"json":           updateNotifier(prefs, "v0.3.0", none, true, []string{"status", "--format", "json"}),
+		"not a terminal": updateNotifier(prefs, "v0.3.0", none, false, []string{"status"}),
+		"dev":            updateNotifier(prefs, "dev", none, true, []string{"status"}),
+		"completion":     updateNotifier(prefs, "v0.3.0", none, true, []string{"__complete", "st"}),
+		"no path":        updateNotifier(preferences.Report{}, "v0.3.0", none, true, []string{"status"}),
+		"preference":     updateNotifier(preferences.Report{Path: prefs.Path, Preferences: preferences.Preferences{UpdateCheck: &off}}, "v0.3.0", none, true, nil),
+		"opt-out": updateNotifier(prefs, "v0.3.0", func(key string) string {
+			if key == "COOLSHIP_NO_UPDATE_NOTIFIER" {
+				return "1"
+			}
+			return ""
+		}, true, nil),
+	} {
+		if got != (*update.Notifier)(nil) {
+			t.Errorf("%s: notifier created", name)
+		}
+	}
+}
 
 func TestResolveVersionPrefersBuildFlagThenRevision(t *testing.T) {
 	info := &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "0123456789abcdef0123"}, {Key: "vcs.modified", Value: "true"}}}

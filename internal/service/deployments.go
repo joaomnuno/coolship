@@ -62,8 +62,8 @@ func summarize(record models.DeploymentRecord) DeploymentSummary {
 // A cancelled or timed-out read is propagated instead, so the executable
 // boundary classifies it like every other interrupted command rather than
 // reporting a successful status with a note.
-func (a *App) lastDeployment(ctx context.Context, s session) (*DeploymentSummary, string, error) {
-	page, err := s.backend.ListDeployments(ctx, s.project.Application.UUID, 1)
+func lastDeployment(ctx context.Context, backend Backend, applicationUUID string) (*DeploymentSummary, string, error) {
+	page, err := backend.ListDeployments(ctx, applicationUUID, 1)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err

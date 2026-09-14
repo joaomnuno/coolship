@@ -51,6 +51,9 @@ type Preferences struct {
 	Verbosity string `toml:"verbosity" json:"verbosity,omitempty"`
 	BuildLogs *bool  `toml:"build_logs" json:"build_logs,omitempty"`
 	Color     string `toml:"color" json:"color,omitempty"`
+	// UpdateCheck set to false turns off the daily check for a newer
+	// release; nil or true leaves it on.
+	UpdateCheck *bool `toml:"update_check" json:"update_check,omitempty"`
 }
 
 // Report is what Inspect found: where it looked, whether the file exists,
@@ -198,6 +201,9 @@ func oneOf(key, value string, allowed []string) error {
 	return &ValueError{Key: key, Value: value, Allowed: allowed}
 }
 
+// keyList names every key the file accepts, for the unknown-key error.
+const keyList = "verbosity, build_logs, color, and update_check"
+
 // describeDecodeError turns go-toml's errors into one line that names what
 // is wrong. The parser's source excerpts are left out: the message names the
 // key and the line, which is enough to find a typo.
@@ -209,9 +215,9 @@ func describeDecodeError(err error) error {
 			keys = append(keys, fmt.Sprintf("%q", strings.Join(missing.Key(), ".")))
 		}
 		if len(keys) == 1 {
-			return fmt.Errorf("unknown key %s; the keys are verbosity, build_logs, and color", keys[0])
+			return fmt.Errorf("unknown key %s; the keys are %s", keys[0], keyList)
 		}
-		return fmt.Errorf("unknown keys %s; the keys are verbosity, build_logs, and color", strings.Join(keys, ", "))
+		return fmt.Errorf("unknown keys %s; the keys are %s", strings.Join(keys, ", "), keyList)
 	}
 	var decode *toml.DecodeError
 	if errors.As(err, &decode) {

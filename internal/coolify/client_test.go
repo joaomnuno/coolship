@@ -49,6 +49,8 @@ func TestEndpointContracts(t *testing.T) {
 		switch key {
 		case "GET /prefix/api/v1/projects":
 			fmt.Fprint(w, `[{"uuid":"p1","name":"Personal","description":"unused"}]`)
+		case "GET /prefix/api/v1/projects/p1":
+			fmt.Fprint(w, `{"uuid":"p1","name":"Personal","environments":[{"uuid":"e1","name":"production"}]}`)
 		case "GET /prefix/api/v1/projects/p1/environments":
 			fmt.Fprint(w, `[{"uuid":"e1","name":"production"}]`)
 		case "GET /prefix/api/v1/projects/p1/e1":
@@ -88,6 +90,9 @@ func TestEndpointContracts(t *testing.T) {
 	if values, err := client.ListProjects(ctx); err != nil || len(values) != 1 || values[0].UUID != "p1" {
 		t.Fatalf("projects = %#v, %v", values, err)
 	}
+	if value, err := client.GetProject(ctx, "p1"); err != nil || value.Name != "Personal" || len(value.Environments) != 1 || value.Environments[0].UUID != "e1" {
+		t.Fatalf("project = %#v, %v", value, err)
+	}
 	if values, err := client.ListEnvironments(ctx, "p1"); err != nil || len(values) != 1 || values[0].UUID != "e1" {
 		t.Fatalf("environments = %#v, %v", values, err)
 	}
@@ -106,8 +111,8 @@ func TestEndpointContracts(t *testing.T) {
 	if value, err := client.Logs(ctx, "a1", 25); err != nil || value.Logs != "2026-09-09T12:00:00Z ready\n" {
 		t.Fatalf("logs = %#v, %v", value, err)
 	}
-	if len(requests) != 7 {
-		t.Errorf("endpoint count = %d, want 7", len(requests))
+	if len(requests) != 8 {
+		t.Errorf("endpoint count = %d, want 8", len(requests))
 	}
 }
 
