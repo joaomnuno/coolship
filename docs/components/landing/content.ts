@@ -7,7 +7,58 @@
  * `/home/you/my-app` and `home`. JSON shapes come from the command reference.
  */
 import type { Lang } from "./highlight";
-import type { ReplaySegment } from "./terminal-replay";
+import type { ReplayLine, ReplaySegment } from "./terminal-replay";
+
+type Stage = { name: string; start?: number; end?: number };
+
+/**
+ * The checklist `coolship deploy` draws in a terminal, as rows the replay
+ * redraws in place: the spinner (Bubbles' Dot) and a clock on whatever is
+ * open, ✓ and the duration on what finished, and the stages not reached yet
+ * dim, aligned on the same 30 columns as internal/ui/checklist.go. The
+ * durations are those of the example application's deployment in README.md;
+ * the snapshots between them are compressed so the replay stays short.
+ */
+function deployChecklist(): ReplayLine[] {
+  const spinner = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+  const clock = (s: number) =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const row = (glyph: string, label: string, width: number, time: string) =>
+    `${glyph} ${label}${" ".repeat(Math.max(width - label.length, 1))}${time}`;
+  const stages: Stage[] = [
+    { name: "build", start: 1, end: 42 },
+    { name: "rolling update", start: 42, end: 50 },
+    { name: "container", start: 45, end: 51 },
+    { name: "cleanup", start: 51, end: 51 },
+  ];
+  const snapshots = [0, 1, 7, 15, 24, 33, 41, 42, 45, 48, 50, 51, 52];
+  const shown = new Map<string, string>();
+  const lines: ReplayLine[] = [];
+
+  snapshots.forEach((now, tick) => {
+    const glyph = spinner[tick % spinner.length];
+    const finished = now >= 52;
+    const head = finished
+      ? row("✓", "Deployed", 30, clock(now))
+      : row(glyph, now === 0 ? "Deployment queued" : "Deployment in progress", 30, clock(now));
+    const next: Array<[string, string, ReplayLine["kind"]]> = [["head", head, "out"]];
+    for (const stage of stages) {
+      const { name, start = Infinity, end = Infinity } = stage;
+      if (now < start || (now === start && start === end && !finished))
+        next.push([name, `    ${name}`, "dim"]);
+      else if (now < end) next.push([name, `  ${row(glyph, name, 28, clock(now - start))}`, "out"]);
+      else next.push([name, `  ${row("✓", name, 28, clock(end - start))}`, "out"]);
+    }
+    let first = true;
+    for (const [id, text, kind] of next) {
+      if (shown.get(id) === text) continue;
+      shown.set(id, text);
+      lines.push({ id, text, kind, delay: first ? (tick === 0 ? 1100 : 380) : 0 });
+      first = false;
+    }
+  });
+  return lines;
+}
 
 export const replayScript: ReplaySegment[] = [
   {
@@ -22,19 +73,12 @@ export const replayScript: ReplaySegment[] = [
     ],
   },
   {
-    // The checklist as it stands once the deployment finished; the live
-    // view spins and ticks in place, which the replay's append-only frames
-    // cannot show.
     command: "coolship deploy",
     output: [
       { text: "→ coolship-example", delay: 500 },
       { text: "→ production" },
       { text: "" },
-      { text: "✓ Deployed                      0:52", delay: 1400 },
-      { text: "  ✓ build                       0:41", kind: "dim", delay: 200 },
-      { text: "  ✓ rolling update              0:08", kind: "dim", delay: 200 },
-      { text: "  ✓ container                   0:06", kind: "dim", delay: 200 },
-      { text: "  ✓ cleanup                     0:00", kind: "dim", delay: 200 },
+      ...deployChecklist(),
       { text: "Deployment: 03dusayin5rleswixblvdqba", delay: 400 },
       { text: "Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)" },
       { text: "Status: finished" },
@@ -87,7 +131,7 @@ export const features: Feature[] = [
     name: "Deploy",
     command: "coolship deploy",
     description:
-      "Start one deployment and print its build log until that deployment finishes.",
+      "Start one deployment and tick off its stages until that deployment finishes. The build log prints if it fails.",
     href: "/docs/commands/deploy",
   },
   {
@@ -132,7 +176,7 @@ export const minute: Step[] = [
     title: "Deploy",
     command: "coolship deploy",
     description:
-      "Coolship deploys the source and branch set in Coolify, waits for that deployment, and prints its build log as it runs.",
+      "Coolship deploys the source and branch set in Coolify and waits for that deployment, ticking off each stage as it finishes.",
     href: "/docs/commands/deploy",
   },
   {
@@ -165,7 +209,7 @@ export const comparison: ComparisonRow[] = [
     task: "Deploy",
     coolify: ["coolify deploy uuid <application-uuid>"],
     coolship: ["coolship deploy"],
-    note: "Coolship waits for the deployment it started and prints its build log.",
+    note: "Coolship waits for the deployment it started and shows its stages as they finish.",
   },
   {
     task: "Logs",
