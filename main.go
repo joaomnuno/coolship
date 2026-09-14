@@ -68,8 +68,9 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	streams := ui.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Interactive: interactive(),
-		ColorOut: colorEnabled(isTerminal(os.Stdout), os.Getenv, os.Args[1:]),
-		ColorErr: colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:]),
+		ColorOut:    colorEnabled(isTerminal(os.Stdout), os.Getenv, os.Args[1:]),
+		ColorErr:    colorEnabled(isTerminal(os.Stderr), os.Getenv, os.Args[1:]),
+		OutTerminal: isTerminal(os.Stdout), ErrTerminal: isTerminal(os.Stderr), Width: terminalWidth(os.Stdout),
 		// The command tree sets the level from --verbose, --debug,
 		// COOLSHIP_VERBOSITY, or the preferences before any backend exists.
 		Trace: ui.NewTrace(os.Stderr)}
@@ -170,6 +171,19 @@ func colorEnabled(terminal bool, env func(string) string, args []string) bool {
 // character device too, and a redirect from it must count as noninteractive.
 func isTerminal(file *os.File) bool {
 	return file != nil && term.IsTerminal(int(file.Fd()))
+}
+
+// terminalWidth is the width of a terminal in columns, or zero when the file
+// is not one or reports no size.
+func terminalWidth(file *os.File) int {
+	if !isTerminal(file) {
+		return 0
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil {
+		return 0
+	}
+	return width
 }
 
 // userAgentVersion keeps the header short and free of spaces or parentheses.

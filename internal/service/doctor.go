@@ -113,6 +113,8 @@ func (a *App) Doctor(ctx context.Context, options Options) (DoctorResult, error)
 		status = "warning"
 	}
 	add("Application", status, fmt.Sprintf("%s (%s) is %s", binding.Application.Name, binding.Application.UUID, binding.Application.Status))
+	result.Checks[len(result.Checks)-1].Application = &CheckApplication{
+		Name: binding.Application.Name, UUID: binding.Application.UUID, Status: binding.Application.Status}
 	for _, warning := range binding.Warnings {
 		add("Application", "warning", warning)
 	}

@@ -133,7 +133,7 @@ Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The pick
 
 ```text
 Linked project in /home/you/my-app/coolship.toml
-Application: fenix-bot (9f8e7d6c)
+Application: fenix-bot
 Environment: production
 Project: Personal
 Context: home
@@ -240,13 +240,13 @@ Report the linked application's current status and URL, and its last deployment 
 
 ```text
 $ coolship status
-Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Application: coolship-example
 Environment: production
 Project: coolship-example
 Context: home
-Status: running:healthy
+Status: ● running:healthy
 URL: https://coolship.example.com
-Last deployment: nmfvbbn3 finished (0cd7c4a) 2026-09-10 11:37:12
+Last deployment: nmfvbbn3 finished (0cd7c4a) 12 min ago
 ```
 
 ### `coolship deploy`
@@ -273,8 +273,8 @@ $ coolship deploy
   ✓ rolling update              0:08
   ✓ container                   0:06
   ✓ cleanup                     0:00
-Deployment: 03dusayin5rleswixblvdqba
-Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Deployment: 03dusayi
+Application: coolship-example
 Status: finished
 https://coolship.example.com
 ```
@@ -291,13 +291,13 @@ List the linked application's most recent deployments, newest first — the same
 ```text
 $ coolship deployments -n 3
 Deployments of coolship-example (3 of 17)
-UUID      STATUS             COMMIT   TYPE     CREATED              DURATION
-jky1r9cr  finished           0cd7c4a  restart  2026-09-10 11:56:59  23s
-zvvmfq5q  cancelled-by-user  HEAD     deploy   2026-09-10 11:56:21  2s
-ivgyhyfx  finished           0cd7c4a  deploy   2026-09-10 11:55:31  23s
+ID        STATUS             COMMIT   TYPE     CREATED    DURATION
+jky1r9cr  finished           0cd7c4a  restart  3 min ago  0:23
+zvvmfq5q  cancelled-by-user  HEAD     deploy   4 min ago  0:02
+ivgyhyfx  finished           0cd7c4a  deploy   5 min ago  0:23
 ```
 
-`TYPE` is `deploy`, `restart`, `rollback`, or `preview #N` for a pull request preview. A commit of `HEAD` is a deployment Coolify cancelled or is still starting, before it resolved the sha; a cancelled deployment that never reached the deployment job has no duration, because Coolify records the end time only there. `--format json` carries the full UUIDs, the source (`api`, `webhook`, or `manual`), and the server's timestamps. Build logs are never included; `deploy` streams them while a deployment runs.
+`TYPE` is `deploy`, `restart`, `rollback`, or `preview #N` for a pull request preview. A commit of `HEAD` is a deployment Coolify cancelled or is still starting, before it resolved the sha; a cancelled deployment that never reached the deployment job has no duration, because Coolify records the end time only there. The short ID is what `cancel` accepts. `--verbose` shows the full UUIDs and exact creation times, and a narrow terminal leaves out the type, the commit, and then the duration so the table does not wrap. Piped output keeps every column, the full timestamps, and durations such as `23s`. `--format json` carries the full UUIDs, the source (`api`, `webhook`, or `manual`), and the server's timestamps. Build logs are never included; `deploy` streams them while a deployment runs.
 
 ### `coolship cancel`
 
@@ -305,8 +305,8 @@ Cancel a queued or running deployment.
 
 ```bash
 coolship cancel                               # the one in progress; asks first
-coolship cancel zvvmfq5q7kdzaswmsf7yrugt --yes  # a specific deployment
-coolship cancel api zvvmfq5q7kdzaswmsf7yrugt   # a monorepo target, then the UUID
+coolship cancel zvvmfq5q --yes                # a specific deployment, by the short ID deployments shows
+coolship cancel api zvvmfq5q7kdzaswmsf7yrugt   # a monorepo target, then the full UUID
 ```
 
 Without a UUID, exactly one deployment must be queued or in progress; none, or more than one, is reported and nothing is cancelled. A named deployment must belong to the linked application. Only queued and in-progress deployments can be cancelled — one that already finished, failed, or was cancelled is refused before any request. Cancelling leaves the running containers as they are: the application keeps serving the previous deployment.
@@ -327,9 +327,9 @@ coolship restart --yes        # queue a restart, observed like deploy
 ```text
 $ coolship stop --yes
 Application stopping request queued.
-Application status: exited:unhealthy
-Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
-Status: exited:unhealthy
+Application status: ● exited:unhealthy
+Application: coolship-example
+Status: ● exited:unhealthy
 ```
 
 `start` and `restart` are Coolify's own start and restart actions, and both queue a deployment: Coolify has no container start, so `start` deploys the configured source and branch again, and `restart` queues a restart-only deployment that reuses the image already built for the commit — except for Dockerfile and Docker image applications, which Coolify deploys in full. Both are observed exactly like `deploy` — the stage checklist in a terminal, the status lines and build log on stderr otherwise — with `--no-wait`, `--timeout`, `--logs`, and `--no-logs`; `restart` asks first, or takes `--yes`.
@@ -368,7 +368,7 @@ $ coolship doctor
 [ok]   Credentials: /home/you/.config/coolify/config.json (1 instance, default home)
 [ok]   Context: home at https://coolify.example.com
 [ok]   Server: Coolify 4.3.18
-[ok]   Application: fenix-bot (9f8e7d6c) is running:healthy
+[ok]   Application: fenix-bot is ● running:healthy
 ```
 
 ### `coolship config`

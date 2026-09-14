@@ -87,6 +87,22 @@ func (p palette) colorProfile() colorprofile.Profile {
 	return colorprofile.ASCII
 }
 
+// applicationStatus styles Coolify's application status, a state and a health
+// joined by a colon, such as running:healthy. Stopped or failing is red,
+// coming up is yellow, and running is green; unknown states stay plain.
+func applicationStatus(status string) look {
+	state, health, _ := strings.Cut(status, ":")
+	switch {
+	case state == "exited" || state == "degraded" || health == "unhealthy":
+		return red
+	case state == "starting" || state == "restarting":
+		return yellow
+	case state == "running":
+		return green
+	}
+	return plain
+}
+
 // deploymentStatus styles the server's deployment status words. Unknown
 // statuses stay plain rather than guessing at their meaning.
 func deploymentStatus(status string) look {

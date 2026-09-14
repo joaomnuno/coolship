@@ -318,6 +318,14 @@ type Check struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	// Application carries the parts of the application check's detail, so
+	// a terminal can show them without the UUID; JSON keeps Detail alone.
+	Application *CheckApplication `json:"-"`
+}
+
+// CheckApplication is the resolved application a doctor check reports.
+type CheckApplication struct {
+	Name, UUID, Status string
 }
 
 type DoctorResult struct {

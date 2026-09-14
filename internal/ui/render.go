@@ -21,11 +21,96 @@ type Renderer struct {
 	format  string
 	out     palette
 	err     palette
+	// now is the clock relative times and running durations are read from.
+	now func() time.Time
 }
 
 func NewRenderer(streams Streams, format string) *Renderer {
 	streams = streams.Normalized()
-	return &Renderer{streams: streams, format: format, out: streams.outPalette(), err: streams.errPalette()}
+	return &Renderer{streams: streams, format: format, out: streams.outPalette(), err: streams.errPalette(), now: time.Now}
+}
+
+// namesOnly reports whether stdout shows names without UUIDs: a terminal at
+// normal verbosity. --verbose and --debug add the UUIDs back, and a pipe
+// keeps them at every level so its text never changes under a script.
+func (r *Renderer) namesOnly() bool {
+	return r.streams.OutTerminal && r.streams.level() == VerbosityNormal
+}
+
+// errNamesOnly is namesOnly for the progress lines on stderr.
+func (r *Renderer) errNamesOnly() bool {
+	return r.streams.ErrTerminal && r.streams.level() == VerbosityNormal
+}
+
+// named labels one resource: its name alone when names only, otherwise the
+// name with its UUID. Every result names a single application or key, so no
+// two labels on a screen can share a name and need the UUID to tell apart.
+func named(name, uuid string, namesOnly bool) string {
+	name, uuid = singleLine(name), singleLine(uuid)
+	switch {
+	case uuid == "":
+		return name
+	case name == "":
+		return uuid
+	case namesOnly:
+		return name
+	}
+	return name + " (" + uuid + ")"
+}
+
+// deploymentLabel identifies a deployment, which has no name. Names-only
+// output shows the short ID that deployments lists and cancel accepts;
+// otherwise the full UUID.
+func deploymentLabel(uuid string, namesOnly bool) string {
+	if namesOnly {
+		return shortID(uuid)
+	}
+	return singleLine(uuid)
+}
+
+// applicationState renders an application status on a stream: on a terminal
+// a glyph and the status in the colour of its state, and plain elsewhere.
+func applicationState(p palette, terminal bool, status string) string {
+	status = singleLine(status)
+	if !terminal || status == "" {
+		return status
+	}
+	return p.apply(applicationStatus(status), "● "+status)
+}
+
+// relativeTime says how long ago a server timestamp was, coarsely, the way a
+// person reads a history; past a month it is the date. An unreadable value,
+// or one well in the future, is shown as localTime shows it.
+func relativeTime(value string, now time.Time) string {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return localTime(value)
+	}
+	ago := now.Sub(parsed)
+	switch {
+	case ago < -time.Minute:
+		return localTime(value)
+	case ago < time.Minute:
+		return "just now"
+	case ago < time.Hour:
+		return strconv.Itoa(int(ago/time.Minute)) + " min ago"
+	case ago < 24*time.Hour:
+		return strconv.Itoa(int(ago/time.Hour)) + " h ago"
+	case ago < 48*time.Hour:
+		return "1 day ago"
+	case ago < 30*24*time.Hour:
+		return strconv.Itoa(int(ago/(24*time.Hour))) + " days ago"
+	}
+	return parsed.Local().Format("2006-01-02")
+}
+
+// when renders a timestamp on stdout: relative when names only, exact
+// otherwise.
+func (r *Renderer) when(value string) string {
+	if r.namesOnly() {
+		return relativeTime(value, r.now())
+	}
+	return localTime(value)
 }
 
 func (r *Renderer) Status(result service.StatusResult) error {
@@ -38,7 +123,7 @@ func (r *Renderer) Status(result service.StatusResult) error {
 	if err := r.target(result.Target); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Status"), singleLine(result.Status)); err != nil {
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Status"), applicationState(r.out, r.streams.OutTerminal, result.Status)); err != nil {
 		return err
 	}
 	if result.URL != "" {
@@ -48,11 +133,17 @@ func (r *Renderer) Status(result service.StatusResult) error {
 	}
 	if last := result.LastDeployment; last != nil {
 		status := singleLine(last.Status)
-		line := shortID(last.UUID) + " " + r.out.apply(deploymentStatus(status), status)
+		// A pipe keeps the short ID it always had; a terminal shows the
+		// short ID at normal verbosity and the full UUID above it.
+		id := shortID(last.UUID)
+		if r.streams.OutTerminal {
+			id = deploymentLabel(last.UUID, r.namesOnly())
+		}
+		line := id + " " + r.out.apply(deploymentStatus(status), status)
 		if commit := shortCommit(last.Commit); commit != "" {
 			line += " (" + commit + ")"
 		}
-		if when := localTime(last.CreatedAt); when != "" {
+		if when := r.when(last.CreatedAt); when != "" {
 			line += " " + when
 		}
 		if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Last deployment"), line); err != nil {
@@ -129,6 +220,57 @@ func duration(status, created, finished string, now time.Time) string {
 	return elapsed.String()
 }
 
+// clockDuration is duration on the stage checklist's clock, 0:24 or 1:02:03,
+// so a terminal shows one way of writing a length of time.
+func clockDuration(status, created, finished string, now time.Time) string {
+	start, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil || duration(status, created, finished, now) == "" {
+		return ""
+	}
+	end := now
+	if finished != "" {
+		end, _ = time.Parse(time.RFC3339Nano, finished)
+	}
+	return elapsed(end.Sub(start).Round(time.Second))
+}
+
+// dropOrder lists the deployments table's columns in the order a narrow
+// terminal gives them up: the type, the commit, the duration, then the time.
+// The identifier and the status always stay.
+var dropOrder = []int{3, 2, 5, 4}
+
+// fitColumns picks the columns of a table whose widths fit in width columns,
+// with two spaces between them. Zero width is unknown and keeps them all.
+func fitColumns(widths []int, width int) []int {
+	keep := make([]bool, len(widths))
+	for i := range keep {
+		keep[i] = true
+	}
+	total := func() int {
+		sum, count := 0, 0
+		for i, kept := range keep {
+			if kept {
+				sum += widths[i]
+				count++
+			}
+		}
+		return sum + 2*max(count-1, 0)
+	}
+	for _, column := range dropOrder {
+		if width <= 0 || total() <= width {
+			break
+		}
+		keep[column] = false
+	}
+	var shown []int
+	for i, kept := range keep {
+		if kept {
+			shown = append(shown, i)
+		}
+	}
+	return shown
+}
+
 // Deployments renders the history as a table, newest first, without build
 // logs in any format.
 func (r *Renderer) Deployments(result service.DeploymentsResult) error {
@@ -145,15 +287,30 @@ func (r *Renderer) Deployments(result service.DeploymentsResult) error {
 	if _, err := fmt.Fprintf(r.streams.Out, "Deployments of %s (%d of %d)\n", singleLine(result.Target.Application), len(result.Deployments), result.Total); err != nil {
 		return err
 	}
-	rows := [][]string{{"UUID", "STATUS", "COMMIT", "TYPE", "CREATED", "DURATION"}}
-	now := time.Now()
+	// A pipe keeps the table it always had. A terminal shows the short ID
+	// under ID, which cancel accepts, at normal verbosity, and the full UUID
+	// above it; times are relative at normal and durations read like the
+	// stage checklist's clock.
+	terminal, namesOnly := r.streams.OutTerminal, r.namesOnly()
+	idHeader := "UUID"
+	if namesOnly {
+		idHeader = "ID"
+	}
+	rows := [][]string{{idHeader, "STATUS", "COMMIT", "TYPE", "CREATED", "DURATION"}}
+	now := r.now()
 	for _, deployment := range result.Deployments {
 		kind := singleLine(deployment.Kind)
 		if deployment.PullRequest > 0 {
 			kind = "preview #" + strconv.Itoa(deployment.PullRequest)
 		}
-		rows = append(rows, []string{shortID(deployment.UUID), singleLine(deployment.Status), shortCommit(deployment.Commit), kind,
-			localTime(deployment.CreatedAt), duration(deployment.Status, deployment.CreatedAt, deployment.FinishedAt, now)})
+		id := shortID(deployment.UUID)
+		took := duration(deployment.Status, deployment.CreatedAt, deployment.FinishedAt, now)
+		if terminal {
+			id = deploymentLabel(deployment.UUID, namesOnly)
+			took = clockDuration(deployment.Status, deployment.CreatedAt, deployment.FinishedAt, now)
+		}
+		rows = append(rows, []string{id, singleLine(deployment.Status), shortCommit(deployment.Commit), kind,
+			r.when(deployment.CreatedAt), took})
 	}
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
@@ -161,10 +318,15 @@ func (r *Renderer) Deployments(result service.DeploymentsResult) error {
 			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
 		}
 	}
+	shown := fitColumns(widths, r.streams.Width)
+	if !terminal {
+		shown = []int{0, 1, 2, 3, 4, 5}
+	}
 	for index, row := range rows {
 		var line strings.Builder
-		for i, cell := range row {
-			if i > 0 {
+		for position, i := range shown {
+			cell := row[i]
+			if position > 0 {
 				line.WriteString("  ")
 			}
 			padding := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
@@ -172,7 +334,7 @@ func (r *Renderer) Deployments(result service.DeploymentsResult) error {
 				cell = r.out.apply(deploymentStatus(cell), cell)
 			}
 			line.WriteString(cell)
-			if i < len(row)-1 {
+			if position < len(shown)-1 {
 				line.WriteString(padding)
 			}
 		}
@@ -189,9 +351,9 @@ func (r *Renderer) Stop(result service.StopResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
-		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
-		r.out.key("Status"), singleLine(result.Status))
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s\n%s %s\n",
+		r.out.key("Application"), named(result.Target.Application, result.Target.ApplicationUUID, r.namesOnly()),
+		r.out.key("Status"), applicationState(r.out, r.streams.OutTerminal, result.Status))
 	return err
 }
 
@@ -203,9 +365,9 @@ func (r *Renderer) Cancel(result service.CancelResult) error {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
 	status := singleLine(result.Status)
-	_, err := fmt.Fprintf(r.streams.Out, "%s %s\n%s %s (%s)\n%s %s\n",
-		r.out.key("Deployment"), singleLine(result.DeploymentUUID),
-		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s\n%s %s\n%s %s\n",
+		r.out.key("Deployment"), deploymentLabel(result.DeploymentUUID, r.namesOnly()),
+		r.out.key("Application"), named(result.Target.Application, result.Target.ApplicationUUID, r.namesOnly()),
 		r.out.key("Status"), r.out.apply(deploymentStatus(status), status))
 	return err
 }
@@ -237,8 +399,8 @@ func (r *Renderer) Init(result service.InitResult) error {
 	}
 	plan := result.Plan
 	if key := result.DeployKey; key != nil && result.Target.ApplicationUUID == "" {
-		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s (%s) on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s --repo %s\n",
-			singleLine(key.Name), singleLine(key.UUID), singleLine(plan.Instance), r.out.key("Public key"), singleLine(key.PublicKey),
+		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s --repo %s\n",
+			named(key.Name, key.UUID, r.namesOnly()), singleLine(plan.Instance), r.out.key("Public key"), singleLine(key.PublicKey),
 			singleLine(key.Repository), shellQuote(singleLine(key.Name)), shellQuote(singleLine(key.Repository)))
 		return err
 	}
@@ -249,8 +411,8 @@ func (r *Renderer) Init(result service.InitResult) error {
 	if plan.Static {
 		buildPack += ", static"
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s (%s) from %s at %s\n%s %s\n",
-		singleLine(plan.Name), singleLine(result.Target.ApplicationUUID), singleLine(plan.Repository), singleLine(plan.Branch),
+	if _, err := fmt.Fprintf(r.streams.Out, "Created application %s from %s at %s\n%s %s\n",
+		named(plan.Name, result.Target.ApplicationUUID, r.namesOnly()), singleLine(plan.Repository), singleLine(plan.Branch),
 		r.out.key("Build pack"), buildPack); err != nil {
 		return err
 	}
@@ -293,7 +455,7 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
-	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Deployment"), singleLine(result.DeploymentUUID)); err != nil {
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n", r.out.key("Deployment"), deploymentLabel(result.DeploymentUUID, r.namesOnly())); err != nil {
 		return err
 	}
 	if result.PullRequest > 0 {
@@ -302,8 +464,8 @@ func (r *Renderer) Deploy(result service.DeployResult) error {
 		}
 	}
 	status := singleLine(result.Status)
-	if _, err := fmt.Fprintf(r.streams.Out, "%s %s (%s)\n%s %s\n",
-		r.out.key("Application"), singleLine(result.Target.Application), singleLine(result.Target.ApplicationUUID),
+	if _, err := fmt.Fprintf(r.streams.Out, "%s %s\n%s %s\n",
+		r.out.key("Application"), named(result.Target.Application, result.Target.ApplicationUUID, r.namesOnly()),
 		r.out.key("Status"), r.out.apply(deploymentStatus(status), status)); err != nil {
 		return err
 	}
@@ -349,11 +511,17 @@ func (r *Renderer) deploymentEvent(event service.Event, suffix string) error {
 	case event.Type == "application":
 		// Stop reports the server's receipt once, then each status it observes.
 		if message == "" {
-			message = "Application status: " + singleLine(event.Status)
+			message = "Application status: " + applicationState(r.err, r.streams.ErrTerminal, event.Status)
 		}
 	case message == "" && event.Status != "":
 		status := singleLine(event.Status)
-		message = "Deployment " + singleLine(event.DeploymentUUID) + ": " + r.err.apply(deploymentStatus(status), status) + suffix
+		// The result names the deployment once; on a terminal at normal
+		// verbosity each progress line need not repeat its UUID.
+		subject := "Deployment " + singleLine(event.DeploymentUUID)
+		if r.errNamesOnly() {
+			subject = "Deployment status"
+		}
+		message = subject + ": " + r.err.apply(deploymentStatus(status), status) + suffix
 	}
 	if message == "" {
 		return nil
@@ -383,8 +551,8 @@ func (r *Renderer) target(target service.TargetInfo) error {
 		}
 	}
 	_, err := fmt.Fprintf(r.streams.Out,
-		"%s %s (%s)\n%s %s\n%s %s\n%s %s\n",
-		r.out.key("Application"), singleLine(target.Application), singleLine(target.ApplicationUUID),
+		"%s %s\n%s %s\n%s %s\n%s %s\n",
+		r.out.key("Application"), named(target.Application, target.ApplicationUUID, r.namesOnly()),
 		r.out.key("Environment"), singleLine(target.Environment),
 		r.out.key("Project"), singleLine(target.Project),
 		r.out.key("Context"), singleLine(target.Instance))
@@ -601,8 +769,15 @@ func (r *Renderer) Doctor(result service.DoctorResult) error {
 			marker = r.out.apply(known.style, known.marker) + known.padding
 		}
 		line := marker + " " + singleLine(check.Name)
-		if check.Detail != "" {
-			line += ": " + singleLine(check.Detail)
+		detail := singleLine(check.Detail)
+		// On a terminal the application check is rebuilt from its parts,
+		// with the UUID only above normal and the status in its colour; a
+		// pipe and JSON keep the detail as the service wrote it.
+		if app := check.Application; app != nil && r.streams.OutTerminal {
+			detail = named(app.Name, app.UUID, r.namesOnly()) + " is " + applicationState(r.out, true, app.Status)
+		}
+		if detail != "" {
+			line += ": " + detail
 		}
 		if _, err := fmt.Fprintln(r.streams.Out, line); err != nil {
 			return err

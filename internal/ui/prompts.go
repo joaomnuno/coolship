@@ -350,9 +350,11 @@ func (p *Prompter) confirmLifecycle(ctx context.Context, question string, target
 	if environment == "production" {
 		environment = p.style.apply(bold, environment)
 	}
-	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Application: %s (%s)\n  Environment: %s\n  Project:     %s\n  Status:      %s\n%s\n%s ",
-		p.question(question), singleLine(target.Application), singleLine(target.ApplicationUUID), environment,
-		singleLine(target.Project), singleLine(status), note, p.question("Confirm [y/N]:")); err != nil {
+	// Confirmations follow the stderr rule of the progress lines.
+	namesOnly := p.streams.ErrTerminal && p.streams.level() == VerbosityNormal
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Application: %s\n  Environment: %s\n  Project:     %s\n  Status:      %s\n%s\n%s ",
+		p.question(question), named(target.Application, target.ApplicationUUID, namesOnly), environment,
+		singleLine(target.Project), applicationState(p.style, p.streams.ErrTerminal, status), note, p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -378,9 +380,11 @@ func (p *Prompter) ConfirmCancel(ctx context.Context, plan service.CancelPlan) (
 	if d.PullRequest > 0 {
 		detail += ", pull request #" + strconv.Itoa(d.PullRequest)
 	}
-	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Deployment:  %s (%s)\n  Application: %s (%s)\n  Environment: %s\n%s ",
-		p.question("Cancel deployment "+singleLine(d.UUID)+" of "+singleLine(plan.Target.Application)+"?"),
-		singleLine(d.UUID), detail, singleLine(plan.Target.Application), singleLine(plan.Target.ApplicationUUID),
+	namesOnly := p.streams.ErrTerminal && p.streams.level() == VerbosityNormal
+	id := deploymentLabel(d.UUID, namesOnly)
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Deployment:  %s (%s)\n  Application: %s\n  Environment: %s\n%s ",
+		p.question("Cancel deployment "+id+" of "+singleLine(plan.Target.Application)+"?"),
+		id, detail, named(plan.Target.Application, plan.Target.ApplicationUUID, namesOnly),
 		singleLine(plan.Target.Environment), p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
