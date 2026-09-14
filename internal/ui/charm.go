@@ -4,3 +4,5 @@ package ui
 // by internal/ui and nowhere else; see TestOnlyUIImportsTheCharmStack.
 // Bubble Tea and Bubbles draw the spinner in wait.go, Lip Gloss renders the
 // looks in style.go, and Huh draws the arrow-key selectors in select.go.
+// The experimental `coolship ui` menu in menu.go and menu_model.go uses all
+// three.

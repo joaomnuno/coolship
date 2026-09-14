@@ -70,6 +70,7 @@ type settings struct {
 	environment func(string) string
 	preferences preferences.Report
 	alias       alias.System
+	runMenu     menuRunner
 }
 
 // WithAliasSystem supplies the executable path, PATH lookup, and OS that
@@ -196,6 +197,9 @@ logs of that application.`,
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
 			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
+			// The menu is another way to reach the verbs, like help beside
+			// it, not a step in a project's workflow (issue #21).
+			newUICommand(app, options, streams, root, order, config.runMenu),
 		}},
 	}
 	for _, entry := range groups {
