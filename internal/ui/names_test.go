@@ -87,6 +87,16 @@ func TestResultsDropUUIDsAtNormal(t *testing.T) {
 		t.Errorf("diagnostic:\n%s", diagnostic)
 	}
 
+	// JSON keeps the UUID on its progress lines even on a terminal.
+	r, _, diagnostic = terminalRenderer(VerbosityNormal, 0, testNow)
+	r.format = "json"
+	if err := r.DeploymentEvent(service.Event{Type: "deployment", DeploymentUUID: "03dusayin5rleswixblvdqba", Status: "queued"}); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic.String() != "Deployment 03dusayin5rleswixblvdqba: queued\n" {
+		t.Errorf("json progress: %q", diagnostic)
+	}
+
 	r, out, diagnostic = terminalRenderer(VerbosityDebug, 0, testNow)
 	if err := r.Deploy(deploy); err != nil {
 		t.Fatal(err)

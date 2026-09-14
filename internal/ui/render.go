@@ -37,9 +37,11 @@ func (r *Renderer) namesOnly() bool {
 	return r.streams.OutTerminal && r.streams.level() == VerbosityNormal
 }
 
-// errNamesOnly is namesOnly for the progress lines on stderr.
+// errNamesOnly is namesOnly for the progress lines on stderr. With --format
+// json the lines keep the deployment UUID even on a terminal, so a script
+// can match them to the JSON result.
 func (r *Renderer) errNamesOnly() bool {
-	return r.streams.ErrTerminal && r.streams.level() == VerbosityNormal
+	return r.format != "json" && r.streams.ErrTerminal && r.streams.level() == VerbosityNormal
 }
 
 // named labels one resource: its name alone when names only, otherwise the
