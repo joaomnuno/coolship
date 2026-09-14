@@ -130,6 +130,9 @@ func (a *App) retryLogsIfRunning(ctx context.Context, s session, lines int, firs
 			return models.LogSnapshot{}, err
 		}
 		status = currentStatus(ctx, s)
+		if !strings.HasPrefix(status, "running") {
+			return models.LogSnapshot{}, logsError(err, status)
+		}
 	}
 	return models.LogSnapshot{}, stillNotRunningError(err, status)
 }
