@@ -774,6 +774,66 @@ func TestLogsNameTheStatusWhenTheApplicationIsNotRunning(t *testing.T) {
 	}
 }
 
+// TestLogsRetryWhileStatusSaysRunning covers a Coolify status of
+// running:healthy alongside a "not running" logs refusal: the two endpoints
+// disagree briefly during a Compose recreate, or when a one-shot service has
+// exited. The retry either catches the container coming back, or gives up
+// with wording that does not contradict itself.
+func TestLogsRetryWhileStatusSaysRunning(t *testing.T) {
+	// The container shows up partway through the retry window.
+	f := newBackend()
+	f.logsErrors = []error{notRunningRefusal{}, notRunningRefusal{}, nil}
+	app, _, _ := testApp(f)
+	var events []Event
+	collect := func(e Event) error { events = append(events, e); return nil }
+	err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect)
+	if err != nil || len(events) != 1 || events[0].Type != "logs" {
+		t.Fatalf("eventual success: err=%v events=%v", err, events)
+	}
+	if f.calls["logs"] != 3 {
+		t.Fatalf("eventual success: logs calls=%d", f.calls["logs"])
+	}
+
+	// The container never shows up within the retry window; the refusal
+	// names the actual, non-contradictory situation instead of the generic
+	// "not running" wording, and does not claim --deploy or start would help.
+	f = newBackend()
+	f.logsErrors = []error{
+		notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{},
+		notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{},
+	}
+	app, _, _ = testApp(f)
+	events = nil
+	err = app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect)
+	want := "Coolify reports the application as running:healthy but has no running container to read logs from yet; this happens briefly after a deployment, or when a Compose service has exited. Retry in a moment."
+	var refusal notRunningRefusal
+	if err == nil || err.Error() != want || !errors.As(err, &refusal) || len(events) != 0 {
+		t.Fatalf("giving up: err=%v events=%v", err, events)
+	}
+	if strings.Contains(err.Error(), "deploy it, or start it in Coolify") {
+		t.Fatalf("giving up: kept the generic not-running wording: %v", err)
+	}
+	if f.calls["logs"] != len(f.logsErrors) {
+		t.Fatalf("giving up: logs calls=%d", f.calls["logs"])
+	}
+
+	// Cancelling mid-retry stops the wait instead of exhausting it.
+	f = newBackend()
+	f.logsErrors = []error{notRunningRefusal{}}
+	app, _, _ = testApp(f)
+	app.deps.PollInterval = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+	events = nil
+	err = app.Logs(ctx, LogsOptions{Options: linkedOptions(t), Lines: 10}, collect)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel mid-retry: %v", err)
+	}
+}
+
 func TestLinkSelectionFailuresNameTheFlags(t *testing.T) {
 	f := newBackend()
 	f.projects = append(f.projects, models.Project{UUID: "project-2", Name: "Personal"})
