@@ -817,6 +817,29 @@ func TestLogsRetryWhileStatusSaysRunning(t *testing.T) {
 		t.Fatalf("giving up: logs calls=%d", f.calls["logs"])
 	}
 
+	// The status itself stops saying running partway through the retry
+	// window (the container was stopped, not just slow to appear): the
+	// retry stops at once with the existing not-running wording, instead of
+	// running out the rest of the window or claiming the application is
+	// still running.
+	f = newBackend()
+	f.logsErrors = []error{notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{}, notRunningRefusal{}}
+	f.stopped = true
+	// The first status is read during resolution, before Logs is even
+	// called; the second is retryLogsIfRunning's own fresh read, and the
+	// third is the one taken after the first retry.
+	f.stopStatuses = []string{"running:healthy", "running:healthy", "exited:unhealthy"}
+	app, _, _ = testApp(f)
+	events = nil
+	err = app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10}, collect)
+	wantExited := "application is not running (status exited:unhealthy); deploy it, or start it in Coolify, before reading its logs"
+	if err == nil || err.Error() != wantExited || !errors.As(err, &refusal) || len(events) != 0 {
+		t.Fatalf("status stops running mid-window: err=%v events=%v", err, events)
+	}
+	if f.calls["logs"] != 2 {
+		t.Fatalf("status stops running mid-window: logs calls=%d, want the retry to stop at once", f.calls["logs"])
+	}
+
 	// Cancelling mid-retry stops the wait instead of exhausting it.
 	f = newBackend()
 	f.logsErrors = []error{notRunningRefusal{}}
