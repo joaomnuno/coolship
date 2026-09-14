@@ -1035,10 +1035,45 @@ func TestLinkMarksTheCurrentBindingAmongTheChoices(t *testing.T) {
 			map[string]string{"project": "project-2", "environment": "env-1", "application": "app-2"}},
 		{"unlinked directory", func(t *testing.T) Options { return Options{CWD: unlinkedDirectory(t)} }, "project-1",
 			map[string]string{"project": "", "environment": "", "application": ""}},
+		// The same names on another instance are other resources.
+		{"relinked with another context", func(t *testing.T) Options {
+			options := bound(t, byName)
+			options.Context = "work"
+			return options
+		}, "project-1",
+			map[string]string{"project": "", "environment": "", "application": ""}},
+		{"relinked with the bound context named", func(t *testing.T) Options {
+			options := bound(t, byName)
+			options.Context = "home"
+			return options
+		}, "project-1",
+			map[string]string{"project": "project-1", "environment": "env-1", "application": "app-1"}},
+		{"relinked through COOLSHIP_URL", func(t *testing.T) Options {
+			options := bound(t, byName)
+			options.Context = "url"
+			return options
+		}, "project-1",
+			map[string]string{"project": "", "environment": "", "application": ""}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app, _, _ := testApp(backend())
+			options := tc.options(t)
+			if options.Context == "url" {
+				// Credentials from the environment carry no context name
+				// that could be compared with the binding's.
+				options.Context = ""
+				app.deps.CredentialURL, app.deps.CredentialToken = "https://other.example.com", "other-token"
+			}
+			app.deps.ResolveCredentials = func(o auth.Options) (auth.Credentials, error) {
+				name := o.Context
+				if o.URL != "" {
+					name = ""
+				} else if name == "" {
+					name = "home"
+				}
+				return auth.Credentials{Name: name, URL: "https://" + name + ".example.com", Token: "private-token"}, nil
+			}
 			offered := map[string][]Choice{}
 			stop := errors.New("stop before writing")
 			selector := func(_ context.Context, kind string, choices []Choice) (string, error) {
@@ -1051,7 +1086,7 @@ func TestLinkMarksTheCurrentBindingAmongTheChoices(t *testing.T) {
 				}
 				return "", stop
 			}
-			if _, err := app.Link(context.Background(), LinkOptions{Options: tc.options(t)}, selector, nil); !errors.Is(err, stop) {
+			if _, err := app.Link(context.Background(), LinkOptions{Options: options}, selector, nil); !errors.Is(err, stop) {
 				t.Fatalf("link returned %v; want the selector to stop it at the application", err)
 			}
 			for _, kind := range []string{"project", "environment", "application"} {

@@ -30,6 +30,8 @@ type Client struct {
 	retryDelay time.Duration
 	userAgent  string
 	trace      func(Exchange)
+	// traceUnredacted shows secret fields of traced bodies.
+	traceUnredacted bool
 }
 
 // DefaultUserAgent identifies Coolship when no version is supplied.
@@ -176,7 +178,7 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 				return
 			}
 			exchange := Exchange{Method: method, URL: u.String(), Attempt: attempt, RequestHeader: c.traceHeader(req.Header),
-				RequestBody: encoded, ResponseBody: data, Duration: time.Since(started), Err: err}
+				RequestBody: c.traceBody(encoded), ResponseBody: c.traceBody(data), Duration: time.Since(started), Err: err}
 			if resp != nil {
 				exchange.Status, exchange.ResponseHeader = resp.StatusCode, resp.Header.Clone()
 			}
