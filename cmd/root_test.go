@@ -397,7 +397,8 @@ func TestDeployFlagsAndProgressSeparation(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &result); err != nil || result.DeploymentUUID != "deployment-1" {
 		t.Fatalf("result = %q; err = %v", out, err)
 	}
-	if strings.Contains(out, "build output") || diagnostic != "Deployment deployment-1: queued\nbuild output\n" {
+	// The queued status is the result on stdout; --no-wait does not repeat it on stderr.
+	if strings.Contains(out, "build output") || diagnostic != "build output\n" {
 		t.Fatalf("stdout=%q stderr=%q", out, diagnostic)
 	}
 }

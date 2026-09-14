@@ -9,7 +9,7 @@
 import type { Lang } from "./highlight";
 import type { ReplayLine, ReplaySegment } from "./terminal-replay";
 
-type Stage = { name: string; start?: number; end?: number };
+type Stage = { name: string; parent?: string; start?: number; end?: number };
 
 /**
  * The checklist `coolship deploy` draws in a terminal, as rows the replay
@@ -28,8 +28,8 @@ function deployChecklist(): ReplayLine[] {
   const stages: Stage[] = [
     { name: "build", start: 1, end: 42 },
     { name: "rolling update", start: 42, end: 50 },
-    { name: "container", start: 45, end: 51 },
-    { name: "cleanup", start: 51, end: 51 },
+    { name: "container", parent: "rolling update", start: 45, end: 51 },
+    { name: "cleanup", parent: "rolling update", start: 51, end: 51 },
   ];
   const snapshots = [0, 1, 7, 15, 24, 33, 41, 42, 45, 48, 50, 51, 52];
   const shown = new Map<string, string>();
@@ -39,15 +39,20 @@ function deployChecklist(): ReplayLine[] {
     const glyph = spinner[tick % spinner.length];
     const finished = now >= 52;
     const head = finished
-      ? row("✓", "Deployed", 30, clock(now))
+      ? `✓ Deployed coolship-example to production in ${clock(now)}`
       : row(glyph, now === 0 ? "Deployment queued" : "Deployment in progress", 30, clock(now));
     const next: Array<[string, string, ReplayLine["kind"]]> = [["head", head, "out"]];
     for (const stage of stages) {
       const { name, start = Infinity, end = Infinity } = stage;
+      // Container and cleanup run inside the rolling update and are drawn
+      // under it once it has started.
+      const nested = stage.parent !== undefined && now >= (stages.find((s) => s.name === stage.parent)?.start ?? Infinity);
+      const indent = nested ? "    " : "  ";
+      const width = nested ? 26 : 28;
       if (now < start || (now === start && start === end && !finished))
-        next.push([name, `    ${name}`, "dim"]);
-      else if (now < end) next.push([name, `  ${row(glyph, name, 28, clock(now - start))}`, "out"]);
-      else next.push([name, `  ${row("✓", name, 28, clock(end - start))}`, "out"]);
+        next.push([name, `${indent}  ${name}`, "dim"]);
+      else if (now < end) next.push([name, `${indent}${row(glyph, name, width, clock(now - start))}`, "out"]);
+      else next.push([name, `${indent}${row("✓", name, width, clock(end - start))}`, "out"]);
     }
     let first = true;
     for (const [id, text, kind] of next) {
@@ -79,10 +84,7 @@ export const replayScript: ReplaySegment[] = [
       { text: "→ production" },
       { text: "" },
       ...deployChecklist(),
-      { text: "Deployment: 03dusayin5rleswixblvdqba", delay: 400 },
-      { text: "Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)" },
-      { text: "Status: finished" },
-      { text: "https://coolship.example.com" },
+      { text: "https://coolship.example.com", delay: 400 },
     ],
   },
   {

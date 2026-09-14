@@ -2,12 +2,16 @@ package ui
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joaomnuno/coolship/internal/service"
 )
@@ -64,8 +68,8 @@ func TestChecklistViewFollowsAScriptedDeployment(t *testing.T) {
 		glyph()+" Deployment in progress        0:50",
 		"  ✓ build                       0:41",
 		"  "+glyph()+" rolling update              0:03",
-		"  "+glyph()+" container                   0:02",
-		"    cleanup",
+		"    "+glyph()+" container                 0:02",
+		"      cleanup",
 	); got != want {
 		t.Fatalf("rolling view\n got %q\nwant %q", got, want)
 	}
@@ -82,8 +86,8 @@ func TestChecklistViewFollowsAScriptedDeployment(t *testing.T) {
 		"✓ Deployed                      1:01",
 		"  ✓ build                       0:41",
 		"  ✓ rolling update              0:13",
-		"  ✓ container                   0:10",
-		"  ✓ cleanup                     0:00",
+		"    ✓ container                 0:10",
+		"    ✓ cleanup                   0:00",
 	); got != want {
 		t.Fatalf("finished view\n got %q\nwant %q", got, want)
 	}
@@ -111,8 +115,8 @@ func TestChecklistViewMarksFailures(t *testing.T) {
 		"✗ Observation stopped           1:02:03",
 		"  ✗ build                       0:07",
 		"  … rolling update              1:01:54",
-		"    container",
-		"    cleanup",
+		"      container",
+		"      cleanup",
 	}, "\n")
 	if got := stopped.(checklistModel).render(); got != want {
 		t.Fatalf("stopped view\n got %q\nwant %q", got, want)
@@ -123,8 +127,8 @@ func TestChecklistViewMarksFailures(t *testing.T) {
 		"✗ Deployment failed             0:10",
 		"  ✗ build                       0:07",
 		"  ✗ rolling update              0:01",
-		"    container",
-		"    cleanup",
+		"      container",
+		"      cleanup",
 	}, "\n")
 	if got := model.(checklistModel).render(); got != want {
 		t.Fatalf("failed view\n got %q\nwant %q", got, want)
@@ -198,24 +202,6 @@ func TestChecklistPrintsTheBuildLogOnlyForAFailedDeployment(t *testing.T) {
 				t.Fatalf("closing(%v) = %q; log present %v, want %v", test.outcome, got, !test.wantLog, test.wantLog)
 			}
 		})
-	}
-}
-
-func TestElapsed(t *testing.T) {
-	for d, want := range map[time.Duration]string{
-		0:                                     "0:00",
-		-time.Second:                          "0:00",
-		1900 * time.Millisecond:               "0:01",
-		41 * time.Second:                      "0:41",
-		12*time.Minute + 3*time.Second:        "12:03",
-		time.Hour + 2*time.Minute:             "1:02:00",
-		25*time.Hour + 59*time.Second:         "25:00:59",
-		59*time.Minute + 59*time.Second:       "59:59",
-		61*time.Minute + 500*time.Millisecond: "1:01:00",
-	} {
-		if got := elapsed(d); got != want {
-			t.Errorf("elapsed(%v) = %q, want %q", d, got, want)
-		}
 	}
 }
 
@@ -308,5 +294,211 @@ func TestChecklistShowsTimingsAboveNormal(t *testing.T) {
 				t.Fatalf("stderr\n got %q\nwant %q", got, test.want)
 			}
 		})
+	}
+}
+
+// TestChecklistViewShowsSkippedStages checks a build Coolify skipped for a
+// cached image and the summary line a finished deployment ends with. Only
+// the skip marker marks a stage skipped; a stage with no marker stays
+// unmarked. A compose deployment has no rolling update, so its container is
+// not drawn as a child of one.
+func TestChecklistViewShowsSkippedStages(t *testing.T) {
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	at := func(seconds int) time.Time { return start.Add(time.Duration(seconds) * time.Second) }
+	var model tea.Model = newChecklistModel(newPalette(false), "in_progress", start, time.Now)
+	update := func(msg tea.Msg) { model, _ = model.Update(msg) }
+	update(stageMsg{stage: service.StageBuild, status: service.StageSkipped, note: "cached image", at: at(3)})
+	update(stageMsg{stage: service.StageRollingUpdate, status: service.StageStarted, at: at(4)})
+	update(stageMsg{stage: service.StageContainer, status: service.StageStarted, at: at(5)})
+	update(stageMsg{stage: service.StageContainer, status: service.StageDone, at: at(20)})
+	update(stageMsg{stage: service.StageRollingUpdate, status: service.StageDone, at: at(22)})
+	update(endMsg{outcome: OutcomeSucceeded, subject: "web to production", at: at(23)})
+	want := strings.Join([]string{
+		"✓ Deployed web to production in 0:23",
+		"  – build                       skipped (cached image)",
+		"  ✓ rolling update              0:18",
+		"    ✓ container                 0:15",
+		"      cleanup",
+	}, "\n")
+	if got := model.(checklistModel).render(); got != want {
+		t.Fatalf("skipped view\n got %q\nwant %q", got, want)
+	}
+
+	var compose tea.Model = newChecklistModel(newPalette(false), "in_progress", start, time.Now)
+	compose, _ = compose.Update(stageMsg{stage: service.StageBuild, status: service.StageDone, at: at(9)})
+	compose, _ = compose.Update(stageMsg{stage: service.StageContainer, status: service.StageDone, at: at(9)})
+	compose, _ = compose.Update(endMsg{outcome: OutcomeSucceeded, at: at(10)})
+	want = strings.Join([]string{
+		"✓ Deployed                      0:10",
+		"  ✓ build                       0:00",
+		"    rolling update",
+		"  ✓ container                   0:00",
+		"    cleanup",
+	}, "\n")
+	if got := compose.(checklistModel).render(); got != want {
+		t.Fatalf("compose view\n got %q\nwant %q", got, want)
+	}
+
+	// A build log the token may not read carries no markers: the stages
+	// may all have run, so a success must not call any of them skipped.
+	var unobserved tea.Model = newChecklistModel(newPalette(false), "in_progress", start, time.Now)
+	unobserved, _ = unobserved.Update(endMsg{outcome: OutcomeSucceeded, subject: "web to production", at: at(40)})
+	want = strings.Join([]string{
+		"✓ Deployed web to production in 0:40",
+		"    build",
+		"    rolling update",
+		"    container",
+		"    cleanup",
+	}, "\n")
+	if got := unobserved.(checklistModel).render(); got != want {
+		t.Fatalf("unobserved view\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestChecklistViewFitsTheTerminalWidth checks that every row is cut to the
+// terminal's width, so a narrow terminal never wraps a row and the redraw
+// moves over exactly the lines it drew.
+func TestChecklistViewFitsTheTerminalWidth(t *testing.T) {
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	var model tea.Model = newChecklistModel(newPalette(true), "in_progress", start, time.Now)
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 24, Height: 10})
+	model, _ = model.Update(stageMsg{stage: service.StageBuild, status: service.StageSkipped, note: "cached image", at: start})
+	model, _ = model.Update(stageMsg{stage: service.StageRollingUpdate, status: service.StageStarted, at: start})
+	lines := strings.Split(model.(checklistModel).render(), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("view has %d lines: %q", len(lines), lines)
+	}
+	for _, line := range lines {
+		if width := ansi.StringWidth(line); width > 24 {
+			t.Fatalf("line %q is %d columns wide, over 24", line, width)
+		}
+	}
+	if !strings.HasSuffix(ansi.Strip(lines[1]), "…") {
+		t.Fatalf("a cut line should end in an ellipsis: %q", lines[1])
+	}
+}
+
+// liveChecklist is a Checklist drawing on a file, as it would on a
+// terminal, so the Bubble Tea program really runs and Close and Finish are
+// exercised against it.
+func liveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stderr")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { file.Close() })
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	now := start
+	var clock sync.Mutex
+	checklist := NewChecklist(Streams{Out: out, Err: file, Interactive: true}, "human", false)
+	checklist.terminal = file
+	// Events and the program's spinner ticks both read the clock.
+	checklist.clock = func() time.Time {
+		clock.Lock()
+		defer clock.Unlock()
+		now = now.Add(time.Second)
+		return now
+	}
+	target := service.TargetInfo{Application: "web", ApplicationUUID: "app-1", Environment: "production"}
+	for _, event := range []service.Event{
+		{Type: "deployment", DeploymentUUID: "d-1", Status: "queued", Target: &target},
+		{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"},
+		{Type: "build", DeploymentUUID: "d-1", Logs: "Build step skipped.\n"},
+		{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageBuild, Status: service.StageSkipped, Message: "cached image"},
+		{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageRollingUpdate, Status: service.StageStarted},
+	} {
+		if err := checklist.Event(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return checklist, path
+}
+
+// within fails the test when fn does not return in time: a view that does
+// not stop would hang the command it belongs to.
+func within(t *testing.T, fn func() error) {
+	t.Helper()
+	result := make(chan error, 1)
+	go func() { result <- fn() }()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the checklist did not stop")
+	}
+}
+
+// TestChecklistFinishPrintsOneSummaryAndTheURL checks the end of a finished
+// deployment in a terminal: the live view is replaced by the final
+// checklist with one summary line, the URL is the only thing on stdout, and
+// the result block the plain renderer prints is not repeated.
+func TestChecklistFinishPrintsOneSummaryAndTheURL(t *testing.T) {
+	var out bytes.Buffer
+	checklist, path := liveChecklist(t, &out)
+	result := service.DeployResult{
+		Target:         service.TargetInfo{Application: "web", ApplicationUUID: "app-1", Environment: "production"},
+		DeploymentUUID: "d-1", Status: "finished", URL: "https://web.example.com", URLKind: "application",
+	}
+	within(t, func() error { return checklist.Finish(result) })
+	if out.String() != "https://web.example.com\n" {
+		t.Fatalf("stdout = %q, want only the URL", out.String())
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := string(content)
+	summary := "✓ Deployed web to production in 0:0"
+	if !strings.HasPrefix(stderr, "→ web\n→ production\n\n") || strings.Count(stderr, summary) != 1 {
+		t.Fatalf("stderr lacks the header or one summary line: %q", stderr)
+	}
+	tail := stderr[strings.LastIndex(stderr, summary):]
+	for _, line := range []string{"– build                       skipped (cached image)", "✓ rolling update"} {
+		if !strings.Contains(tail, line) {
+			t.Fatalf("final checklist lacks %q: %q", line, tail)
+		}
+	}
+	for _, repeated := range []string{"Deployment:", "Application:", "Status:", "app-1"} {
+		if strings.Contains(stderr+out.String(), repeated) {
+			t.Fatalf("output repeats %q: stderr %q stdout %q", repeated, stderr, out.String())
+		}
+	}
+	// The summary names a preview's pull request.
+	if got := deployedSubject(service.DeployResult{PullRequest: 7, Target: result.Target}); got != "pull request #7 of web to production" {
+		t.Fatalf("preview subject %q", got)
+	}
+}
+
+// TestChecklistCloseAfterAnInterruptRestoresTheTerminal checks what Ctrl-C
+// leaves behind: Close returns promptly, the program is gone, the final
+// checklist says observation stopped with the open stage marked …, the build
+// log stays collapsed, and the cursor Bubble Tea hid is shown again.
+func TestChecklistCloseAfterAnInterruptRestoresTheTerminal(t *testing.T) {
+	var out bytes.Buffer
+	checklist, path := liveChecklist(t, &out)
+	within(t, func() error { return checklist.Close(OutcomeStopped) })
+	if checklist.program != nil || out.Len() != 0 {
+		t.Fatalf("program %v left running or stdout written %q", checklist.program, out.String())
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := string(content)
+	final := stderr[strings.LastIndex(stderr, "✗ Observation stopped"):]
+	for _, line := range []string{"  – build", "  … rolling update", "      container"} {
+		if !strings.Contains(final, line) {
+			t.Fatalf("stopped checklist lacks %q: %q", line, final)
+		}
+	}
+	if strings.Contains(final, "Build step skipped.") {
+		t.Fatalf("an interrupt printed the build log: %q", final)
+	}
+	if hide, show := strings.LastIndex(stderr, "\x1b[?25l"), strings.LastIndex(stderr, "\x1b[?25h"); hide >= 0 && show < hide {
+		t.Fatalf("the cursor was left hidden: %q", stderr)
 	}
 }

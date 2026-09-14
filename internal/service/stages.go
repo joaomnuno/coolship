@@ -17,19 +17,38 @@ const (
 // the ones not reached yet.
 var DeploymentStages = []string{StageBuild, StageRollingUpdate, StageContainer, StageCleanup}
 
+// ParentStage names the stage another one runs inside, or "" for a stage of
+// its own. In Coolify's rolling update the new container comes up and the old
+// ones are removed between "Rolling update started." and "Rolling update
+// completed.", so container and cleanup are its children. A deployment with
+// no rolling update (compose, mapped ports) still reports them on their own.
+func ParentStage(stage string) string {
+	switch stage {
+	case StageContainer, StageCleanup:
+		return StageRollingUpdate
+	}
+	return ""
+}
+
 // Stage statuses carried by Event.Status when Event.Type is "stage".
 const (
 	StageStarted = "started"
 	StageDone    = "done"
 	StageFailed  = "failed"
+	// StageSkipped is a stage Coolify said it would not run, such as a build
+	// skipped because an image for the same commit already exists. The event
+	// carries the reason in Message.
+	StageSkipped = "skipped"
 )
 
 // stageMarker is one fixed line Coolify's ApplicationDeploymentJob writes
 // into the build log and what it says about a stage. Matching is by prefix
 // on the trimmed line, so trailing detail (a reason, a count) does not
-// matter.
+// matter, and by suffix for a line that starts with variable detail.
 type stageMarker struct {
 	prefix string
+	suffix string
+	reason string // the Message of a skipped stage's event
 	stage  string // the stage the line is about; empty for a line about every open stage
 	status string
 	closes string // a stage the line also finishes when it is still open
@@ -42,6 +61,10 @@ var stageMarkers = []stageMarker{
 	{prefix: "Building docker image with Railpack.", stage: StageBuild, status: StageStarted},
 	{prefix: "Pulling & building required images.", stage: StageBuild, status: StageStarted},
 	{prefix: "Building docker image completed.", stage: StageBuild, status: StageDone},
+	// "Image found (<image>) with the same Git Commit SHA. Build step
+	// skipped." and its "No build configuration changed & image found"
+	// variant: the image is reused and the job goes to the rolling update.
+	{suffix: "Build step skipped.", stage: StageBuild, status: StageSkipped, reason: "cached image"},
 	{prefix: "Rolling update started.", stage: StageRollingUpdate, status: StageStarted},
 	// A container that came up without a health check is accepted when the
 	// rolling update completes; Coolify writes no healthy line for it.
@@ -70,7 +93,7 @@ type stageTracker struct {
 func (t *stageTracker) observe(line string) []Event {
 	line = strings.TrimSpace(line)
 	for _, marker := range stageMarkers {
-		if !strings.HasPrefix(line, marker.prefix) {
+		if !strings.HasPrefix(line, marker.prefix) || !strings.HasSuffix(line, marker.suffix) {
 			continue
 		}
 		if marker.stage == "" {
@@ -80,7 +103,12 @@ func (t *stageTracker) observe(line string) []Event {
 		if marker.closes != "" {
 			events = append(events, t.transition(marker.closes, StageDone, false)...)
 		}
-		events = append(events, t.transition(marker.stage, marker.status, true)...)
+		for _, event := range t.transition(marker.stage, marker.status, true) {
+			if event.Status == StageSkipped {
+				event.Message = marker.reason
+			}
+			events = append(events, event)
+		}
 		if marker.instant {
 			events = append(events, t.transition(marker.stage, StageDone, false)...)
 		}
@@ -92,14 +120,22 @@ func (t *stageTracker) observe(line string) []Event {
 // transition moves stage to status and returns the events that describes.
 // An end (done or failed) for a stage that never started implies the start
 // when implied is set, so the stage is still shown; closing another stage
-// that never started implies nothing.
+// that never started implies nothing. Only a stage not reached yet can be
+// skipped, and a skipped stage has ended.
 func (t *stageTracker) transition(stage, status string, implied bool) []Event {
 	if t.state == nil {
 		t.state = map[string]string{}
 	}
 	current := t.state[stage]
-	if current == StageDone || current == StageFailed {
+	if current == StageDone || current == StageFailed || current == StageSkipped {
 		return nil
+	}
+	if status == StageSkipped {
+		if current != "" {
+			return nil
+		}
+		t.state[stage] = StageSkipped
+		return []Event{{Type: "stage", Stage: stage, Status: StageSkipped}}
 	}
 	if status == StageStarted {
 		if current == StageStarted {

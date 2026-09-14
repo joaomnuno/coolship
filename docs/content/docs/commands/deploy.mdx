@@ -9,23 +9,33 @@ coolship deploy [target] [flags]
 
 `deploy` submits one deployment of the linked application and, by default, waits for it to finish. It does not upload your worktree or push local commits; Coolify deploys from its configured source and branch. [Deployments](/docs/concepts/deployments) explains the model.
 
-In a terminal, the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, container, cleanup — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. The build log stays collapsed at normal verbosity; it is printed in full if the deployment fails. With `--verbose` or `--debug` no checklist is drawn: the plain stage and status lines print instead, with each finished stage's duration and the time since the deployment was queued, and the build log streams unless `--no-logs` or the `build_logs` preference collapses it.
+In a terminal, the deployment is a checklist: the target, then the deployment and its stages — build, rolling update, and the container and cleanup that run inside the rolling update — ticking as Coolify's build log markers arrive, with a spinner and elapsed time on whatever is open. A finished deployment ends in one summary line and the URL; the deployment's UUID is in `--verbose` output and in `coolship deployments`. The build log stays collapsed at normal verbosity; it is printed in full if the deployment fails. With `--verbose` or `--debug` no checklist is drawn: the plain stage and status lines print instead, with each finished stage's duration and the time since the deployment was queued, and the build log streams unless `--no-logs` or the `build_logs` preference collapses it.
 
 ```text
 $ coolship deploy
 → coolship-example
 → production
 
-✓ Deployed                      0:52
+✓ Deployed coolship-example to production in 0:52
   ✓ build                       0:41
   ✓ rolling update              0:08
-  ✓ container                   0:06
-  ✓ cleanup                     0:00
-Deployment: 03dusayi
-Application: coolship-example
-Status: finished
+    ✓ container                 0:06
+    ✓ cleanup                   0:00
 https://coolship.example.com
 ```
+
+When Coolify already holds an image for the same commit and nothing that affects the build changed, it skips the build and the checklist says so. Only that line marks a stage skipped; a stage with no marker in the log, for instance because the token may not read the build log, stays dim and unmarked:
+
+```text
+✓ Deployed coolship-example to production in 0:23
+  – build                       skipped (cached image)
+  ✓ rolling update              0:21
+    ✓ container                 0:19
+    ✓ cleanup                   0:00
+https://coolship.example.com
+```
+
+Rows are cut to the terminal's width, so a narrow terminal never wraps one.
 
 Piped, in CI, or with `--format json`, the same run prints status lines, the build log, and one line per stage transition on stderr as they arrive:
 
@@ -57,7 +67,9 @@ Status: finished
 https://coolship.example.com
 ```
 
-Progress goes to stderr; the final result goes to stdout. The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log gathered so far after the checklist, then names its page on stderr, where the retry lives.
+A skipped build prints `Stage build: skipped` in place of the started and done lines, and the stage event's status is `skipped`.
+
+Progress goes to stderr; the final result goes to stdout. With `--no-wait` the result names the queued deployment once, on stdout, with no status line on stderr. The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log gathered so far after the checklist, then names its page on stderr, where the retry lives.
 
 ## Flags
 

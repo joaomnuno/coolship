@@ -268,14 +268,11 @@ $ coolship deploy
 → coolship-example
 → production
 
-✓ Deployed                      0:52
+✓ Deployed coolship-example to production in 0:52
   ✓ build                       0:41
   ✓ rolling update              0:08
-  ✓ container                   0:06
-  ✓ cleanup                     0:00
-Deployment: 03dusayi
-Application: coolship-example
-Status: finished
+    ✓ container                 0:06
+    ✓ cleanup                   0:00
 https://coolship.example.com
 ```
 

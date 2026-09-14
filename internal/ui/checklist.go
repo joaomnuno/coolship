@@ -10,6 +10,8 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"golang.org/x/term"
 
 	"github.com/joaomnuno/coolship/internal/service"
 )
@@ -109,7 +111,7 @@ func (c *Checklist) Event(event service.Event) error {
 		c.program.Send(deploymentMsg{status: event.Status, at: now})
 	case "stage":
 		if c.program != nil {
-			c.program.Send(stageMsg{stage: event.Stage, status: event.Status, at: now})
+			c.program.Send(stageMsg{stage: event.Stage, status: event.Status, note: event.Message, at: now})
 		}
 	case "build":
 		c.build.WriteString(event.Logs)
@@ -135,7 +137,8 @@ func (c *Checklist) Event(event service.Event) error {
 // timing is the duration a plain line carries above normal verbosity, in
 // the checklist's m:ss form: a finished stage's own duration (0:00 when it
 // never reported starting, as the checklist shows it), and the time since
-// the first event on a deployment status line. Other lines carry nothing.
+// the first event on a deployment status line. Other lines, a skipped
+// stage's included, carry nothing.
 func (c *Checklist) timing(event service.Event) string {
 	now := c.clock()
 	if c.started.IsZero() {
@@ -152,9 +155,9 @@ func (c *Checklist) timing(event service.Event) string {
 		if !ok {
 			started = now
 		}
-		return " (" + elapsed(now.Sub(started)) + ")"
+		return " (" + FormatElapsed(now.Sub(started)) + ")"
 	case event.Type == "deployment" && event.Message == "" && event.Status != "":
-		return " (" + elapsed(now.Sub(c.started)) + ")"
+		return " (" + FormatElapsed(now.Sub(c.started)) + ")"
 	}
 	return ""
 }
@@ -182,6 +185,11 @@ func (c *Checklist) header(target *service.TargetInfo) error {
 
 func (c *Checklist) start(status string, now time.Time) {
 	model := newChecklistModel(c.style, status, now, c.clock)
+	// The first frame is already cut to the terminal; Bubble Tea's size
+	// message keeps it cut after a resize.
+	if width, _, err := term.GetSize(int(c.terminal.Fd())); err == nil {
+		model.width = width
+	}
 	c.program = tea.NewProgram(model,
 		tea.WithOutput(quietTerminal{c.terminal}),
 		tea.WithInput(nil),
@@ -207,12 +215,62 @@ func (c *Checklist) Close(outcome Outcome) error {
 		}
 		return nil
 	}
-	c.program.Send(endMsg{outcome: outcome, at: c.clock()})
+	return c.close(outcome, "")
+}
+
+// Finish ends observation of a deployment that finished and prints its
+// result. When the checklist was drawn, the result is already on screen, so
+// its top line becomes one summary, "✓ Deployed web to production in 0:23",
+// and the URL follows on stdout as the last line; the Deployment,
+// Application, and Status lines would only repeat it. Otherwise (piped,
+// JSON, above normal verbosity) the renderer prints the result as always.
+func (c *Checklist) Finish(result service.DeployResult) error {
+	if c.program == nil {
+		if err := c.Close(OutcomeSucceeded); err != nil {
+			return err
+		}
+		return c.renderer.Deploy(result)
+	}
+	if err := c.close(OutcomeSucceeded, deployedSubject(result)); err != nil {
+		return err
+	}
+	if result.URL == "" {
+		return nil
+	}
+	look := plain
+	if result.URLKind == "application" {
+		look = green
+	}
+	_, err := fmt.Fprintln(c.streams.Out, c.streams.outPalette().apply(look, singleLine(result.URL)))
+	return err
+}
+
+// close stops the running program and prints what replaces it; subject,
+// when set, names what was deployed on the summary line of a success.
+func (c *Checklist) close(outcome Outcome, subject string) error {
+	c.program.Send(endMsg{outcome: outcome, subject: subject, at: c.clock()})
 	c.program.Quit()
 	<-c.done
 	c.program, c.done = nil, nil
 	_, err := io.WriteString(c.streams.Err, c.closing(outcome))
 	return err
+}
+
+// deployedSubject is what the summary line says was deployed where: the
+// application, or the pull request of it for a preview, and the environment.
+// It is empty when the result names no application.
+func deployedSubject(result service.DeployResult) string {
+	subject := singleLine(result.Target.Application)
+	if subject == "" {
+		return ""
+	}
+	if result.PullRequest > 0 {
+		subject = fmt.Sprintf("pull request #%d of %s", result.PullRequest, subject)
+	}
+	if environment := singleLine(result.Target.Environment); environment != "" {
+		subject += " to " + environment
+	}
+	return subject
 }
 
 // closing is what Close prints in place of the live view: the final
@@ -245,10 +303,12 @@ type (
 	}
 	stageMsg struct {
 		stage, status string
+		note          string // why a stage was skipped
 		at            time.Time
 	}
 	endMsg struct {
 		outcome Outcome
+		subject string
 		at      time.Time
 	}
 	// printMsg is a line to print above the view, where it stays.
@@ -266,13 +326,16 @@ type checklistModel struct {
 	status  string
 	ended   bool
 	failed  bool
-	stopped bool // ended without the server's verdict
+	stopped bool   // ended without the server's verdict
+	subject string // what the summary line of a success names
+	width   int    // the terminal's columns; 0 when unknown
 	stages  []stageRow
 }
 
 type stageRow struct {
 	name    string
-	status  string // empty until reached, then started, done, or failed
+	status  string // empty until reached, then started, done, failed, or skipped
+	note    string // why it was skipped, when Coolify said
 	started time.Time
 	ended   time.Time
 }
@@ -294,6 +357,8 @@ func (m checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
 	case printMsg:
 		return m, tea.Println(string(msg))
 	case deploymentMsg:
@@ -304,6 +369,7 @@ func (m checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stage(msg)
 	case endMsg:
 		m.now = msg.at
+		m.subject = msg.subject
 		m.end(msg.outcome, msg.at)
 	}
 	return m, nil
@@ -327,6 +393,8 @@ func (m *checklistModel) stage(msg stageMsg) {
 			row.started = msg.at
 		}
 		row.status, row.ended = msg.status, msg.at
+	case service.StageSkipped:
+		row.status, row.note = msg.status, msg.note
 	}
 }
 
@@ -338,24 +406,27 @@ const stageStopped = "stopped"
 // deployment did, since no marker will arrive for it any more. Observation
 // that stopped before the server's verdict (a timeout, an interrupt, a lost
 // connection) is not the deployment failing, and its open stages are left
-// as they were.
+// as they were. A stage with no marker at all stays unmarked even on
+// success: only Coolify's own skip line says a stage did not run, and a
+// build log the token may not read carries no markers for stages that ran.
 func (m *checklistModel) end(outcome Outcome, at time.Time) {
 	m.ended = true
 	m.failed = outcome != OutcomeSucceeded
 	m.stopped = outcome == OutcomeStopped
 	m.stages = slices.Clone(m.stages)
 	for index := range m.stages {
-		if m.stages[index].status != service.StageStarted {
+		row := &m.stages[index]
+		if row.status != service.StageStarted {
 			continue
 		}
-		m.stages[index].ended = at
+		row.ended = at
 		switch {
 		case m.stopped:
-			m.stages[index].status = stageStopped
+			row.status = stageStopped
 		case m.failed:
-			m.stages[index].status = service.StageFailed
+			row.status = service.StageFailed
 		default:
-			m.stages[index].status = service.StageDone
+			row.status = service.StageDone
 		}
 	}
 }
@@ -369,13 +440,16 @@ func (m checklistModel) View() tea.View {
 }
 
 // labelWidth is the column the elapsed times align on, counted from the
-// deployment line's glyph; stage names are indented two columns further.
+// deployment line's glyph; stage names are indented two columns further,
+// and a child stage's two more.
 const labelWidth = 30
 
 // render draws the checklist with the stream's palette: a spinner on what is
-// open, ✓ and ✗ on what ended, and the stages not reached yet dim.
+// open, ✓ and ✗ on what ended, – on what was skipped, and the stages not
+// reached yet dim. Every line is cut to the terminal's width, so each row is
+// one terminal line and the redraw moves over exactly the rows it drew.
 func (m checklistModel) render() string {
-	var out strings.Builder
+	lines := make([]string, 0, len(m.stages)+1)
 	glyph, label, look := m.glyph(), "", plain
 	switch {
 	case m.ended && m.stopped:
@@ -393,23 +467,55 @@ func (m checklistModel) render() string {
 	default:
 		label = "Deployment " + singleLine(m.status)
 	}
-	out.WriteString(glyph + " " + m.style.apply(look, label) + pad(label, labelWidth) + elapsed(m.now.Sub(m.started)))
+	total := FormatElapsed(m.now.Sub(m.started))
+	if m.ended && !m.failed && m.subject != "" {
+		lines = append(lines, glyph+" "+m.style.apply(look, label+" "+m.subject+" in "+total))
+	} else {
+		lines = append(lines, glyph+" "+m.style.apply(look, label)+pad(label, labelWidth)+total)
+	}
 	for _, row := range m.stages {
-		out.WriteString("\n  ")
+		indent, width := "  ", labelWidth-2
+		if parent := service.ParentStage(row.name); parent != "" && m.reached(parent) {
+			indent, width = "    ", labelWidth-4
+		}
+		var line string
 		switch row.status {
 		case service.StageStarted:
-			out.WriteString(m.glyph() + " " + row.name + pad(row.name, labelWidth-2) + elapsed(m.now.Sub(row.started)))
+			line = m.glyph() + " " + row.name + pad(row.name, width) + FormatElapsed(m.now.Sub(row.started))
 		case service.StageDone:
-			out.WriteString(m.style.apply(green, "✓") + " " + row.name + pad(row.name, labelWidth-2) + elapsed(row.ended.Sub(row.started)))
+			line = m.style.apply(green, "✓") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
 		case service.StageFailed:
-			out.WriteString(m.style.apply(red, "✗") + " " + row.name + pad(row.name, labelWidth-2) + elapsed(row.ended.Sub(row.started)))
+			line = m.style.apply(red, "✗") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
 		case stageStopped:
-			out.WriteString("… " + row.name + pad(row.name, labelWidth-2) + elapsed(row.ended.Sub(row.started)))
+			line = "… " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
+		case service.StageSkipped:
+			text := "– " + row.name + pad(row.name, width) + "skipped"
+			if row.note != "" {
+				text += " (" + singleLine(row.note) + ")"
+			}
+			line = m.style.apply(dim, text)
 		default:
-			out.WriteString(m.style.apply(dim, "  "+row.name))
+			line = m.style.apply(dim, "  "+row.name)
+		}
+		lines = append(lines, indent+line)
+	}
+	if m.width > 0 {
+		for index, line := range lines {
+			lines[index] = ansi.Truncate(line, m.width, "…")
 		}
 	}
-	return out.String()
+	return strings.Join(lines, "\n")
+}
+
+// reached reports whether the named stage has run or is running, which is
+// when its children are drawn under it.
+func (m checklistModel) reached(name string) bool {
+	index := slices.IndexFunc(m.stages, func(row stageRow) bool { return row.name == name })
+	if index < 0 {
+		return false
+	}
+	status := m.stages[index].status
+	return status != "" && status != service.StageSkipped
 }
 
 // glyph is the current spinner frame, one cell wide.
@@ -420,15 +526,4 @@ func (m checklistModel) glyph() string {
 // pad returns the spaces that bring label to width, at least one.
 func pad(label string, width int) string {
 	return strings.Repeat(" ", max(width-len([]rune(label)), 1))
-}
-
-// elapsed formats a duration as m:ss, or h:mm:ss from an hour on, whole
-// seconds only.
-func elapsed(d time.Duration) string {
-	d = max(d, 0).Truncate(time.Second)
-	hours, minutes, seconds := int(d/time.Hour), int(d/time.Minute)%60, int(d/time.Second)%60
-	if hours > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
-	}
-	return fmt.Sprintf("%d:%02d", minutes, seconds)
 }

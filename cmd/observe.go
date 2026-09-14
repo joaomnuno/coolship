@@ -44,12 +44,19 @@ func buildLogs(flags logFlags, preference *bool, verbosity ui.Verbosity) (bool, 
 
 // observeDeployment runs one workflow that queues and observes a deployment
 // (deploy, preview, start, restart) and renders its result the way every one
-// of them does. In a terminal the events draw the stage checklist; off one,
-// or with --format json, or with --no-wait, where there is nothing to
-// observe, they print plainly as before.
+// of them does. In a terminal the events draw the stage checklist and a
+// finished deployment ends in one summary line and its URL; off one, or with
+// --format json, they print plainly as before. With --no-wait there is
+// nothing to observe: the result names the queued deployment, so its queued
+// status line is not printed on stderr as well.
 func observeDeployment(streams ui.Streams, options *commandOptions, noWait, logs bool, run func(service.Emitter) (service.DeployResult, error)) error {
 	renderer := ui.NewRenderer(streams, options.format)
-	emit := renderer.DeploymentEvent
+	emit := func(event service.Event) error {
+		if event.Type == "deployment" && event.Message == "" {
+			return nil
+		}
+		return renderer.DeploymentEvent(event)
+	}
 	var checklist *ui.Checklist
 	if !noWait {
 		checklist = ui.NewChecklist(streams, options.format, logs)
@@ -61,12 +68,17 @@ func observeDeployment(streams ui.Streams, options *commandOptions, noWait, logs
 			// The failure is what the caller must learn; a lost write cannot displace it.
 			_ = checklist.Close(deploymentOutcome(result.Status))
 		}
-		return deploymentFailure(renderer, options.format, result, err)
+		err = deploymentFailure(renderer, options.format, result, err)
+		// A deployment the server failed has a next step; an observation
+		// that only stopped (a timeout, Ctrl-C) does not. Hint prints only
+		// for human output on interactive streams.
+		if result.DeploymentUUID != "" && deploymentOutcome(result.Status) == ui.OutcomeFailed {
+			ui.Hint(streams, options.format, ui.FailedDeployHint(options.Target))
+		}
+		return err
 	}
 	if checklist != nil {
-		if err := checklist.Close(ui.OutcomeSucceeded); err != nil {
-			return err
-		}
+		return checklist.Finish(result)
 	}
 	return renderer.Deploy(result)
 }
