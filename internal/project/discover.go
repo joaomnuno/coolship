@@ -101,7 +101,7 @@ func load(path, gitRoot, cwd string, allowMissing bool) (Project, error) {
 		return value, nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return Project{}, fmt.Errorf("%w: %s", ErrNotLinked, actual)
+		return Project{}, &notLinkedError{path: actual}
 	}
 	if err != nil {
 		return Project{}, fmt.Errorf("read project configuration: %w", err)

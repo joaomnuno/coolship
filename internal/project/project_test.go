@@ -348,13 +348,14 @@ func TestNamedTargetSelection(t *testing.T) {
 		{"", "", "", "no target's root contains"},
 		{"tools", "", "", "no target's root contains"},
 		{"", "web", "web", ""},
-		{"", "nope", "", `no target named "nope"; available: api, docs, web`},
+		{"", "nope", "", `no target named "nope" in coolship.toml; available: api, docs, web`},
+		{"", "wbe", "", `no target named "wbe" in coolship.toml (did you mean "web"?); available: api, docs, web`},
 	} {
 		t.Run(test.cwd+"/"+test.target, func(t *testing.T) {
 			value := namedProject(t, test.cwd)
 			target, err := project.Select(value, test.target, "")
 			if test.wantErr != "" {
-				if !errors.Is(err, config.ErrInvalid) || !strings.Contains(err.Error(), test.wantErr) {
+				if !errors.Is(err, project.ErrTargetSelection) || errors.Is(err, config.ErrInvalid) || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("err=%v, want %q", err, test.wantErr)
 				}
 				return
@@ -366,7 +367,8 @@ func TestNamedTargetSelection(t *testing.T) {
 	}
 	single := namedProject(t, "")
 	single.Config = config.Config{Version: 1, Project: config.Binding{Project: "P", Environment: "E", Application: "A", Root: "."}}
-	if _, err := project.Select(single, "web", ""); !errors.Is(err, config.ErrInvalid) {
+	if _, err := project.Select(single, "web", ""); !errors.Is(err, project.ErrTargetSelection) ||
+		err.Error() != `coolship.toml has one target, [project], so target "web" does not apply; run without --target or a target argument` {
 		t.Fatalf("target on single form: %v", err)
 	}
 	if target, err := project.Select(single, "default", ""); err != nil || target.Key != "default" {

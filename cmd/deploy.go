@@ -16,20 +16,20 @@ func newDeployCommand(app Application, options *commandOptions, streams ui.Strea
 	command := &cobra.Command{
 		Use:   "deploy [target]",
 		Short: "Deploy the linked application using its configured Coolify source",
-		Long: `Deploy the linked application using the source and branch already configured in Coolify.
-This command does not upload your worktree or push local commits.
+		Long: `Deploy the linked application using the source and branch already configured
+in Coolify. This command does not upload your worktree or push local commits.
 
-By default, wait for the submitted deployment to finish. Interrupting observation
-stops local waiting; the remote deployment continues. Use --no-wait to return
-the queued deployment UUID immediately.
+By default, wait for the submitted deployment to finish. Interrupting
+observation stops local waiting; the remote deployment continues. Use
+--no-wait to return the queued deployment UUID immediately.
 
 In a terminal, the deployment is shown as a checklist of its stages (build,
 rolling update, container, cleanup) with the build log collapsed; the log is
 printed in full when the deployment fails. --logs streams it live instead,
 --no-logs keeps it collapsed; without either, the build_logs preference
 decides, and without that the verbosity: collapsed when normal, streamed with
---verbose or --debug. Piped output and
---format json print every status line and the log as they always did.`,
+--verbose or --debug. Piped output and --format json print every status line
+and the log as they always did.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deploy.Timeout <= 0 {

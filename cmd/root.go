@@ -11,8 +11,10 @@ import (
 
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
+	"github.com/joaomnuno/coolship/internal/suggest"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // declaredOrder maps a command to its children in the order this tree
@@ -104,19 +106,16 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	// A file that could not be read left the zero value: no preference.
 	prefs := config.preferences.Preferences
 	root := &cobra.Command{
-		Use:           "coolship",
-		Short:         "Project-local deployment workflows for Coolify",
-		Long:          "Link this repository to a Coolify application — an existing one with link, or a new one with init — then inspect, deploy, stop, start, open, and read the logs of that application.",
+		Use:   "coolship",
+		Short: "Project-local deployment workflows for Coolify",
+		Long: `Link this repository to a Coolify application (an existing one with link, or
+a new one with init), then inspect, deploy, stop, start, open, and read the
+logs of that application.`,
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		Args: func(command *cobra.Command, args []string) error {
-			if len(args) != 0 {
-				return inputError(fmt.Errorf("unknown command %q; run 'coolship help' for available commands", args[0]))
-			}
-			return nil
-		},
-		RunE: func(command *cobra.Command, _ []string) error { return command.Help() },
+		Args:          unknownSubcommand,
+		RunE:          func(command *cobra.Command, _ []string) error { return command.Help() },
 		PersistentPreRunE: func(command *cobra.Command, _ []string) error {
 			if options.format != "human" && options.format != "json" {
 				return inputError(fmt.Errorf("unsupported format %q; use human or json", options.format))
@@ -211,7 +210,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 				return inputError(err)
 			}
 			if len(remaining) != 0 {
-				return inputError(fmt.Errorf("unknown help topic %q", remaining[0]))
+				return inputError(fmt.Errorf("unknown help topic %q%s", remaining[0], didYouMean(command, remaining[0])))
 			}
 			command.InitDefaultHelpFlag()
 			command.InitDefaultVersionFlag()
@@ -300,7 +299,13 @@ func unsortedUsageFunc(order declaredOrder) func(*cobra.Command) error {
 			fmt.Fprintf(w, "\n\nFlags:\n%s", strings.TrimRightFunc(c.LocalFlags().FlagUsages(), unicode.IsSpace))
 		}
 		if c.HasAvailableInheritedFlags() {
-			fmt.Fprintf(w, "\n\nGlobal Flags:\n%s", strings.TrimRightFunc(c.InheritedFlags().FlagUsages(), unicode.IsSpace))
+			// Like gh, a command's own page keeps the global flags short:
+			// the path overrides almost nobody passes stay on the root page.
+			inherited, hidden := subcommandGlobalFlags(c.InheritedFlags())
+			fmt.Fprintf(w, "\n\nGlobal Flags:\n%s", strings.TrimRightFunc(inherited.FlagUsages(), unicode.IsSpace))
+			if hidden {
+				fmt.Fprintf(w, "\n\nRun %q for every global flag, including --%s.", c.Root().CommandPath()+" --help", strings.Join(rootOnlyFlags, ", --"))
+			}
 		}
 		if c.HasHelpSubCommands() {
 			fmt.Fprint(w, "\n\nAdditional help topics:")
@@ -316,6 +321,60 @@ func unsortedUsageFunc(order declaredOrder) func(*cobra.Command) error {
 		fmt.Fprintln(w)
 		return nil
 	}
+}
+
+// rootOnlyFlags are the global flags listed only in the root help: path
+// overrides a command rarely needs. Every command still accepts them.
+var rootOnlyFlags = []string{"cwd", "config", "coolify-config"}
+
+// subcommandGlobalFlags copies flags without the root-only ones, reporting
+// whether any was left out.
+func subcommandGlobalFlags(flags *pflag.FlagSet) (*pflag.FlagSet, bool) {
+	kept := pflag.NewFlagSet("global", pflag.ContinueOnError)
+	hidden := false
+	flags.VisitAll(func(flag *pflag.Flag) {
+		if slices.Contains(rootOnlyFlags, flag.Name) {
+			hidden = hidden || !flag.Hidden
+			return
+		}
+		kept.AddFlag(flag)
+	})
+	return kept, hidden
+}
+
+// unknownSubcommand rejects a positional argument on a command that only
+// groups others (root, env), naming the closest subcommand the way Cobra's
+// own legacy check would have before this tree took over argument errors.
+func unknownSubcommand(command *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	helpPath := "coolship help"
+	if command.HasParent() {
+		helpPath = "coolship help " + strings.TrimPrefix(command.CommandPath(), command.Root().CommandPath()+" ")
+	}
+	subject := fmt.Sprintf("%q", args[0])
+	if command.HasParent() {
+		subject += fmt.Sprintf(" for %q", command.CommandPath())
+	}
+	return inputError(fmt.Errorf("unknown command %s%s; run '%s' for available commands", subject, didYouMean(command, args[0]), helpPath))
+}
+
+// didYouMean returns ` (did you mean "status"?)` for the one available
+// subcommand of command closest to typed, or "" when none is close. Cobra's
+// own SuggestionsFor lists every name within two edits, which offers both
+// start and status for "stauts"; the single best match reads better.
+// Reading Commands() here may sort the children, which help never relies on
+// (see declaredOrder), and the names are compared, not listed, so their
+// order does not matter.
+func didYouMean(command *cobra.Command, typed string) string {
+	var names []string
+	for _, child := range command.Commands() {
+		if child.IsAvailableCommand() {
+			names = append(names, child.Name())
+		}
+	}
+	return suggest.DidYouMean(typed, names)
 }
 
 // rpad right-pads s with spaces to padding width, matching Cobra's own
@@ -409,9 +468,9 @@ func ownCompletionCommand(root *cobra.Command, order declaredOrder) *cobra.Comma
 	}
 	sortedShells := slices.Clone(shells)
 	slices.Sort(sortedShells) // the error message lists shells alphabetically, regardless of help order
-	completion.Args = func(_ *cobra.Command, args []string) error {
+	completion.Args = func(command *cobra.Command, args []string) error {
 		if len(args) != 0 {
-			return inputError(fmt.Errorf("unknown shell %q; use one of %s", args[0], strings.Join(sortedShells, ", ")))
+			return inputError(fmt.Errorf("unknown shell %q%s; use one of %s", args[0], didYouMean(command, args[0]), strings.Join(sortedShells, ", ")))
 		}
 		return nil
 	}

@@ -36,7 +36,13 @@ The full UUID is in --format json and can be passed to cancel.`,
 			if err != nil {
 				return err
 			}
-			return ui.NewRenderer(streams, options.format).Deployments(result)
+			if err := ui.NewRenderer(streams, options.format).Deployments(result); err != nil {
+				return err
+			}
+			if len(result.Deployments) == 0 {
+				ui.Hint(streams, options.format, "No deployments yet. "+ui.NextDeploy(options.Target))
+			}
+			return nil
 		},
 	}
 	command.Flags().IntVarP(&deployments.Limit, "limit", "n", 10, "Number of deployments to list")
