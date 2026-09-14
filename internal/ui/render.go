@@ -718,6 +718,9 @@ func describePreferences(report *service.PreferencesReport) string {
 	if report.Color != "" {
 		set = append(set, "color "+report.Color)
 	}
+	if report.UpdateCheck != nil {
+		set = append(set, "update check "+map[bool]string{true: "on", false: "off"}[*report.UpdateCheck])
+	}
 	if len(set) == 0 {
 		return report.Path + " (no keys set)"
 	}

@@ -64,6 +64,12 @@ func (a *App) backend(credentials auth.Credentials) (Backend, error) {
 }
 
 func (a *App) prepare(ctx context.Context, options Options) (session, error) {
+	return a.prepareAlongside(ctx, options, nil)
+}
+
+// prepareAlongside is prepare with a read started beside the application
+// read, as soon as the application's UUID is known; see resolver.Alongside.
+func (a *App) prepareAlongside(ctx context.Context, options Options, alongside func(Backend, string)) (session, error) {
 	if err := ctx.Err(); err != nil {
 		return session{}, err
 	}
@@ -83,7 +89,11 @@ func (a *App) prepare(ctx context.Context, options Options) (session, error) {
 	if err != nil {
 		return session{}, err
 	}
-	binding, err := resolver.Resolve(ctx, backend, target)
+	var started resolver.Alongside
+	if alongside != nil {
+		started = func(uuid string) { alongside(backend, uuid) }
+	}
+	binding, err := resolver.ResolveAlongside(ctx, backend, target, started)
 	if err != nil {
 		return session{}, resolutionError(err)
 	}
@@ -116,19 +126,42 @@ func targetInfo(p project.Context) TargetInfo {
 }
 
 func (a *App) Status(ctx context.Context, options Options) (StatusResult, error) {
-	s, err := a.prepare(ctx, options)
+	// The history needs only the application's UUID, so it is read beside
+	// the application rather than after it. A failed resolution cancels it
+	// and discards whatever it found.
+	historyCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type history struct {
+		last    *DeploymentSummary
+		warning string
+		err     error
+	}
+	read := make(chan history, 1)
+	started := false
+	s, err := a.prepareAlongside(ctx, options, func(backend Backend, uuid string) {
+		started = true
+		go func() {
+			last, warning, err := lastDeployment(historyCtx, backend, uuid)
+			read <- history{last, warning, err}
+		}()
+	})
 	if err != nil {
 		return StatusResult{}, err
 	}
 	result := StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
 		URL: s.project.Application.FQDN, Warnings: s.warnings}
-	last, warning, err := a.lastDeployment(ctx, s)
-	if err != nil {
-		return StatusResult{}, err
+	var found history
+	if started {
+		found = <-read
+	} else {
+		found.last, found.warning, found.err = lastDeployment(ctx, s.backend, s.project.Application.UUID)
 	}
-	result.LastDeployment = last
-	if warning != "" {
-		result.Warnings = append(result.Warnings, warning)
+	if found.err != nil {
+		return StatusResult{}, found.err
+	}
+	result.LastDeployment = found.last
+	if found.warning != "" {
+		result.Warnings = append(result.Warnings, found.warning)
 	}
 	return result, nil
 }

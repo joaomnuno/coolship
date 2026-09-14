@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/models"
@@ -17,12 +20,22 @@ type fakeCatalog struct {
 	environments map[string][]models.Environment
 	details      map[string]models.Environment
 	applications map[string]models.Application
+	mu           sync.Mutex
 	calls        []string
 	failAt       string
 	err          error
 }
 
+// notFoundError is how the client reports a 404, seen through the same
+// interface the resolver checks.
+type notFoundError struct{}
+
+func (notFoundError) Error() string       { return "HTTP 404 Not Found" }
+func (notFoundError) HTTPStatusCode() int { return 404 }
+
 func (f *fakeCatalog) record(ctx context.Context, call string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, call)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -33,9 +46,32 @@ func (f *fakeCatalog) record(ctx context.Context, call string) error {
 	return nil
 }
 
+// recorded is the calls made so far, sorted: reads that run concurrently
+// have no order.
+func (f *fakeCatalog) recorded() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Sorted(slices.Values(f.calls))
+}
+
 func (f *fakeCatalog) ListProjects(ctx context.Context) ([]models.Project, error) {
 	err := f.record(ctx, "projects")
 	return f.projects, err
+}
+
+// GetProject answers like Coolify: the project with its environments, or a
+// 404 for a UUID the instance does not hold.
+func (f *fakeCatalog) GetProject(ctx context.Context, uuid string) (models.Project, error) {
+	if err := f.record(ctx, "project:"+uuid); err != nil {
+		return models.Project{}, err
+	}
+	for _, value := range f.projects {
+		if value.UUID == uuid {
+			value.Environments = f.environments[uuid]
+			return value, nil
+		}
+	}
+	return models.Project{}, notFoundError{}
 }
 
 func (f *fakeCatalog) ListEnvironments(ctx context.Context, uuid string) ([]models.Environment, error) {
@@ -44,13 +80,25 @@ func (f *fakeCatalog) ListEnvironments(ctx context.Context, uuid string) ([]mode
 }
 
 func (f *fakeCatalog) GetEnvironment(ctx context.Context, parent, uuid string) (models.Environment, error) {
-	err := f.record(ctx, "environment:"+parent+"/"+uuid)
-	return f.details[parent+"/"+uuid], err
+	if err := f.record(ctx, "environment:"+parent+"/"+uuid); err != nil {
+		return models.Environment{}, err
+	}
+	value, ok := f.details[parent+"/"+uuid]
+	if !ok {
+		return models.Environment{}, notFoundError{}
+	}
+	return value, nil
 }
 
 func (f *fakeCatalog) GetApplication(ctx context.Context, uuid string) (models.Application, error) {
-	err := f.record(ctx, "application:"+uuid)
-	return f.applications[uuid], err
+	if err := f.record(ctx, "application:"+uuid); err != nil {
+		return models.Application{}, err
+	}
+	value, ok := f.applications[uuid]
+	if !ok {
+		return models.Application{}, notFoundError{}
+	}
+	return value, nil
 }
 
 func catalogFixture() (*fakeCatalog, project.Target) {
@@ -182,30 +230,184 @@ func TestMissingPinsNeverFallbackToMatchingNames(t *testing.T) {
 	}
 }
 
+// A pinned application is read as soon as resolution starts, concurrently
+// with its parents, so an out-of-scope pin may be read; its answer is never
+// used, because membership in the selected environment is checked first.
 func TestPinsMustBelongToSelectedParents(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		change func(*project.Target)
+		name     string
+		resource string
+		change   func(*project.Target)
 	}{
-		{"environment in another project", func(target *project.Target) { target.Binding.EnvironmentUUID = "e3" }},
-		{"application in another environment", func(target *project.Target) { target.Binding.ApplicationUUID = "a2" }},
-		{"application in another project", func(target *project.Target) { target.Binding.ApplicationUUID = "a3" }},
+		{"environment in another project", "environment", func(target *project.Target) { target.Binding.EnvironmentUUID = "e3" }},
+		{"application in another environment", "application", func(target *project.Target) { target.Binding.ApplicationUUID = "a2" }},
+		{"application in another project", "application", func(target *project.Target) { target.Binding.ApplicationUUID = "a3" }},
+		{"application in another project, all pinned", "application", func(target *project.Target) {
+			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e1", "a3"
+		}},
+		{"environment in another project, all pinned", "environment", func(target *project.Target) {
+			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e3", "a3"
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			catalog, target := catalogFixture()
 			test.change(&target)
-			_, err := Resolve(context.Background(), catalog, target)
+			result, err := Resolve(context.Background(), catalog, target)
 			var missing *MissingError
-			if !errors.As(err, &missing) {
-				t.Fatalf("out-of-scope pin error = %v", err)
-			}
-			for _, call := range catalog.calls {
-				if strings.HasPrefix(call, "application:") {
-					t.Errorf("inspected an out-of-scope application: %v", catalog.calls)
-				}
+			if !errors.As(err, &missing) || missing.Resource != test.resource || result.Application.UUID != "" {
+				t.Fatalf("out-of-scope pin = %#v, error = %v", result, err)
 			}
 		})
 	}
+}
+
+func TestFullyPinnedBindingReadsDirectlyAndConcurrently(t *testing.T) {
+	catalog, target := catalogFixture()
+	target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e1", "a1"
+	// Each read waits until all three have started; sequential reads would
+	// never get there and time out.
+	gate := &barrier{Catalog: catalog, want: 3, arrived: make(chan struct{}, 3)}
+	var alongside []string
+	result, err := ResolveAlongside(context.Background(), gate, target, func(uuid string) { alongside = append(alongside, uuid) })
+	if err != nil || result.Project.Name != "Personal" || result.Environment.UUID != "e1" || result.Application.Status != "running:healthy" {
+		t.Fatalf("binding = %#v, error = %v", result, err)
+	}
+	if result.Project.Environments != nil {
+		t.Errorf("binding kept the embedded environments: %#v", result.Project)
+	}
+	want := []string{"application:a1", "environment:p1/e1", "project:p1"}
+	if got := catalog.recorded(); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls = %v, want %v (no list reads)", got, want)
+	}
+	if !reflect.DeepEqual(alongside, []string{"a1"}) {
+		t.Errorf("alongside = %v, want one call with a1", alongside)
+	}
+}
+
+func TestPinnedProjectUsesItsEmbeddedEnvironments(t *testing.T) {
+	catalog, target := catalogFixture()
+	target.Binding.ProjectUUID = "p1"
+	result, err := Resolve(context.Background(), catalog, target)
+	if err != nil || result.Environment.UUID != "e1" || result.Application.UUID != "a1" {
+		t.Fatalf("binding = %#v, error = %v", result, err)
+	}
+	want := []string{"application:a1", "environment:p1/e1", "project:p1"}
+	if got := catalog.recorded(); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls = %v, want %v", got, want)
+	}
+	// Without an embedded list the environments are listed as before.
+	catalog, target = catalogFixture()
+	target.Binding.ProjectUUID = "p1"
+	withoutList := &withoutEmbeddedEnvironments{catalog}
+	if _, err := Resolve(context.Background(), withoutList, target); err != nil {
+		t.Fatal(err)
+	}
+	if got := catalog.recorded(); !slices.Contains(got, "environments:p1") {
+		t.Errorf("calls = %v, want the environment list", got)
+	}
+}
+
+func TestNamedBindingStartsAlongsideWithTheApplicationRead(t *testing.T) {
+	catalog, target := catalogFixture()
+	var alongside []string
+	if _, err := ResolveAlongside(context.Background(), catalog, target, func(uuid string) { alongside = append(alongside, uuid) }); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(alongside, []string{"a1"}) {
+		t.Errorf("alongside = %v", alongside)
+	}
+	catalog, target = catalogFixture()
+	target.Binding.Environment = "missing"
+	alongside = nil
+	if _, err := ResolveAlongside(context.Background(), catalog, target, func(uuid string) { alongside = append(alongside, uuid) }); err == nil || alongside != nil {
+		t.Errorf("alongside ran for a failed resolution: %v, %v", alongside, err)
+	}
+}
+
+func TestPinnedReadFailuresRemainFailures(t *testing.T) {
+	cause := errors.New("read failed")
+	for _, stage := range []string{"project:p1", "environment:p1/e1", "application:a1"} {
+		t.Run(stage, func(t *testing.T) {
+			catalog, target := catalogFixture()
+			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e1", "a1"
+			catalog.failAt, catalog.err = stage, cause
+			_, err := Resolve(context.Background(), catalog, target)
+			var missing *MissingError
+			if !errors.Is(err, cause) || errors.As(err, &missing) {
+				t.Fatalf("read failure = %v", err)
+			}
+		})
+	}
+	// The parent's failure wins over its children's, whatever finishes first.
+	catalog, target := catalogFixture()
+	target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "gone", "gone", "gone"
+	_, err := Resolve(context.Background(), catalog, target)
+	var missing *MissingError
+	if !errors.As(err, &missing) || missing.Resource != "project" {
+		t.Fatalf("error = %v, want the project missing", err)
+	}
+}
+
+// barrier holds every read until want reads have started.
+type barrier struct {
+	Catalog
+	want    int
+	arrived chan struct{}
+	mu      sync.Mutex
+	started int
+	open    chan struct{}
+}
+
+func (b *barrier) enter(ctx context.Context) error {
+	b.mu.Lock()
+	if b.open == nil {
+		b.open = make(chan struct{})
+	}
+	b.started++
+	if b.started == b.want {
+		close(b.open)
+	}
+	open := b.open
+	b.mu.Unlock()
+	select {
+	case <-open:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(2 * time.Second):
+		return errors.New("reads did not run concurrently")
+	}
+}
+
+func (b *barrier) GetProject(ctx context.Context, uuid string) (models.Project, error) {
+	if err := b.enter(ctx); err != nil {
+		return models.Project{}, err
+	}
+	return b.Catalog.GetProject(ctx, uuid)
+}
+
+func (b *barrier) GetEnvironment(ctx context.Context, parent, uuid string) (models.Environment, error) {
+	if err := b.enter(ctx); err != nil {
+		return models.Environment{}, err
+	}
+	return b.Catalog.GetEnvironment(ctx, parent, uuid)
+}
+
+func (b *barrier) GetApplication(ctx context.Context, uuid string) (models.Application, error) {
+	if err := b.enter(ctx); err != nil {
+		return models.Application{}, err
+	}
+	return b.Catalog.GetApplication(ctx, uuid)
+}
+
+// withoutEmbeddedEnvironments is a server whose project read omits the
+// environments.
+type withoutEmbeddedEnvironments struct{ Catalog }
+
+func (w *withoutEmbeddedEnvironments) GetProject(ctx context.Context, uuid string) (models.Project, error) {
+	value, err := w.Catalog.GetProject(ctx, uuid)
+	value.Environments = nil
+	return value, err
 }
 
 func TestResponsesMustIdentifySelectedResources(t *testing.T) {

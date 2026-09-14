@@ -10,6 +10,9 @@ import (
 type Project struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
+	// Environments is filled only by GET /projects/{uuid}, which embeds the
+	// project's environments; the list endpoint leaves it nil.
+	Environments []Environment `json:"environments,omitempty"`
 }
 
 type Environment struct {

@@ -92,3 +92,63 @@ func leveled(level Verbosity) *Trace {
 	trace.SetLevel(level)
 	return trace
 }
+
+func TestTraceVerboseFoldsRepeatedPolls(t *testing.T) {
+	var out bytes.Buffer
+	trace := NewTrace(&out)
+	trace.SetLevel(VerbosityVerbose)
+	poll := Exchange{Method: "GET", URL: "https://c.example/api/v1/deployments/d", Status: 200, Duration: 40 * time.Millisecond}
+	for i := range 12 {
+		poll.Duration = time.Duration(40+i) * time.Millisecond
+		trace.Exchange(poll)
+	}
+	if want := "GET https://c.example/api/v1/deployments/d 200 OK 40ms\n"; out.String() != want {
+		t.Fatalf("while repeating got %q, want %q", out.String(), want)
+	}
+	// A different exchange writes the summary first; a retry and a failure
+	// are never folded, even when identical.
+	trace.Exchange(Exchange{Method: "GET", URL: "https://c.example/api/v1/applications/a", Status: 200, Duration: time.Millisecond})
+	retry := Exchange{Method: "GET", URL: "https://c.example/api/v1/applications/a", Status: 502, Attempt: 1, Duration: time.Millisecond}
+	trace.Exchange(retry)
+	trace.Exchange(retry)
+	failed := Exchange{Method: "GET", URL: "https://c.example/api/v1/applications/a", Duration: time.Millisecond, Err: errors.New("dial")}
+	trace.Exchange(failed)
+	trace.Exchange(failed)
+	trace.Exchange(poll)
+	trace.Exchange(poll)
+	trace.Flush()
+	trace.Flush()
+	want := "GET https://c.example/api/v1/deployments/d 200 OK 40ms\n" +
+		"GET https://c.example/api/v1/deployments/d 200 OK ×11 more (last 51ms)\n" +
+		"GET https://c.example/api/v1/applications/a 200 OK 1ms\n" +
+		"GET https://c.example/api/v1/applications/a 502 Bad Gateway 1ms (retry 1)\n" +
+		"GET https://c.example/api/v1/applications/a 502 Bad Gateway 1ms (retry 1)\n" +
+		"GET https://c.example/api/v1/applications/a no response 1ms\n" +
+		"GET https://c.example/api/v1/applications/a no response 1ms\n" +
+		"GET https://c.example/api/v1/deployments/d 200 OK 51ms\n" +
+		"GET https://c.example/api/v1/deployments/d 200 OK ×1 more (last 51ms)\n"
+	if out.String() != want {
+		t.Fatalf("got %q\nwant %q", out.String(), want)
+	}
+	// After a flush the same exchange starts a new run.
+	out.Reset()
+	trace.Exchange(poll)
+	if out.String() != "GET https://c.example/api/v1/deployments/d 200 OK 51ms\n" {
+		t.Fatalf("after flush got %q", out.String())
+	}
+}
+
+func TestTraceDebugKeepsEveryExchange(t *testing.T) {
+	var out bytes.Buffer
+	trace := NewTrace(&out)
+	trace.SetLevel(VerbosityDebug)
+	poll := Exchange{Method: "GET", URL: "https://c.example/api/v1/deployments/d", Status: 200, Duration: time.Millisecond}
+	trace.Exchange(poll)
+	trace.Exchange(poll)
+	trace.Flush()
+	var nilTrace *Trace
+	nilTrace.Flush()
+	if got := strings.Count(out.String(), "GET https://c.example/api/v1/deployments/d 200 OK 1ms\n"); got != 2 || strings.Contains(out.String(), "more") {
+		t.Fatalf("debug got %q", out.String())
+	}
+}

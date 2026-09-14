@@ -83,6 +83,8 @@ bin/coolship --version
 
 A plain `go build -o coolship .` also works and reports the Git revision it was built from, and `go install github.com/joaomnuno/coolship@latest` reports the module version it installed. Inside this repository, use `./scripts/go` instead of `go` so build and test caches stay in `.cache/` rather than your home directory. Releases are tagged `vX.Y.Z`; see [CHANGELOG.md](CHANGELOG.md).
 
+A released build checks GitHub for a newer release once a day, in the background, and prints one line on stderr after the command when there is one. The line tells you to run the install command above again. The check never delays the command, and it is skipped when stderr is not a terminal, in CI, with `--format json`, and for development builds. Turn it off with `COOLSHIP_NO_UPDATE_NOTIFIER=1` or `update_check = false` in the [preferences file](https://coolship.itrocas.com/docs/commands/config#preferences).
+
 ### Shell completion
 
 `coolship completion bash|zsh|fish|powershell` prints a completion script for your shell; `coolship completion zsh --help` shows where each shell loads it from. For example:

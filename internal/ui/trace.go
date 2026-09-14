@@ -44,10 +44,22 @@ type Exchange struct {
 // command tree sets the level once the flags are parsed; until then, and on a
 // nil Trace, the level is normal and nothing is written. Live views are not
 // drawn above normal, so request lines never break a spinner or a checklist.
+//
+// At verbose, identical successful exchanges in a row (same method, URL, and
+// status, such as the poll of a deployment every two seconds) are written
+// once; the repeats become one summary line, written when a different
+// exchange arrives or at Flush. Debug writes every exchange.
 type Trace struct {
 	mu    sync.Mutex
 	w     io.Writer
 	level Verbosity
+	// last is the repeat key of the line most recently written, prefix its
+	// text without the duration, repeats how many identical exchanges have
+	// been held back since, and latest the duration of the newest of them.
+	last    string
+	prefix  string
+	repeats int
+	latest  time.Duration
 }
 
 // NewTrace writes to w, which is the executable's stderr.
@@ -89,7 +101,15 @@ func (t *Trace) Exchange(e Exchange) {
 	if t.level == VerbosityNormal {
 		return
 	}
+	key, prefix := repeatKey(e)
+	if t.level == VerbosityVerbose && key != "" && key == t.last {
+		t.repeats++
+		t.latest = e.Duration
+		return
+	}
 	var out strings.Builder
+	t.summarize(&out)
+	t.last, t.prefix = key, prefix
 	out.WriteString(exchangeLine(e) + "\n")
 	if t.level == VerbosityDebug {
 		writeHeaders(&out, "> ", e.RequestHeader)
@@ -101,6 +121,44 @@ func (t *Trace) Exchange(e Exchange) {
 	}
 	// Tracing is best effort; a lost diagnostic line must not fail a request.
 	_, _ = io.WriteString(t.w, out.String())
+}
+
+// Flush writes the summary of repeated exchanges still held back. The
+// executable calls it once the command has finished; a nil Trace is a no-op.
+func (t *Trace) Flush() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out strings.Builder
+	t.summarize(&out)
+	t.last, t.prefix = "", ""
+	if out.Len() > 0 {
+		_, _ = io.WriteString(t.w, out.String())
+	}
+}
+
+// summarize appends the summary of held-back repeats, if any, and forgets
+// them, for example "GET https://c.example/api/v1/deployments/d 200 OK ×11
+// more (last 45ms)".
+func (t *Trace) summarize(out *strings.Builder) {
+	if t.repeats == 0 {
+		return
+	}
+	fmt.Fprintf(out, "%s ×%d more (last %s)\n", t.prefix, t.repeats, t.latest.Round(time.Millisecond))
+	t.repeats, t.latest = 0, 0
+}
+
+// repeatKey identifies an exchange that may be folded into the one before
+// it, with the line text before the duration. Retries and exchanges without
+// a response are always written, so they return an empty key.
+func repeatKey(e Exchange) (key, prefix string) {
+	if e.Attempt > 0 || e.Status == 0 {
+		return "", ""
+	}
+	prefix = fmt.Sprintf("%s %s %s", singleLine(e.Method), singleLine(e.URL), strings.TrimSpace(fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status))))
+	return prefix, prefix
 }
 
 // exchangeLine is the verbose line: method, URL, the status or the lack of

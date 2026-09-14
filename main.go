@@ -3,8 +3,11 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/process"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
+	"github.com/joaomnuno/coolship/internal/update"
 	"golang.org/x/term"
 )
 
@@ -94,13 +98,69 @@ func run() int {
 	})
 	info, ok := debug.ReadBuildInfo()
 	resolved := resolveVersion(version, info, ok)
+	// The release check runs beside the command and is abandoned, not
+	// waited for, when the command finishes first.
+	notifier := updateNotifier(prefs, resolved, os.Getenv, isTerminal(os.Stderr), os.Args[1:])
+	if notifier != nil {
+		notifier.Start(ctx)
+	}
 	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv),
 		cmd.WithPreferences(prefs)).ExecuteContext(ctx)
+	// Repeated request lines still held back are summarized before anything
+	// else reaches stderr.
+	streams.Trace.Flush()
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
 		_ = ui.PrintError(streams, err)
 	}
+	if notifier != nil {
+		// Last, after the output and any diagnostic; an interrupted run
+		// gets no notice.
+		if notice := notifier.Finish(); notice != "" && ctx.Err() == nil {
+			_, _ = fmt.Fprintln(os.Stderr, notice)
+		}
+	}
 	return ui.ExitCode(err)
+}
+
+// updateNotifier returns the release notifier for this run, or nil when the
+// run must not check: see update.Enabled, plus shell completion, whose stderr
+// is not read by a person. The cache sits next to the preferences file.
+func updateNotifier(prefs preferences.Report, version string, env func(string) string, stderrTerminal bool, args []string) *update.Notifier {
+	if len(args) > 0 && (args[0] == "completion" || strings.HasPrefix(args[0], "__complete")) {
+		return nil
+	}
+	if !update.Enabled(update.Conditions{Version: version, StderrTerminal: stderrTerminal, JSON: jsonFormat(args), Env: env,
+		Preference: prefs.Preferences.UpdateCheck}) {
+		return nil
+	}
+	if prefs.Path == "" {
+		return nil
+	}
+	return &update.Notifier{Current: version, StatePath: filepath.Join(filepath.Dir(prefs.Path), update.StateFile),
+		URL: update.DefaultURL, Client: &http.Client{}, UserAgent: "coolship/" + version}
+}
+
+// jsonFormat reports whether the arguments ask for --format json, read from
+// raw argv as colorEnabled reads --no-color: the last occurrence wins and
+// nothing after "--" counts.
+func jsonFormat(args []string) bool {
+	format := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		if arg == "--format" && i+1 < len(args) {
+			format = args[i+1]
+			i++
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, "--format="); ok {
+			format = value
+		}
+	}
+	return format == "json"
 }
 
 // debugUnredactedEnv, set to 1, makes debug output show request and response
