@@ -12,6 +12,12 @@ export interface ReplayLine {
   kind?: "dim" | "out";
   /** Milliseconds before the line appears; defaults to a quick 90. */
   delay?: number;
+  /**
+   * Names a row that redraws in place. A later line in the same segment with
+   * the same id replaces that row instead of adding one, the way the deploy
+   * checklist spins and ticks in the terminal.
+   */
+  id?: string;
 }
 
 export interface ReplaySegment {
@@ -32,7 +38,10 @@ interface Frame {
 
 const typingMs = 32;
 
-/** Expands the script into frames: one per typed character and per output line. */
+/**
+ * Expands the script into frames: one per typed character and per output line,
+ * where a line whose id was already shown in its segment redraws that row.
+ */
 function buildFrames(script: ReplaySegment[]): Frame[] {
   const frames: Frame[] = [];
   const lines: Rendered[] = [];
@@ -51,8 +60,16 @@ function buildFrames(script: ReplaySegment[]): Frame[] {
     }
     lines[lines.length - 1] = { text: segment.command, kind: "cmd" };
     push(400);
+    const rows = new Map<string, number>();
     for (const line of segment.output) {
-      lines.push({ text: line.text, kind: line.kind ?? "out" });
+      const rendered: Rendered = { text: line.text, kind: line.kind ?? "out" };
+      const row = line.id === undefined ? undefined : rows.get(line.id);
+      if (row === undefined) {
+        if (line.id !== undefined) rows.set(line.id, lines.length);
+        lines.push(rendered);
+      } else {
+        lines[row] = rendered;
+      }
       push(line.delay ?? 90);
     }
   });

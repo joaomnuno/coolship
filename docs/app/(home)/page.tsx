@@ -104,13 +104,13 @@ function Replay() {
             After <code className="font-mono text-fd-foreground">link</code>, no
             command needs a resource identifier.{" "}
             <code className="font-mono text-fd-foreground">deploy</code> submits
-            one deployment, waits for the UUID the server returned, and prints
-            the build log until that deployment finishes.
+            one deployment, waits for the UUID the server returned, and ticks
+            off each stage until that deployment finishes.
           </Lede>
           <ul className="mt-6 space-y-3 text-sm text-fd-muted-foreground">
             {[
               "Ctrl-C stops the wait, not the deployment. Coolship prints the deployment UUID so you can check on it later.",
-              "Results go to stdout and progress and prompts go to stderr, so you can pipe a result into jq.",
+              "Results go to stdout and progress and prompts go to stderr, so you can pipe --format json output into jq.",
               "The commands and their output come from real runs against the example application.",
             ].map((item) => (
               <li key={item} className="flex gap-3">
