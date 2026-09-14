@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
+
+	"github.com/joaomnuno/coolship/internal/suggest"
 )
 
 var (
@@ -53,7 +56,7 @@ func Resolve(options Options) (Credentials, error) {
 		}
 	}
 	if options.Context != "" {
-		return Credentials{}, fmt.Errorf("%w: %q", ErrContextNotFound, options.Context)
+		return Credentials{}, contextNotFound(options.Context, instanceNames(instances))
 	}
 	return Credentials{}, fmt.Errorf("%w: no default instance; pass --context NAME or run coolship login --default", ErrInvalid)
 }
@@ -77,9 +80,29 @@ func List(options Options) ([]Instance, error) {
 		found = found || instance.Name == options.Context
 	}
 	if !found {
-		return nil, fmt.Errorf("%w: %q", ErrContextNotFound, options.Context)
+		return nil, contextNotFound(options.Context, instanceNames(instances))
 	}
 	return result, nil
+}
+
+// contextNotFound names the saved contexts, and the one name was probably
+// meant to be, so a typo is fixed without opening the credentials file. Only
+// names are listed: never a URL or a token.
+func contextNotFound(name string, names []string) error {
+	if len(names) == 0 {
+		return fmt.Errorf("%w: %q; no contexts are saved, run coolship login", ErrContextNotFound, name)
+	}
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	return fmt.Errorf("%w: %q%s; saved contexts: %s", ErrContextNotFound, name, suggest.DidYouMean(name, sorted), strings.Join(sorted, ", "))
+}
+
+func instanceNames(instances []storedInstance) []string {
+	names := make([]string, 0, len(instances))
+	for _, instance := range instances {
+		names = append(names, instance.Name)
+	}
+	return names
 }
 
 func explicitPair(options Options) (Credentials, bool, error) {

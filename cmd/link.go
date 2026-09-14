@@ -66,7 +66,11 @@ changing one, or converting between the two forms, requires review.`,
 			if err != nil {
 				return err
 			}
-			return ui.NewRenderer(streams, options.format).Link(result)
+			if err := ui.NewRenderer(streams, options.format).Link(result); err != nil {
+				return err
+			}
+			ui.Hint(streams, options.format, ui.NextDeploy(link.Target))
+			return nil
 		},
 	}
 	command.Flags().StringVar(&link.Project, "project", "", "Exact Coolify project name")

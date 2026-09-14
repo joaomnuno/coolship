@@ -96,7 +96,15 @@ directory as its root, which becomes the application's base directory.`,
 			if err != nil {
 				return err
 			}
-			return renderer.Init(result)
+			if err := renderer.Init(result); err != nil {
+				return err
+			}
+			// Only a new, undeployed binding has deploy as its next step; a
+			// created deploy key already printed its own instructions.
+			if result.Deployment == nil && result.Target.ApplicationUUID != "" {
+				ui.Hint(streams, options.format, ui.NextDeploy(create.Target))
+			}
+			return nil
 		},
 	}
 	command.Flags().StringVar(&create.Repository, "repo", "", "Repository URL (default: the origin remote)")

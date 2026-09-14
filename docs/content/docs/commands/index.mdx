@@ -43,6 +43,8 @@ Every command accepts these. Overrides apply to a single invocation and never re
 | `--verbose`              | Print one line per request on stderr and stream build logs.                       |
 | `--debug`                | Print every request and response on stderr, token masked and secrets redacted.     |
 
+`coolship --help` lists all of these. A command's own help leaves out `--cwd`, `--config`, and `--coolify-config`, which are rarely needed, but every command still accepts them.
+
 `COOLSHIP_VERBOSITY` and the preferences file set the verbosity when neither flag is given; see [Verbosity](/docs/platform/output#verbosity). `-v` is the version.
 
 `status`, `deploy`, `logs`, `open`, `dev`, and `domain` also take the target as a positional argument: `coolship deploy api`.

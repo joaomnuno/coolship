@@ -474,6 +474,99 @@ func TestLinkSelectors(t *testing.T) {
 	}
 }
 
+func TestUnknownCommandsSuggestTheClosestOne(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"stauts"}, `unknown command "stauts" (did you mean "status"?); run 'coolship help' for available commands`},
+		{[]string{"env", "pul"}, `unknown command "pul" for "coolship env" (did you mean "pull"?); run 'coolship help env' for available commands`},
+		{[]string{"help", "stauts"}, `unknown help topic "stauts" (did you mean "status"?)`},
+		{[]string{"completion", "bsah"}, `unknown shell "bsah" (did you mean "bash"?); use one of bash, fish, powershell, zsh`},
+		{[]string{"zzzzzz"}, `unknown command "zzzzzz"; run 'coolship help' for available commands`},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			out, diagnostic, err := execute(t, nil, test.args...)
+			if !errors.Is(err, service.ErrInput) || ui.ExitCode(err) != 2 || err.Error() != test.want || out != "" || diagnostic != "" {
+				t.Fatalf("err=%v stdout=%q stderr=%q; want %q", err, out, diagnostic, test.want)
+			}
+		})
+	}
+}
+
+func TestSubcommandHelpListsOnlyCommonGlobalFlags(t *testing.T) {
+	root, _, err := execute(t, nil, "--help")
+	if err != nil || !strings.Contains(root, "--cwd") || !strings.Contains(root, "--coolify-config") {
+		t.Fatalf("root help lost a global flag: %q %v", root, err)
+	}
+	for _, args := range [][]string{{"status", "--help"}, {"help", "env", "pull"}} {
+		out, _, err := execute(t, nil, args...)
+		if err != nil || strings.Contains(out, "--cwd ") || strings.Contains(out, "--coolify-config ") || strings.Contains(out, "      --config ") {
+			t.Fatalf("%v lists a root-only flag: %q %v", args, out, err)
+		}
+		if !strings.Contains(out, "Global Flags:") || !strings.Contains(out, "--context") || !strings.Contains(out, "--target") ||
+			!strings.Contains(out, `Run "coolship --help" for every global flag, including --cwd, --config, --coolify-config.`) {
+			t.Fatalf("%v global flags section = %q", args, out)
+		}
+	}
+	// Hidden from the page, still accepted.
+	app := fakeApplication{status: func(_ context.Context, options service.Options) (service.StatusResult, error) {
+		if options.CWD != "/somewhere" {
+			t.Fatalf("cwd = %q", options.CWD)
+		}
+		return service.StatusResult{}, nil
+	}}
+	if _, _, err := execute(t, app, "status", "--cwd", "/somewhere"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNextStepHintsOnlyInInteractiveHumanOutput(t *testing.T) {
+	app := fakeApplication{
+		link: func(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error) {
+			return service.LinkResult{Path: "/project/coolship.toml", Target: service.TargetInfo{ApplicationUUID: "a-1"}}, nil
+		},
+		list: func(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error) {
+			return service.DeploymentsResult{Target: service.TargetInfo{Application: "web"}}, nil
+		},
+		init: func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error) {
+			return service.InitResult{Target: service.TargetInfo{ApplicationUUID: "a-1"}}, nil
+		},
+	}
+	run := func(interactive bool, args ...string) string {
+		t.Helper()
+		var out, diagnostic bytes.Buffer
+		root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: interactive}, "test")
+		root.SetArgs(args)
+		if err := root.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.Contains(out.String(), "Next:") {
+			t.Fatalf("%v: hint reached stdout: %q", args, out.String())
+		}
+		return diagnostic.String()
+	}
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"link"}, "Next: coolship deploy\n"},
+		{[]string{"link", "--target", "api"}, "Next: coolship deploy --target api\n"},
+		{[]string{"init", "--yes"}, "Next: coolship deploy\n"},
+		{[]string{"deployments"}, "No deployments yet. Next: coolship deploy\n"},
+	} {
+		if got := run(true, test.args...); got != test.want {
+			t.Errorf("%v interactive stderr = %q, want %q", test.args, got, test.want)
+		}
+		if got := run(false, test.args...); got != "" {
+			t.Errorf("%v noninteractive stderr = %q", test.args, got)
+		}
+		if got := run(true, append(test.args, "--format", "json")...); got != "" {
+			t.Errorf("%v json stderr = %q", test.args, got)
+		}
+	}
+}
+
 func TestLinkInteractivePromptsStayOnStderr(t *testing.T) {
 	app := fakeApplication{link: func(ctx context.Context, _ service.LinkOptions, selectChoice service.Selector, confirm service.Confirm) (service.LinkResult, error) {
 		id, err := selectChoice(ctx, "application", []service.Choice{{ID: "a-1", Name: "web"}, {ID: "a-2", Name: "api"}})

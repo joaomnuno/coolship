@@ -11,10 +11,19 @@ import (
 
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/models"
+	"github.com/joaomnuno/coolship/internal/suggest"
 )
 
+// linkHint names both ways to bind a directory, since a developer who has
+// no application yet needs init, not link.
+const linkHint = "run coolship link to use an existing Coolify application, or coolship init to create one"
+
 var (
-	ErrNotLinked           = errors.New("project is not linked; run coolship link")
+	ErrNotLinked = errors.New("project is not linked; " + linkHint)
+	// ErrTargetSelection classifies a target that cannot be chosen from a
+	// valid configuration: an unknown name, a name given to the single
+	// [project] form, or a directory no target (or several) owns.
+	ErrTargetSelection     = errors.New("target cannot be selected")
 	ErrConflict            = errors.New("project configuration changed; review and retry linking")
 	ErrReplacementRequired = errors.New("binding already exists; use --replace to authorize replacement")
 )
@@ -87,14 +96,15 @@ func Select(value Project, targetName, environmentOverride string) (Target, erro
 func choose(value Project, targetName string) (string, config.Binding, error) {
 	if !value.Config.Named() {
 		if targetName != "" && targetName != "default" {
-			return "", config.Binding{}, fmt.Errorf("%w: this configuration has a single [project] binding, not a target named %q", config.ErrInvalid, targetName)
+			return "", config.Binding{}, selectionError(fmt.Sprintf("%s has one target, [project], so target %q does not apply; run without --target or a target argument", configName(value), targetName))
 		}
 		return "default", value.Config.Project, nil
 	}
 	if targetName != "" {
 		binding, ok := value.Config.Apps[targetName]
 		if !ok {
-			return "", config.Binding{}, fmt.Errorf("%w: no target named %q; available: %s", config.ErrInvalid, targetName, strings.Join(value.Config.TargetNames(), ", "))
+			names := value.Config.TargetNames()
+			return "", config.Binding{}, selectionError(fmt.Sprintf("no target named %q in %s%s; available: %s", targetName, configName(value), suggest.DidYouMean(targetName, names), strings.Join(names, ", ")))
 		}
 		return targetName, binding, nil
 	}
@@ -116,7 +126,7 @@ func choose(value Project, targetName string) (string, config.Binding, error) {
 		candidates = append(candidates, candidate{name: name, depth: strings.Count(root, string(filepath.Separator))})
 	}
 	if len(candidates) == 0 {
-		return "", config.Binding{}, fmt.Errorf("%w: no target's root contains this directory; select one of: %s", config.ErrInvalid, strings.Join(value.Config.TargetNames(), ", "))
+		return "", config.Binding{}, selectionError("no target's root contains this directory; select one of: " + strings.Join(value.Config.TargetNames(), ", "))
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].depth > candidates[j].depth })
 	if len(candidates) > 1 && candidates[0].depth == candidates[1].depth {
@@ -126,10 +136,37 @@ func choose(value Project, targetName string) (string, config.Binding, error) {
 				names = append(names, c.name)
 			}
 		}
-		return "", config.Binding{}, fmt.Errorf("%w: targets %s share the same root; select one explicitly", config.ErrInvalid, strings.Join(names, ", "))
+		return "", config.Binding{}, selectionError(fmt.Sprintf("targets %s share the same root; select one explicitly", strings.Join(names, ", ")))
 	}
 	return candidates[0].name, value.Config.Apps[candidates[0].name], nil
 }
+
+// targetError reads as its own sentence rather than behind the
+// ErrTargetSelection text, and still matches it with errors.Is.
+type targetError struct{ message string }
+
+func (e *targetError) Error() string        { return e.message }
+func (e *targetError) Is(target error) bool { return target == ErrTargetSelection }
+
+func selectionError(message string) error { return &targetError{message: message} }
+
+// configName is the configuration file's base name, as a developer would
+// refer to it: normally coolship.toml, or whatever --config named.
+func configName(value Project) string {
+	if value.ConfigPath == "" {
+		return "coolship.toml"
+	}
+	return filepath.Base(value.ConfigPath)
+}
+
+// notLinkedError is ErrNotLinked for an explicit --config path that does not
+// exist, naming the path before the advice.
+type notLinkedError struct{ path string }
+
+func (e *notLinkedError) Error() string {
+	return "project is not linked: " + e.path + " does not exist; " + linkHint
+}
+func (e *notLinkedError) Is(target error) bool { return target == ErrNotLinked }
 
 func resolveRoot(configRoot, root string) (string, error) {
 	if root == "" {

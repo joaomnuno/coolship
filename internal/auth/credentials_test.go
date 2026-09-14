@@ -47,8 +47,20 @@ func TestCompatibleContextsAreReadOnly(t *testing.T) {
 	if err != nil || value.Name != "work" || value.Token != "synthetic-work-token" {
 		t.Fatalf("context override failed: %v (%v)", value, err)
 	}
-	if _, err := auth.Resolve(auth.Options{ConfigPath: path, Context: "missing"}); !errors.Is(err, auth.ErrContextNotFound) {
+	if _, err := auth.Resolve(auth.Options{ConfigPath: path, Context: "missing"}); !errors.Is(err, auth.ErrContextNotFound) ||
+		err.Error() != `Coolify context not found: "missing"; saved contexts: home, work` {
 		t.Fatalf("missing context must not fall back: %v", err)
+	}
+	// A near miss names the context it probably meant; only names appear.
+	for _, lookup := range []func() error{
+		func() error { _, err := auth.Resolve(auth.Options{ConfigPath: path, Context: "hme"}); return err },
+		func() error { _, err := auth.List(auth.Options{ConfigPath: path, Context: "hme"}); return err },
+	} {
+		err := lookup()
+		if !errors.Is(err, auth.ErrContextNotFound) || err.Error() != `Coolify context not found: "hme" (did you mean "home"?); saved contexts: home, work` ||
+			strings.Contains(err.Error(), "example.com") || strings.Contains(err.Error(), "token") {
+			t.Fatalf("near miss: %v", err)
+		}
 	}
 	instances, err := auth.List(auth.Options{ConfigPath: path})
 	if err != nil || len(instances) != 2 || instances[0].Name != "home" || !instances[0].Default {

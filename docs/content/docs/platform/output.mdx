@@ -42,6 +42,10 @@ Verbose and debug output goes to stderr only, so stdout and `--format json` are 
 
 Commands that change something show their plan and ask for confirmation on stderr. When stdin is not a terminal there is no prompt: pass `--yes` (`--replace` for `link`) or the command refuses. `link` and `init` prompt for a choice only when it is genuinely ambiguous; `q` cancels a selection.
 
+## Hints
+
+In a terminal, a few commands end with a dimmed next step on stderr: `link` and `init` print `Next: coolship deploy`, and `deployments` with nothing to list prints `No deployments yet. Next: coolship deploy`. A mistyped command, context, or target name gets a `(did you mean …?)` in its error. Hints are never printed with `--format json`, in CI, or when stdin or stderr is not a terminal.
+
 ## Exit codes
 
 | Code  | Meaning                                                   |
@@ -51,4 +55,4 @@ Commands that change something show their plan and ask for confirmation on stder
 | `2`   | Invalid input, configuration, or selection.               |
 | `130` | Interrupted.                                              |
 
-Errors are printed once, as a single `Error:` line on stderr, and classified into these codes at the process boundary. Some commands give a code a specific meaning: `doctor` exits `1` when any check fails, `env diff --exit-code` exits `1` when there are differences, and `dev` exits with the child process's status.
+Errors are printed once, as a single `Error:` line on stderr, and classified into these codes at the process boundary. `--format json` does not change that: an error is still that plain text line on stderr, not a JSON object, and stdout carries nothing, or the partial result a failed deployment still prints. gh, Wrangler, Vercel, and Railway do the same with their JSON output, so a script checks the exit code first and reads stderr only to show the reason. Some commands give a code a specific meaning: `doctor` exits `1` when any check fails, `env diff --exit-code` exits `1` when there are differences, and `dev` exits with the child process's status.

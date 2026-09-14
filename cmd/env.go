@@ -26,7 +26,7 @@ see, and a separate copy used by preview deployments. Commands act on the
 regular scope unless --preview is given. Values are masked in output unless
 --show-values is given. Shared references such as {{team.NAME}} are synced as
 references, never as the values they resolve to.`,
-		Args: noArgs,
+		Args: unknownSubcommand,
 		RunE: func(command *cobra.Command, _ []string) error { return command.Help() },
 	}
 	group.PersistentFlags().StringVar(&env.File, "file", ".env", "Dotenv file, relative to the application root")

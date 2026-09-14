@@ -86,6 +86,12 @@ func Remove(path, name string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+	var names []string
+	for _, existing := range instances {
+		if existingName, _ := existing["name"].(string); existingName != "" {
+			names = append(names, existingName)
+		}
+	}
 	kept := instances[:0]
 	found, wasDefault := false, false
 	for _, existing := range instances {
@@ -97,7 +103,7 @@ func Remove(path, name string) (string, bool, error) {
 		kept = append(kept, existing)
 	}
 	if !found {
-		return path, false, fmt.Errorf("%w: %q", ErrContextNotFound, name)
+		return path, false, contextNotFound(name, names)
 	}
 	document["instances"] = kept
 	return path, wasDefault, writeDocument(path, document)
