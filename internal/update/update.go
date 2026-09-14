@@ -118,11 +118,16 @@ func (n *Notifier) Start(ctx context.Context) {
 }
 
 // Finish abandons a check still running and returns the notice to print, or
-// "" when there is none. Call it once, after the command's own output.
-func (n *Notifier) Finish() string {
+// "" when there is none. Call it once, after the command's own output. With
+// show false, as for an interrupted run, nothing is returned and nothing is
+// recorded as shown, so the notice is not lost for a day.
+func (n *Notifier) Finish(show bool) string {
 	if n.cancel != nil {
 		n.cancel()
 		<-n.done
+	}
+	if !show {
+		return ""
 	}
 	state, err := readState(n.StatePath)
 	if err != nil {

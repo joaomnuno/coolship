@@ -116,7 +116,7 @@ func run(t *testing.T, n *Notifier) string {
 			t.Fatal("check did not finish")
 		}
 	}
-	return n.Finish()
+	return n.Finish(true)
 }
 
 func TestNoticeOncePerDayPerRelease(t *testing.T) {
@@ -222,7 +222,7 @@ func TestFinishAbandonsASlowCheckWithoutRecordingIt(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	started := time.Now()
-	notice := n.Finish()
+	notice := n.Finish(true)
 	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
 		t.Errorf("Finish waited %v for the check", elapsed)
 	}
@@ -260,5 +260,22 @@ func TestUnreachableServerAndDamagedCache(t *testing.T) {
 	run(t, notifier(path, counted.server.URL, "v0.3.0", &clock{now}))
 	if counted.requests.Load() != 1 {
 		t.Errorf("requests = %d, want a check despite the future timestamp", counted.requests.Load())
+	}
+}
+
+func TestAnInterruptedRunDoesNotUseUpTheNotice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), StateFile)
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	if err := writeState(path, State{CheckedAt: now, LatestVersion: "v0.4.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if notice := notifier(path, "", "v0.3.0", &clock{now}).Finish(false); notice != "" {
+		t.Fatalf("hidden notice = %q", notice)
+	}
+	if state, _ := readState(path); !state.NotifiedAt.IsZero() || state.NotifiedVersion != "" {
+		t.Fatalf("an unseen notice was recorded: %+v", state)
+	}
+	if notice := notifier(path, "", "v0.3.0", &clock{now}).Finish(true); !strings.Contains(notice, "v0.4.0") {
+		t.Fatalf("next run notice = %q", notice)
 	}
 }

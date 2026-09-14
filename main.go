@@ -116,7 +116,7 @@ func run() int {
 	if notifier != nil {
 		// Last, after the output and any diagnostic; an interrupted run
 		// gets no notice.
-		if notice := notifier.Finish(); notice != "" && ctx.Err() == nil {
+		if notice := notifier.Finish(ctx.Err() == nil); notice != "" {
 			_, _ = fmt.Fprintln(os.Stderr, notice)
 		}
 	}
