@@ -29,9 +29,24 @@ type Exchange struct {
 
 // WithTrace reports every request attempt to trace after it ends. It is meant
 // for --verbose and --debug; without it the client reports nothing and reads
-// no more of a refusal than it needs.
+// no more of a refusal than it needs. Bodies are redacted: the values of
+// secret-bearing JSON fields are replaced, unless WithUnredactedTrace is given.
 func WithTrace(trace func(Exchange)) Option {
 	return func(c *Client) { c.trace = trace }
+}
+
+// WithUnredactedTrace makes the trace carry bodies exactly as sent and
+// received, secrets included. The token stays masked either way.
+func WithUnredactedTrace() Option {
+	return func(c *Client) { c.traceUnredacted = true }
+}
+
+// traceBody is a body as the trace shows it.
+func (c *Client) traceBody(body []byte) []byte {
+	if c.traceUnredacted || len(body) == 0 {
+		return body
+	}
+	return redactBody(body)
 }
 
 // maskToken keeps the last four characters of the token so a reader can tell

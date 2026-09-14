@@ -41,7 +41,7 @@ Every command accepts these. Overrides apply to a single invocation and never re
 | `--format human\|json`   | Output format; `human` is the default, and `logs --format json` prints NDJSON.    |
 | `--no-color`             | Disable styled output (`NO_COLOR` does the same).                                 |
 | `--verbose`              | Print one line per request on stderr and stream build logs.                       |
-| `--debug`                | Print every request and response in full on stderr, token masked.                 |
+| `--debug`                | Print every request and response on stderr, token masked and secrets redacted.     |
 
 `COOLSHIP_VERBOSITY` and the preferences file set the verbosity when neither flag is given; see [Verbosity](/docs/platform/output#verbosity). `-v` is the version.
 

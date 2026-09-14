@@ -35,6 +35,11 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 		return LinkResult{}, err
 	}
 	current := currentBinding(p.Config, options.Target)
+	if !sameInstance(current, p.Config.Project.Context, authOptions, credentials) {
+		// Names such as production or web recur across instances; a binding
+		// for another instance names nothing on this one.
+		current = config.Binding{}
+	}
 	projectID := options.ProjectUUID
 	if options.Project == "" && projectID == "" {
 		choices := make([]Choice, len(projects))
@@ -121,6 +126,18 @@ func currentBinding(cfg config.Config, target string) config.Binding {
 		return config.Binding{}
 	}
 	return cfg.Project
+}
+
+// sameInstance reports whether the selected credentials are the instance the
+// binding was written for: its context, or the [project] context it inherits,
+// named by the credentials. A binding with no context, or credentials from
+// COOLSHIP_URL, cannot be tied to an instance, so it matches nothing.
+func sameInstance(binding config.Binding, projectContext string, authOptions auth.Options, credentials auth.Credentials) bool {
+	bound := binding.Context
+	if bound == "" {
+		bound = projectContext
+	}
+	return authOptions.URL == "" && bound != "" && credentials.Name == bound
 }
 
 // isCurrent reports whether a resource is the one a binding names: by its

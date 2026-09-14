@@ -102,12 +102,19 @@ func run() int {
 	return ui.ExitCode(err)
 }
 
+// debugUnredactedEnv, set to 1, makes debug output show request and response
+// bodies with secret values in them, which are redacted otherwise.
+const debugUnredactedEnv = "COOLSHIP_DEBUG_UNREDACTED"
+
 // newBackend builds the Coolify client. Above normal verbosity every request
 // attempt is reported to trace; at normal the client is given no trace at all.
 func newBackend(credentials auth.Credentials, trace *ui.Trace) (service.Backend, error) {
 	options := []coolify.Option{coolify.WithUserAgent("coolship/" + userAgentVersion())}
 	if trace.Level() != ui.VerbosityNormal {
 		options = append(options, coolify.WithTrace(func(exchange coolify.Exchange) { trace.Exchange(ui.Exchange(exchange)) }))
+		if os.Getenv(debugUnredactedEnv) == "1" {
+			options = append(options, coolify.WithUnredactedTrace())
+		}
 	}
 	client, err := coolify.NewClient(credentials.URL, credentials.Token, options...)
 	if err != nil {
