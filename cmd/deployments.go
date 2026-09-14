@@ -16,11 +16,13 @@ func newDeploymentsCommand(app Application, options *commandOptions, streams ui.
 		Use:   "deployments [target]",
 		Short: "List recent deployments of the linked application",
 		Long: `List the linked application's most recent deployments, newest first: a short
-UUID, the status, the commit, whether it was a pull request preview, a
+ID, the status, the commit, whether it was a pull request preview, a
 restart, or a rollback, when it was created, and how long it took. Build logs
 are never included; deploy streams them while a deployment runs.
 
-The full UUID is in --format json and can be passed to cancel.`,
+The short ID can be passed to cancel. --verbose and --format json show the
+full UUID. In a narrow terminal the type, the commit, and then the duration
+are left out to fit.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			if deployments.Limit <= 0 {
@@ -59,7 +61,8 @@ queued or in progress is cancelled; when there is none, or more than one, the
 command says so and stops. Only queued and in-progress deployments can be
 cancelled — Coolify refuses the rest.
 
-One argument is a deployment UUID; in a monorepo, name the target first, as in
+One argument is a deployment UUID, or the short ID deployments prints for a
+recent one; in a monorepo, name the target first, as in
 "cancel api DEPLOYMENT_UUID", or select it with --target. The cancellation is
 confirmed first, or --yes skips the question.`,
 		Args: func(command *cobra.Command, args []string) error {

@@ -314,9 +314,20 @@ func TestCancelRefusesNoneOrSeveralAndConfirmsOne(t *testing.T) {
 	}
 	f.deployments = []models.Deployment{{UUID: "deploy-1", Status: "queued", Commit: "HEAD"}}
 	result, err = app.Cancel(context.Background(), CancelOptions{Options: options.Options, DeploymentUUID: "deploy-1", Yes: true}, nil)
-	// The five earlier attempts each read the history; a named deployment never does.
-	if err != nil || result.DeploymentUUID != "deploy-1" || f.calls["history"] != 5 || !reflect.DeepEqual(f.cancelled, []string{"d-a", "deploy-1"}) {
+	// The five earlier attempts each read the history, and so did the
+	// missing one, looking for a short ID; a named deployment never does.
+	if err != nil || result.DeploymentUUID != "deploy-1" || f.calls["history"] != 6 || !reflect.DeepEqual(f.cancelled, []string{"d-a", "deploy-1"}) {
 		t.Fatalf("named: result=%+v err=%v calls=%v cancelled=%v", result, err, f.calls, f.cancelled)
+	}
+	// The short ID deployments prints is expanded from the recent history.
+	f.history = []models.DeploymentRecord{record("deploy-1", "queued", "HEAD"), record("d-done", "finished", "abc")}
+	result, err = app.Cancel(context.Background(), CancelOptions{Options: options.Options, DeploymentUUID: "deplo", Yes: true}, nil)
+	if err != nil || result.DeploymentUUID != "deploy-1" || !reflect.DeepEqual(f.cancelled, []string{"d-a", "deploy-1", "deploy-1"}) {
+		t.Fatalf("short ID: result=%+v err=%v cancelled=%v", result, err, f.cancelled)
+	}
+	f.history = append(f.history, record("deploy-2", "queued", "HEAD"))
+	if _, err := app.Cancel(context.Background(), CancelOptions{Options: options.Options, DeploymentUUID: "deplo", Yes: true}, nil); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "matches 2 deployments") {
+		t.Fatalf("ambiguous short ID: %v", err)
 	}
 	// The server's refusal (a 400 with its explanation) is an operation failure.
 	f.cancelError = errors.New("HTTP 400 Bad Request: Deployment cannot be cancelled. Current status: finished")

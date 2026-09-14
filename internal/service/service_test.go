@@ -348,7 +348,8 @@ func (f *fakeBackend) GetDeployment(_ context.Context, id string) (models.Deploy
 	index := f.calls["deployment"]
 	f.calls["deployment"]++
 	switch id {
-	case "missing":
+	case "missing", "deplo":
+		// "deplo" is a short ID, which the server does not know.
 		return models.Deployment{}, statusError{code: 404}
 	case "theirs":
 		// A deployment of another application, as the server embeds its owner.

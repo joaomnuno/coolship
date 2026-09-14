@@ -143,6 +143,15 @@ func (a *App) namedDeployment(ctx context.Context, s session, uuid string) (Depl
 	deployment, err := s.backend.GetDeployment(ctx, uuid)
 	if err != nil {
 		if code, ok := httpStatus(err); ok && code == 404 {
+			// The short ID deployments shows is not a UUID the server
+			// knows; look it up among the recent deployments instead.
+			full, err := a.expandDeploymentID(ctx, s, uuid)
+			if err != nil {
+				return DeploymentSummary{}, err
+			}
+			if full != "" {
+				return a.namedDeployment(ctx, s, full)
+			}
 			return DeploymentSummary{}, input(fmt.Errorf("deployment %s was not found", uuid))
 		}
 		return DeploymentSummary{}, fmt.Errorf("read deployment %s: %w", uuid, err)
@@ -154,6 +163,30 @@ func (a *App) namedDeployment(ctx context.Context, s session, uuid string) (Depl
 		return DeploymentSummary{}, input(fmt.Errorf("deployment %s does not belong to application %s (%s)", uuid, s.project.Application.Name, s.project.Application.UUID))
 	}
 	return DeploymentSummary{UUID: deployment.UUID, Status: deployment.Status, Commit: deployment.Commit, Kind: "deploy"}, nil
+}
+
+// expandDeploymentID finds the recent deployment whose UUID starts with id,
+// such as the short ID deployments prints. It returns "" when none does, and
+// an input error when several do. Only the newest rows are searched, since
+// those are the ones that can still be cancelled.
+func (a *App) expandDeploymentID(ctx context.Context, s session, id string) (string, error) {
+	page, err := s.backend.ListDeployments(ctx, s.project.Application.UUID, cancelSearchWindow)
+	if err != nil {
+		return "", fmt.Errorf("read deployment history: %w", err)
+	}
+	var matches []string
+	for _, record := range page.Deployments {
+		if len(record.UUID) > len(id) && strings.HasPrefix(record.UUID, id) {
+			matches = append(matches, record.UUID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", nil
+	case 1:
+		return matches[0], nil
+	}
+	return "", input(fmt.Errorf("deployment ID %s matches %d deployments: %s; pass more of the UUID", id, len(matches), strings.Join(matches, ", ")))
 }
 
 // activeDeployment finds the one deployment that can be cancelled. None or
