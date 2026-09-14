@@ -86,14 +86,20 @@ function transcript(script: ReplaySegment[]) {
     .join("\n\n");
 }
 
+/**
+ * A wrapped line keeps its first row where it was and indents the rows after
+ * it by two columns, so a long command or log line still reads as one line.
+ */
+const row = "block min-h-[1lh] pl-[2ch] -indent-[2ch]";
+
 function Line({ line }: { line: Rendered }) {
   switch (line.kind) {
     case "blank":
-      return <span className="block min-h-[1lh]" />;
+      return <span className={row} />;
     case "typing":
     case "cmd":
       return (
-        <span className="block min-h-[1lh]">
+        <span className={row}>
           <span className="tk-prompt">$ </span>
           <span className="tk-cmd">{line.text}</span>
           {line.kind === "typing" && (
@@ -102,10 +108,10 @@ function Line({ line }: { line: Rendered }) {
         </span>
       );
     case "dim":
-      return <span className="tk-dim block min-h-[1lh]">{line.text}</span>;
+      return <span className={cn("tk-dim", row)}>{line.text}</span>;
     default:
       return (
-        <span className="block min-h-[1lh]">
+        <span className={row}>
           <Tokens tokens={tokenizeLine(line.text, "text")} />
         </span>
       );
@@ -257,7 +263,7 @@ export function TerminalReplay({
         <pre
           ref={scroller}
           aria-hidden="true"
-          className="m-0 h-[22rem] overflow-auto px-4 py-4 font-mono text-[0.8rem] leading-relaxed sm:h-[26rem] sm:text-[0.84rem]"
+          className="m-0 h-[22rem] overflow-x-hidden overflow-y-auto px-4 py-4 font-mono text-[0.8rem] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] sm:h-[26rem] sm:text-[0.84rem]"
         >
           <code>
             {current.lines.map((line, i) => (
