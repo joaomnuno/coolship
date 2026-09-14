@@ -41,6 +41,27 @@ func TestStageTrackerReadsCoolifyMarkers(t *testing.T) {
 			stage(StageCleanup, StageStarted), stage(StageCleanup, StageDone),
 			stage(StageRollingUpdate, StageDone),
 		}},
+		{"build skipped for an image with the same commit", []string{
+			"Starting deployment of joaomnuno/example-coolify-project:main to Master Ubuntu.",
+			"No build configuration changed & image found (mm4c0zpbrzx8z96t0qiw3tff:4a1b2c3) with the same Git Commit SHA. Build step skipped.",
+			"Rolling update started.",
+			"New container started.",
+			"New container is healthy.",
+			"Rolling update completed.",
+		}, []Event{
+			{Type: "stage", Stage: StageBuild, Status: StageSkipped, Message: "cached image"},
+			stage(StageRollingUpdate, StageStarted),
+			stage(StageContainer, StageStarted), stage(StageContainer, StageDone),
+			stage(StageRollingUpdate, StageDone),
+		}},
+		{"build skipped on an additional server", []string{
+			"Image found (mm4c0zpbrzx8z96t0qiw3tff:4a1b2c3) with the same Git Commit SHA. Build step skipped.",
+			"Building docker image completed.",
+		}, []Event{{Type: "stage", Stage: StageBuild, Status: StageSkipped, Message: "cached image"}}},
+		{"a started build is not skipped", []string{
+			"Building docker image started.",
+			"Image found (x) with the same Git Commit SHA. Build step skipped.",
+		}, []Event{stage(StageBuild, StageStarted)}},
 		{"railpack build with trailing detail", []string{
 			"  Building docker image with Railpack.  ",
 			"Building docker image completed. (cached layers: 12)",

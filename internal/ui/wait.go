@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"regexp"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -123,7 +124,8 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // when the program stops. Bracketed paste is an input concern, and there is
 // no input, so the terminal mode is left alone.
 func (m spinnerModel) View() tea.View {
-	view := tea.NewView(m.style.apply(cyan, m.spinner.View()) + " " + m.label)
+	// Bubbles' Dot frames end in a space of their own; one separator is enough.
+	view := tea.NewView(m.style.apply(cyan, strings.TrimSpace(m.spinner.View())) + " " + m.label)
 	view.DisableBracketedPasteMode = true
 	return view
 }

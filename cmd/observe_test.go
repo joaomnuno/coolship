@@ -83,6 +83,41 @@ func TestStageEventsPrintPlainlyOffATerminal(t *testing.T) {
 	}
 }
 
+// TestFailedDeploymentEndsWithANextStep checks the hint after a failure:
+// a deployment the server failed names where to follow up, right after its
+// Deployment page line; an observation that only stopped, and JSON output,
+// print no hint.
+func TestFailedDeploymentEndsWithANextStep(t *testing.T) {
+	const page = "https://coolify.example.com/deployment/d-1"
+	hint := "Next: coolship deployments to compare with earlier runs, or coolship open --dashboard to retry from Coolify\n"
+	for _, test := range []struct {
+		name, status string
+		args         []string
+		wantHint     bool
+	}{
+		{"failed", "failed", []string{"deploy"}, true},
+		{"cancelled", "cancelled-by-user", []string{"deploy"}, true},
+		{"stopped", "in_progress", []string{"deploy"}, false},
+		{"json", "failed", []string{"deploy", "--format", "json"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app := fakeApplication{deploy: func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error) {
+				return service.DeployResult{DeploymentUUID: "d-1", Status: test.status, URL: page, URLKind: "deployment"}, errors.New("ended with status " + test.status)
+			}}
+			_, diagnostic, err := executeInteractive(t, app, "", test.args...)
+			if err == nil {
+				t.Fatal("a failed deployment returned no error")
+			}
+			if got := strings.HasSuffix(diagnostic, hint); got != test.wantHint {
+				t.Fatalf("stderr = %q; hint wanted %v", diagnostic, test.wantHint)
+			}
+			if test.wantHint && !strings.HasSuffix(diagnostic, "Deployment page: "+page+"\n"+hint) {
+				t.Fatalf("hint does not follow the Deployment page line: %q", diagnostic)
+			}
+		})
+	}
+}
+
 // TestLogFlagsAreExclusiveAndDocumented checks the two flags on every
 // command that observes a deployment: both at once is invalid input before
 // anything runs, and the help names them.

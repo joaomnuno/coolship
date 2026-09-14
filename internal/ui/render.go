@@ -233,7 +233,7 @@ func clockDuration(status, created, finished string, now time.Time) string {
 	if finished != "" {
 		end, _ = time.Parse(time.RFC3339Nano, finished)
 	}
-	return elapsed(end.Sub(start).Round(time.Second))
+	return FormatElapsed(end.Sub(start).Round(time.Second))
 }
 
 // dropOrder lists the deployments table's columns in the order a narrow

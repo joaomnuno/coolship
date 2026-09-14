@@ -109,7 +109,8 @@ func TestStartAndRestartFlags(t *testing.T) {
 		},
 	}
 	out, diagnostic, err := execute(t, app, "start", "--force", "--no-wait", "--timeout", "30s")
-	if err != nil || out != "Deployment: d-1\nApplication: web (app-1)\nStatus: queued\n" || diagnostic != "Deployment d-1: queued\n" {
+	// --no-wait names the queued deployment once, in the result, not also on stderr.
+	if err != nil || out != "Deployment: d-1\nApplication: web (app-1)\nStatus: queued\n" || diagnostic != "" {
 		t.Fatalf("start: out=%q stderr=%q err=%v", out, diagnostic, err)
 	}
 	// A result without a URL prints exactly what it did before the URL line existed.

@@ -5,7 +5,7 @@ description: Which stream carries what, when output is styled, what --format jso
 
 ## Streams
 
-Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping stdout stays useful. `coolship open --print | pbcopy` copies only the URL, and `coolship deploy > result.txt` keeps the status lines and build log on the terminal while the final result lands in the file.
+Results go to stdout; prompts, progress, and diagnostics go to stderr, so piping stdout stays useful. `coolship open --print | pbcopy` copies only the URL, and `coolship deploy > result.txt` keeps the status lines and build log on the terminal while the final result lands in the file. When the stage checklist is drawn, a finished deployment's result on stdout is its URL alone: the checklist's summary line on stderr already names the application, the environment, and the time taken.
 
 ## JSON
 
