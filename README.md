@@ -372,7 +372,13 @@ $ coolship doctor
 
 ### `coolship config`
 
-Show the effective configuration for this directory after overrides: the discovered file, target, binding, and which credentials would be used. It reads files only — no request is made and no token is shown.
+In a terminal, `config` opens a form that shows the binding, where credentials come from, and the instance, and edits your preferences (`verbosity`, `build_logs`, `color`, `hints`, `update_check`). Save writes only the keys you changed to `preferences.toml`, and Esc leaves without writing. Piped or with `--format json`, it prints the same view as `config show`: the discovered file, target, binding, and which credentials would be used, after overrides. It reads files only — no request is made and no token is shown.
+
+```bash
+coolship config show
+coolship config get verbosity
+coolship config set hints false
+```
 
 ### `coolship unlink`
 
