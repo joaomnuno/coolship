@@ -87,6 +87,9 @@ func run() int {
 		NewBackend: func(credentials auth.Credentials) (service.Backend, error) {
 			return newBackend(credentials, streams.Trace)
 		},
+		CheckHealth: func(ctx context.Context, url string) error {
+			return coolify.CheckHealth(ctx, url, clientOptions(streams.Trace)...)
+		},
 		CredentialURL:   os.Getenv("COOLSHIP_URL"),
 		CredentialToken: os.Getenv("COOLSHIP_TOKEN"),
 		RunProcess: func(ctx context.Context, spec service.ProcessSpec) (int, error) {
@@ -175,6 +178,17 @@ const debugUnredactedEnv = "COOLSHIP_DEBUG_UNREDACTED"
 // newBackend builds the Coolify client. Above normal verbosity every request
 // attempt is reported to trace; at normal the client is given no trace at all.
 func newBackend(credentials auth.Credentials, trace *ui.Trace) (service.Backend, error) {
+	client, err := coolify.NewClient(credentials.URL, credentials.Token, clientOptions(trace)...)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// clientOptions identifies Coolship to the server and, above normal
+// verbosity, reports every request attempt to trace, for the backend and the
+// token-free health check alike.
+func clientOptions(trace *ui.Trace) []coolify.Option {
 	options := []coolify.Option{coolify.WithUserAgent("coolship/" + userAgentVersion())}
 	if trace.Level() != ui.VerbosityNormal {
 		options = append(options, coolify.WithTrace(func(exchange coolify.Exchange) { trace.Exchange(ui.Exchange(exchange)) }))
@@ -182,11 +196,7 @@ func newBackend(credentials auth.Credentials, trace *ui.Trace) (service.Backend,
 			options = append(options, coolify.WithUnredactedTrace())
 		}
 	}
-	client, err := coolify.NewClient(credentials.URL, credentials.Token, options...)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return options
 }
 
 // interactive reports whether prompts can be both written and answered. Prompts

@@ -1921,6 +1921,13 @@ func TestLoginVerifiesBeforeSavingAndLogoutWarnsAboutDefault(t *testing.T) {
 			}
 			return f, nil
 		},
+		CheckHealth: func(_ context.Context, url string) error {
+			if url != "https://coolify.example.com" {
+				return errors.New("health checked with an unnormalized URL")
+			}
+			return nil
+		},
+		FindLogin: func(string, string, string) (auth.Match, error) { return auth.Match{}, nil },
 		InspectCredentials: func(auth.Options) auth.Report {
 			report := auth.Report{Source: "file", Path: path, Exists: true, Instances: instances}
 			for _, instance := range instances {
@@ -1994,5 +2001,46 @@ func TestLoginVerifiesBeforeSavingAndLogoutWarnsAboutDefault(t *testing.T) {
 	}
 	if _, err := app.Logout(context.Background(), LogoutOptions{Name: "home"}); !errors.Is(err, ErrInput) {
 		t.Fatalf("logout unknown: %v", err)
+	}
+}
+
+func TestLoginChecksTheInstanceFirstAndRefusesADuplicate(t *testing.T) {
+	f := newBackend()
+	built, saves := 0, 0
+	healthErr := error(&coolify.NotCoolifyError{Endpoint: "/api/health", StatusCode: 404})
+	match := auth.Match{}
+	app := New(Dependencies{
+		NewBackend:         func(auth.Credentials) (Backend, error) { built++; return f, nil },
+		CheckHealth:        func(context.Context, string) error { return healthErr },
+		FindLogin:          func(string, string, string) (auth.Match, error) { return match, nil },
+		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{} },
+		SaveCredentials: func(p string, _ auth.Stored, _ bool) (string, error) {
+			saves++
+			return p, nil
+		},
+	})
+	options := LoginOptions{URL: "https://coolify.example.com", Name: "home", Token: "secret-token"}
+	_, err := app.Login(context.Background(), options)
+	if found, ok := problem.Classify(err); !ok || found.Code != problem.CodeNotCoolify || built != 0 || saves != 0 ||
+		!strings.HasPrefix(err.Error(), "no Coolify answered at https://coolify.example.com: ") {
+		t.Fatalf("health failure: err=%v problem=%+v built=%d saves=%d", err, found, built, saves)
+	}
+	if _, err := app.CheckInstance(context.Background(), "coolify.example.com"); !errors.Is(err, ErrInput) {
+		t.Fatalf("bare host: %v", err)
+	}
+	healthErr = nil
+	if address, err := app.CheckInstance(context.Background(), " https://Coolify.example.com/ "); err != nil || address != "https://coolify.example.com" {
+		t.Fatalf("check instance: %q %v", address, err)
+	}
+	// The same URL with the same token is refused before the server is asked.
+	match = auth.Match{Names: []string{"lab"}, Duplicate: "lab"}
+	_, err = app.Login(context.Background(), options)
+	if found, ok := problem.Classify(err); !ok || found.Code != problem.CodeAlreadySaved || found.Context != "lab" || !errors.Is(err, ErrInput) || built != 0 || saves != 0 {
+		t.Fatalf("duplicate: err=%v problem=%+v built=%d", err, found, built)
+	}
+	// The same URL with another token is saved.
+	match = auth.Match{Names: []string{"lab"}}
+	if result, err := app.Login(context.Background(), options); err != nil || result.Name != "home" || built != 1 || saves != 1 {
+		t.Fatalf("new token: %+v %v", result, err)
 	}
 }

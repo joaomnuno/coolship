@@ -28,6 +28,9 @@ func New(deps Dependencies) *App {
 	if deps.SaveCredentials == nil {
 		deps.SaveCredentials = auth.Save
 	}
+	if deps.FindLogin == nil {
+		deps.FindLogin = auth.FindLogin
+	}
 	if deps.RemoveCredentials == nil {
 		deps.RemoveCredentials = auth.Remove
 	}

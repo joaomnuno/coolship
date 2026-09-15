@@ -234,6 +234,20 @@ type LoginResult struct {
 	Replaced bool   `json:"replaced"`
 }
 
+// SavedContext is one context the Coolify CLI configuration holds, without
+// its token.
+type SavedContext struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Default bool   `json:"default"`
+}
+
+// LoginCheck is what the server said about a token CheckLogin accepted.
+type LoginCheck struct {
+	Server string `json:"server"`
+	Team   string `json:"team"`
+}
+
 type LogoutOptions struct {
 	ConfigPath string
 	Name       string
@@ -550,10 +564,16 @@ type Dependencies struct {
 	SaveCredentials    func(path string, instance auth.Stored, makeDefault bool) (string, error)
 	RemoveCredentials  func(path, name string) (string, bool, error)
 	NewBackend         func(auth.Credentials) (Backend, error)
-	CredentialURL      string
-	CredentialToken    string
-	PollInterval       time.Duration
-	RunProcess         func(context.Context, ProcessSpec) (int, error)
+	// CheckHealth asks the instance at a normalized URL whether Coolify
+	// answers there, without a token; login calls it before asking for one.
+	CheckHealth func(ctx context.Context, url string) error
+	// FindLogin reports the saved contexts with a URL, and which one holds
+	// a token; the default is auth.FindLogin.
+	FindLogin       func(path, url, token string) (auth.Match, error)
+	CredentialURL   string
+	CredentialToken string
+	PollInterval    time.Duration
+	RunProcess      func(context.Context, ProcessSpec) (int, error)
 	// InspectRepository reads the remote and branch of the repository
 	// containing a directory; init asks it only for what --repo and --branch
 	// did not supply. Without it, both flags are required.

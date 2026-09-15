@@ -61,14 +61,18 @@ Log in once. Coolship verifies the URL and token against the server, then stores
 
 ```text
 $ coolship login
-Coolify URL: https://coolify.example.com
-Context name [coolify]: home
-API token:
+✓ Instance type                 Self-hosted
+✓ URL                           https://coolify.example.com
+✓ Check instance                0:00  Coolify answered
+✓ Context name                  home
+✓ Token                         ••••9f3a
+✓ Check token                   0:01  team Personal on Coolify 4.3.18
+✓ Save                          0:00  /home/you/.config/coolify/config.json
 Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
 Saved to /home/you/.config/coolify/config.json
 ```
 
-Create the token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. See [Credentials](/docs/concepts/credentials).
+`login` asks one step at a time: self-hosted or Coolify Cloud, the URL (checked right away), a context name, and the token (checked as soon as it is typed). Shift+Tab edits the previous answer and Esc leaves without writing anything. Create the token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. See [Credentials](/docs/concepts/credentials).
 
 </Step>
 <Step>

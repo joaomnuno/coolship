@@ -352,6 +352,7 @@ type stageRow struct {
 	status  string // empty until reached, then started, done, failed, or skipped
 	note    string // why it was skipped, when Coolify said
 	detail  string // what a Steps row adds after its time; deploy's stages have none
+	answer  bool   // a finished Steps row that shows an answer where its time would be
 	started time.Time
 	ended   time.Time
 }
@@ -510,6 +511,10 @@ func drawRow(style palette, spin string, row stageRow, width int, now time.Time)
 	case service.StageStarted:
 		line = spin + " " + row.name + pad(row.name, width) + FormatElapsed(now.Sub(row.started))
 	case service.StageDone:
+		if row.answer {
+			// A question's row: how long someone took to answer is noise.
+			return style.apply(green, "✓") + " " + row.name + pad(row.name, width) + singleLine(row.detail)
+		}
 		line = style.apply(green, "✓") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
 	case service.StageFailed:
 		line = style.apply(red, "✗") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))

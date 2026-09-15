@@ -8,24 +8,66 @@ coolship login [flags]
 coolship logout NAME [flags]
 ```
 
-`login` saves a Coolify instance URL and API token in the Coolify CLI configuration, which [`coolify-cli`](https://github.com/coollabsio/coolify-cli) shares, after verifying them against the server. Interactively, it asks for the URL, a context name, and the token, which is not echoed:
+`login` saves a Coolify instance URL and API token in the Coolify CLI configuration, which [`coolify-cli`](https://github.com/coollabsio/coolify-cli) shares, after verifying them against the server.
+
+## In a terminal
+
+`login` asks one step at a time and shows its progress as a checklist, like `deploy`'s stages:
+
+1. **Instance type**: *Self-hosted* or *Coolify Cloud*. Contexts already saved on this machine are listed under the question, for reference; they cannot be picked or edited here.
+2. **URL**: the address you open Coolify at, such as `https://coolify.example.com`. Coolify Cloud uses `https://app.coolify.io` without asking.
+3. **Check instance**: Coolship asks Coolify's public health check, `GET /api/health`, before any token is involved, so a mistyped URL is caught at once.
+4. **Context name**: what Coolship and coolify-cli call this instance, suggested from the host.
+5. **Token**: read without echo; the row shows only its last four characters.
+6. **Check token**: `GET /version`, then the token's team.
+7. **Save**: the only step that writes anything.
 
 ```text
 $ coolship login
-Coolify URL: https://coolify.example.com
-Context name [coolify]: home
-API token:
-Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
-Saved to /home/you/.config/coolify/config.json
+✓ Instance type                 Self-hosted
+✓ URL                           https://coolify.example.com
+✓ Check instance                0:00  Coolify answered
+? Context name
+  What Coolship and coolify-cli call this instance on this machine.
+  > coolify
+
+  Token
+  Check token
+  Save
+
+shift+tab edit previous · esc leave
 ```
 
-Noninteractively, pass `--url` and `--name` and pipe the token on stdin with `--token-stdin`. The token is never accepted as a flag, so it stays out of shell history and process listings. Create a token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities.
+The answers so far stay listed above the question. **Shift+Tab** goes back to the previous answer, with what you typed kept, and so does the up arrow when the field is empty or a list is at its top. **Esc** leaves without writing anything and exits with `130`.
+
+A check that fails says exactly what happened, with the same code, hint, and link the command would print, and offers **Retry**, **Go back**, and **Leave**. When the failure is in Coolify's own setup, such as API access turned off or this machine's address not on the allowlist, it also offers to open the Coolify page that fixes it:
+
+```text
+✗ Check token                   0:00
+  Error [api_disabled]: could not verify https://coolify.example.com: Coolify GET /version: HTTP 403 Forbidden: API is disabled.
+  Hint: API access is turned off on this Coolify instance. An instance admin can turn it on in Coolify under Settings, Advanced, API access.
+  Docs: https://coolify.io/docs/api/ip-allowlist
+  ❯ Retry
+    Go back
+    Open in browser  https://coolify.example.com/settings/advanced
+    Leave
+```
+
+When the URL is already saved, `login` asks whether to replace that context's token, save under a new name, or leave. A new name may not be one already saved.
+
+At `--verbose` or `--debug`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command.
+
+## Without a terminal
+
+Pass `--url` and `--name` (or `--context`) and pipe the token on stdin with `--token-stdin`. The same checks run in the same order, and a failure exits with its [error code](/docs/platform/errors) instead of asking again. For Coolify Cloud, pass `--url https://app.coolify.io`. The token is never accepted as a flag, so it stays out of shell history and process listings. Create a token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities.
+
+A URL and token that a saved context already holds are refused with [`already_saved`](/docs/platform/errors#already_saved), exiting `2`; nothing needed saving. The same URL with another token is saved under the name you pass.
 
 ## Flags
 
 | Flag            | Purpose                                                          |
 | --------------- | ---------------------------------------------------------------- |
-| `--url URL`     | Coolify instance URL, e.g. `https://coolify.example.com`.        |
+| `--url URL`     | Coolify instance URL, e.g. `https://coolify.example.com` or `https://app.coolify.io`. |
 | `--name NAME`   | Context name (default: derived from the URL's host).             |
 | `--token-stdin` | Read the API token from stdin.                                   |
 | `--default`     | Make this the default context.                                   |
@@ -76,4 +118,4 @@ The token never appears in either.
 
 ## Exit codes
 
-`0` when the context was saved or removed; `1` when the server rejects the token or cannot be reached; `2` when the URL is invalid, `--token-stdin` is missing noninteractively, or the context to remove does not exist.
+`0` when the context was saved or removed; `1` when the instance check fails (`not_coolify`, `host_not_found`, `tls_error`, and the other network codes) or the server rejects the token; `2` when the URL is invalid, `--token-stdin` is missing noninteractively, the URL and token are already saved, or the context to remove does not exist; `130` when you leave the interactive form.

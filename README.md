@@ -106,15 +106,18 @@ Log in once. Coolship verifies the URL and token against the server, then stores
 
 ```text
 $ coolship login
-Coolify URL: https://coolify.example.com
-Context name [coolify]: home
-Create a token in Coolify under Keys & Tokens with read, write, and deploy; add sensitive read to see build logs and secret values.
-API token:
+✓ Instance type                 Self-hosted
+✓ URL                           https://coolify.example.com
+✓ Check instance                0:00  Coolify answered
+✓ Context name                  home
+✓ Token                         ••••9f3a
+✓ Check token                   0:01  team Personal on Coolify 4.3.18
+✓ Save                          0:00  /home/you/.config/coolify/config.json
 Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
 Saved to /home/you/.config/coolify/config.json
 ```
 
-Create the token in Coolify under your profile's **Keys & Tokens** page with the *read*, *write*, and *deploy* abilities; build logs and secret values are also withheld unless the token has *sensitive read*. The URL must be the full `https://…` address — a bare host is asked again — and the token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin` (`--context ci` names it too, and without a terminal a missing `--url` or `--name` is an error rather than a prompt). `coolship logout NAME` removes a context.
+In a terminal, `login` asks one step at a time: self-hosted or Coolify Cloud, the URL, a context name, and the token. The URL is checked right away through Coolify's public health check, and the token as soon as it is typed; a failed check explains itself and offers Retry, Go back, or Leave, and nothing is written until the last step. Shift+Tab edits the previous answer, and Esc leaves (exit 130). A URL and token that are already saved are refused as a duplicate. Create the token in Coolify under your profile's **Keys & Tokens** page with the *read*, *write*, and *deploy* abilities; build logs and secret values are also withheld unless the token has *sensitive read*. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin` (`--context ci` names it too, `--url https://app.coolify.io` is Coolify Cloud, and without a terminal a missing `--url` or `--name` is an error rather than a prompt; the same checks run and fail with their error code). `coolship logout NAME` removes a context.
 
 Then link a repository. If it is already an application on Coolify, `link` binds it; if it is not on Coolify yet, `init` creates the application from the repository's remote — public, or private through a GitHub App or a deploy key — and binds it in one step:
 

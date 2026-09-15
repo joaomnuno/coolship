@@ -83,6 +83,19 @@ func (f fakeApplication) Contexts(options service.Options) ([]auth.Instance, err
 func (f fakeApplication) Login(ctx context.Context, options service.LoginOptions) (service.LoginResult, error) {
 	return f.login(ctx, options)
 }
+
+// The steps of an interactive login: the instance and token checks pass,
+// and the save is the fake's login, so tests see what would be saved.
+func (f fakeApplication) SavedContexts(string) []service.SavedContext { return nil }
+func (f fakeApplication) CheckInstance(_ context.Context, url string) (string, error) {
+	return service.NormalizeInstanceURL(url)
+}
+func (f fakeApplication) CheckLogin(context.Context, service.LoginOptions) (service.LoginCheck, error) {
+	return service.LoginCheck{}, nil
+}
+func (f fakeApplication) SaveLogin(ctx context.Context, options service.LoginOptions, _ service.LoginCheck) (service.LoginResult, error) {
+	return f.login(ctx, options)
+}
 func (f fakeApplication) Logout(ctx context.Context, options service.LogoutOptions) (service.LogoutResult, error) {
 	return f.logout(ctx, options)
 }
@@ -1139,7 +1152,7 @@ func TestLoginChecksTheURLBeforeTheTokenAndNamesTheFlags(t *testing.T) {
 	if err != nil || seen.URL != "https://coolify.example.com" || seen.Name != "coolify" || seen.Token != "typed" {
 		t.Fatalf("interactive: seen=%+v err=%v stderr=%q", seen, err, diagnostic)
 	}
-	if strings.Count(diagnostic, "Coolify URL:") != 2 || !strings.Contains(diagnostic, "full URL") || !strings.Contains(diagnostic, "Keys & Tokens") || strings.Contains(diagnostic, "typed") {
+	if strings.Count(diagnostic, "Coolify URL (https://app.coolify.io for Coolify Cloud):") != 2 || !strings.Contains(diagnostic, "full URL") || !strings.Contains(diagnostic, "Keys & Tokens") || strings.Contains(diagnostic, "typed") {
 		t.Fatalf("interactive stderr=%q", diagnostic)
 	}
 	if strings.Index(diagnostic, "Keys & Tokens") < strings.Index(diagnostic, "Context name") {

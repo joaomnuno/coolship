@@ -30,6 +30,7 @@ const (
 	CodeUnknownContext      Code = "unknown_context"
 	CodeNoDefaultContext    Code = "no_default_context"
 	CodeInvalidCredentials  Code = "invalid_credentials"
+	CodeAlreadySaved        Code = "already_saved"
 	CodeNotLinked           Code = "not_linked"
 	CodeTargetNotSelected   Code = "target_not_selected"
 	CodeInvalidConfig       Code = "invalid_config"
@@ -54,6 +55,7 @@ const (
 	CodeTLSError            Code = "tls_error"
 	CodeRequestTimeout      Code = "request_timeout"
 	CodeNetworkError        Code = "network_error"
+	CodeNotCoolify          Code = "not_coolify"
 	CodeUnexpectedResponse  Code = "unexpected_response"
 	CodeUncertainSubmission Code = "uncertain_submission"
 	CodeDeploymentTimeout   Code = "deployment_timeout"
@@ -134,6 +136,8 @@ var catalog = map[Code]entry{
 		hint: "Pass --context NAME, or run coolship login --default to make a saved context the default."},
 	CodeInvalidCredentials: {owner: OwnerCoolship,
 		hint: "Check COOLSHIP_URL and COOLSHIP_TOKEN, or fix the Coolify CLI configuration file; coolship login rewrites a context."},
+	CodeAlreadySaved: {owner: OwnerCoolship,
+		hint: "Nothing needed saving. Use that context with --context NAME, or run coolship logout NAME first to save it again."},
 	CodeNotLinked: {owner: OwnerCoolship, fix: FixLink,
 		hint: "Run coolship link to use an existing Coolify application, or coolship init to create one."},
 	CodeTargetNotSelected: {owner: OwnerCoolship,
@@ -182,6 +186,8 @@ var catalog = map[Code]entry{
 		hint: "Check the instance URL and the network, then retry."},
 	CodeNetworkError: {owner: OwnerCoolship,
 		hint: "The request got no response. Check the network and any proxy between this machine and Coolify, then retry."},
+	CodeNotCoolify: {owner: OwnerCoolship,
+		hint: "Something answered at this URL, but not Coolify. Use the address you open Coolify at in a browser, such as https://coolify.example.com, or https://app.coolify.io for Coolify Cloud."},
 	CodeUnexpectedResponse: {owner: OwnerCoolship,
 		hint: "Coolify answered in a shape Coolship does not expect. Check that the instance runs a supported Coolify version (coolship doctor)."},
 	CodeUncertainSubmission: {owner: OwnerCoolship,
@@ -272,6 +278,8 @@ func recognize(err error) (recognized, bool) {
 	var httpErr *coolify.HTTPError
 	var requestErr *coolify.RequestError
 	var protocol *coolify.ProtocolError
+	var notCoolify *coolify.NotCoolifyError
+	var duplicate *auth.DuplicateLoginError
 	var missing *auth.MissingCredentialsError
 	var unknownContext *auth.ContextNotFoundError
 	var noDefault *auth.NoDefaultContextError
@@ -291,6 +299,10 @@ func recognize(err error) (recognized, bool) {
 		return recognizeTransport(requestErr)
 	case errors.As(err, &protocol):
 		return recognized{code: CodeUnexpectedResponse}, true
+	case errors.As(err, &notCoolify):
+		return recognized{code: CodeNotCoolify}, true
+	case errors.As(err, &duplicate):
+		return recognized{code: CodeAlreadySaved, context: duplicate.Name}, true
 	case errors.As(err, &missing):
 		return recognized{code: CodeNoCredentials, advice: []string{"; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN"}}, true
 	case errors.As(err, &unknownContext):

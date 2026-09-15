@@ -21,6 +21,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/coolify"
 	"github.com/joaomnuno/coolship/internal/gitinfo"
+	"github.com/joaomnuno/coolship/internal/problem"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -107,6 +108,13 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 			fn(w, r, s.record(r.Method+" "+r.URL.Path))
 		})
 	}
+	// Coolify's health check is public: no token is sent or needed.
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("health check sent credentials")
+		}
+		_, _ = w.Write([]byte("OK"))
+	})
 	handle("GET /api/v1/teams/current", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, map[string]any{"id": 0, "name": "PelicanOS"})
 	})
@@ -1177,6 +1185,9 @@ func runWithFile(t *testing.T, configPath, dir, in string, args ...string) (stri
 		NewBackend: func(credentials auth.Credentials) (service.Backend, error) {
 			return coolify.NewClient(credentials.URL, credentials.Token)
 		},
+		CheckHealth: func(ctx context.Context, url string) error {
+			return coolify.CheckHealth(ctx, url)
+		},
 		PollInterval: time.Millisecond,
 	})
 	root := cmd.NewRootCommand(app, ui.Streams{In: strings.NewReader(in), Out: &out, Err: &diagnostic}, "test-version")
@@ -1204,6 +1215,22 @@ func TestLoginWritesAFileEveryCommandCanUse(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(configPath); strings.Contains(string(data), `"bad"`) {
 		t.Fatal("rejected context was written")
+	}
+	// The same URL and token under another name is a duplicate, refused with
+	// its code before the server is asked about the token.
+	_, _, err = runWithFile(t, configPath, dir, testToken+"\n", "login", "--url", instance.URL+"/", "--name", "twin", "--token-stdin")
+	if found, ok := problem.Classify(err); !ok || found.Code != problem.CodeAlreadySaved || found.Context != "ci" || ui.ExitCode(err) != 2 {
+		t.Fatalf("duplicate: %v %+v", err, found)
+	}
+	// A URL where something other than Coolify answers fails its health check.
+	elsewhere := httptest.NewServer(http.NotFoundHandler())
+	defer elsewhere.Close()
+	_, _, err = runWithFile(t, configPath, dir, testToken+"\n", "login", "--url", elsewhere.URL, "--name", "other", "--token-stdin")
+	if found, ok := problem.Classify(err); !ok || found.Code != problem.CodeNotCoolify || ui.ExitCode(err) != 1 {
+		t.Fatalf("not coolify: %v %+v", err, found)
+	}
+	if data, _ := os.ReadFile(configPath); strings.Contains(string(data), `"twin"`) || strings.Contains(string(data), `"other"`) {
+		t.Fatalf("refused logins were written: %s", data)
 	}
 	if _, _, err := runWithFile(t, configPath, dir, "", "link", "--project", "Personal", "--application", "fenix-bot"); err != nil {
 		t.Fatalf("link with the saved context: %v", err)
