@@ -243,6 +243,42 @@ func TestCreateRejectsBadNames(t *testing.T) {
 	}
 }
 
+func TestRejectsTheBinaryNameInAnotherCase(t *testing.T) {
+	f := newFixture(t, "linux")
+	for _, name := range []string{"COOLSHIP", "CoolShip"} {
+		var invalid *NameError
+		if _, err := Create(f.system, name); !errors.As(err, &invalid) {
+			t.Errorf("Create(%q) err = %v, want a NameError", name, err)
+		}
+		if _, err := Remove(f.system, name); !errors.As(err, &invalid) {
+			t.Errorf("Remove(%q) err = %v, want a NameError", name, err)
+		}
+	}
+	w := newFixture(t, "windows")
+	var invalid *NameError
+	if _, err := Remove(w.system, "COOLSHIP.EXE"); !errors.As(err, &invalid) {
+		t.Errorf("Remove(COOLSHIP.EXE) on windows err = %v, want a NameError", err)
+	}
+	if _, err := os.Stat(f.exe); err != nil {
+		t.Fatal("binary removed")
+	}
+}
+
+func TestCreateRefusesACommandFoundThroughARelativePathEntry(t *testing.T) {
+	f := newFixture(t, "linux")
+	other := t.TempDir()
+	found := filepath.Join(other, "cs")
+	writeFile(t, found, "#!/bin/sh\necho coursier\n")
+	f.system.LookPath = func(string) (string, error) {
+		return found, &exec.Error{Name: "cs", Err: exec.ErrDot}
+	}
+	_, err := Create(f.system, "cs")
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) || conflict.Path != found {
+		t.Fatalf("err = %v, want a conflict naming %s", err, found)
+	}
+}
+
 func TestRemove(t *testing.T) {
 	symlinks(t)
 	f := newFixture(t, "linux")
