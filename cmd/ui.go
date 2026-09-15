@@ -53,7 +53,7 @@ func newUICommand(app Application, options *commandOptions, streams ui.Streams, 
 	}
 	return &cobra.Command{
 		Use:   "ui",
-		Short: "Open a menu of this directory's application and verbs (experimental)",
+		Short: "(experimental) Open a menu of this directory's application and verbs",
 		Long: `Open a full-screen menu: the linked application, its status, and its last
 deployment at the top, read again every few seconds, and below them the verbs
 in the same groups and order as the help.
