@@ -209,44 +209,124 @@ func TestPinnedIDsAreAuthoritativeAndWarnOnRename(t *testing.T) {
 	}
 }
 
-func TestMissingPinsNeverFallbackToMatchingNames(t *testing.T) {
+// A pin that is found is used without any list read: the pin hit.
+func TestPinHitReadsNoLists(t *testing.T) {
+	catalog, target := catalogFixture()
+	target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e1", "a1"
+	result, err := Resolve(context.Background(), catalog, target)
+	if err != nil || result.Application.UUID != "a1" || len(result.Warnings) != 0 {
+		t.Fatalf("binding = %#v, error = %v", result, err)
+	}
+	for _, call := range catalog.recorded() {
+		if call == "projects" || strings.HasPrefix(call, "environments:") {
+			t.Errorf("pin hit listed %q", call)
+		}
+	}
+}
+
+func TestPinMissWithNameHitFallsBackAndWarnsOnce(t *testing.T) {
 	for _, test := range []struct {
 		resource string
 		change   func(*project.Target)
+		warning  string
 	}{
-		{"project", func(target *project.Target) { target.Binding.ProjectUUID = "deleted" }},
-		{"environment", func(target *project.Target) { target.Binding.EnvironmentUUID = "deleted" }},
-		{"application", func(target *project.Target) { target.Binding.ApplicationUUID = "deleted" }},
+		{"project", func(target *project.Target) { target.Binding.ProjectUUID = "deleted" },
+			`coolship.toml pins project deleted that no longer exists; found "Personal" by name. Run coolship link to refresh.`},
+		{"environment", func(target *project.Target) { target.Binding.EnvironmentUUID = "deleted" },
+			`coolship.toml pins environment deleted that no longer exists; found "production" by name. Run coolship link to refresh.`},
+		{"application", func(target *project.Target) { target.Binding.ApplicationUUID = "deleted" },
+			`coolship.toml pins application deleted that no longer exists; found "web" by name. Run coolship link to refresh.`},
+		// A pin that exists but outside its bound parent is missing there too.
+		{"environment in another project", func(target *project.Target) {
+			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID = "p1", "e3"
+		}, `coolship.toml pins environment e3 that no longer exists; found "production" by name. Run coolship link to refresh.`},
+		{"application in another environment", func(target *project.Target) { target.Binding.ApplicationUUID = "a2" },
+			`coolship.toml pins application a2 that no longer exists; found "web" by name. Run coolship link to refresh.`},
+		// A replaced project takes its environment and application with it:
+		// one warning names all three.
+		{"everything", func(target *project.Target) {
+			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "deleted-p", "deleted-e", "deleted-a"
+		}, `coolship.toml pins project deleted-p, environment deleted-e, application deleted-a that no longer exist; found "Personal", "production", "web" by name. Run coolship link to refresh.`},
 	} {
 		t.Run(test.resource, func(t *testing.T) {
 			catalog, target := catalogFixture()
 			test.change(&target)
-			_, err := Resolve(context.Background(), catalog, target)
-			var missing *MissingError
-			if !errors.As(err, &missing) || missing.Resource != test.resource || missing.UUID != "deleted" {
-				t.Fatalf("error = %v", err)
+			var alongside []string
+			result, err := ResolveAlongside(context.Background(), catalog, target, func(uuid string) { alongside = append(alongside, uuid) })
+			if err != nil || result.Project.UUID != "p1" || result.Environment.UUID != "e1" || result.Application.UUID != "a1" || result.Application.Status != "running:healthy" {
+				t.Fatalf("binding = %#v, error = %v", result, err)
+			}
+			if !reflect.DeepEqual(result.Warnings, []string{test.warning}) {
+				t.Errorf("warnings = %q, want %q", result.Warnings, test.warning)
+			}
+			if len(alongside) == 0 || alongside[len(alongside)-1] != "a1" {
+				t.Errorf("alongside = %v, want the last call with a1", alongside)
 			}
 		})
 	}
 }
 
-// A pinned application is read as soon as resolution starts, concurrently
-// with its parents, so an out-of-scope pin may be read; its answer is never
-// used, because membership in the selected environment is checked first.
-func TestPinsMustBelongToSelectedParents(t *testing.T) {
+func TestPinMissWithNameMissIsAnError(t *testing.T) {
+	for _, test := range []struct {
+		resource string
+		change   func(*project.Target)
+	}{
+		{"project", func(target *project.Target) { target.Binding.ProjectUUID, target.Binding.Project = "deleted", "Gone" }},
+		{"environment", func(target *project.Target) {
+			target.Binding.EnvironmentUUID, target.Binding.Environment = "deleted", "gone"
+		}},
+		{"application", func(target *project.Target) {
+			target.Binding.ApplicationUUID, target.Binding.Application = "deleted", "gone"
+		}},
+	} {
+		t.Run(test.resource, func(t *testing.T) {
+			catalog, target := catalogFixture()
+			test.change(&target)
+			result, err := Resolve(context.Background(), catalog, target)
+			var missing *MissingError
+			if !errors.As(err, &missing) || missing.Resource != test.resource || missing.UUID != "deleted" || !missing.Fallback || result.Application.UUID != "" {
+				t.Fatalf("binding = %#v, error = %v", result, err)
+			}
+			if message := err.Error(); !strings.Contains(message, `pinned UUID "deleted" no longer exists`) || !strings.Contains(message, "named") {
+				t.Errorf("message does not name the pin and the name: %q", message)
+			}
+		})
+	}
+	// An ambiguous name stands in for nothing either.
+	catalog, target := catalogFixture()
+	catalog.projects = append(catalog.projects, models.Project{UUID: "p9", Name: "Personal"})
+	target.Binding.ProjectUUID = "deleted"
+	var ambiguous *AmbiguousError
+	if _, err := Resolve(context.Background(), catalog, target); !errors.As(err, &ambiguous) || ambiguous.Resource != "project" {
+		t.Fatalf("error = %v, want the project name ambiguous", err)
+	}
+}
+
+// A pin without a name has nothing to fall back to, in or out of scope.
+func TestPinMissWithoutNameIsAnError(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		resource string
 		change   func(*project.Target)
 	}{
-		{"environment in another project", "environment", func(target *project.Target) { target.Binding.EnvironmentUUID = "e3" }},
-		{"application in another environment", "application", func(target *project.Target) { target.Binding.ApplicationUUID = "a2" }},
-		{"application in another project", "application", func(target *project.Target) { target.Binding.ApplicationUUID = "a3" }},
+		{"project", "project", func(target *project.Target) { target.Binding.ProjectUUID, target.Binding.Project = "deleted", "" }},
+		{"environment", "environment", func(target *project.Target) {
+			target.Binding.EnvironmentUUID, target.Binding.Environment = "deleted", ""
+		}},
+		{"application", "application", func(target *project.Target) {
+			target.Binding.ApplicationUUID, target.Binding.Application = "deleted", ""
+		}},
+		{"environment in another project", "environment", func(target *project.Target) {
+			target.Binding.EnvironmentUUID, target.Binding.Environment = "e3", ""
+		}},
+		{"application in another environment", "application", func(target *project.Target) {
+			target.Binding.ApplicationUUID, target.Binding.Application = "a2", ""
+		}},
 		{"application in another project, all pinned", "application", func(target *project.Target) {
-			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e1", "a3"
+			target.Binding = config.Binding{ProjectUUID: "p1", EnvironmentUUID: "e1", ApplicationUUID: "a3"}
 		}},
 		{"environment in another project, all pinned", "environment", func(target *project.Target) {
-			target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "p1", "e3", "a3"
+			target.Binding = config.Binding{ProjectUUID: "p1", EnvironmentUUID: "e3", ApplicationUUID: "a3"}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -254,8 +334,8 @@ func TestPinsMustBelongToSelectedParents(t *testing.T) {
 			test.change(&target)
 			result, err := Resolve(context.Background(), catalog, target)
 			var missing *MissingError
-			if !errors.As(err, &missing) || missing.Resource != test.resource || result.Application.UUID != "" {
-				t.Fatalf("out-of-scope pin = %#v, error = %v", result, err)
+			if !errors.As(err, &missing) || missing.Resource != test.resource || missing.Fallback || result.Application.UUID != "" {
+				t.Fatalf("binding = %#v, error = %v", result, err)
 			}
 		})
 	}
@@ -340,7 +420,7 @@ func TestPinnedReadFailuresRemainFailures(t *testing.T) {
 	}
 	// The parent's failure wins over its children's, whatever finishes first.
 	catalog, target := catalogFixture()
-	target.Binding.ProjectUUID, target.Binding.EnvironmentUUID, target.Binding.ApplicationUUID = "gone", "gone", "gone"
+	target.Binding = config.Binding{ProjectUUID: "gone", EnvironmentUUID: "gone", ApplicationUUID: "gone"}
 	_, err := Resolve(context.Background(), catalog, target)
 	var missing *MissingError
 	if !errors.As(err, &missing) || missing.Resource != "project" {

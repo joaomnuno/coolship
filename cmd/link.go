@@ -25,7 +25,9 @@ func newLinkCommand(app Application, options *commandOptions, streams ui.Streams
 		Short: "Bind this repository to an existing Coolify application",
 		Long: `Bind this repository to an existing Coolify application and write coolship.toml.
 Select resources interactively, or supply explicit selectors for noninteractive
-execution. Resource names match exactly within their selected parent.
+execution. Resource names match exactly within their selected parent. The
+file records each resource's UUID beside its name; a UUID that no longer
+exists falls back to the name, with a warning to run link again.
 
 Linking changes only local configuration. Existing changed bindings require
 confirmation or --replace; replacing regenerates the complete configuration.

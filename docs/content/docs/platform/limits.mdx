@@ -38,7 +38,7 @@ Coolship is verified against Coolify 4.3.18 (see [Server compatibility](/docs/co
 ## Resolution
 
 - **Pagination is not assumed.** A `Link` header advertising a next page is refused rather than treated as a complete candidate list.
-- **Names are matched exactly** within their parent; an ambiguous or missing selection is an error, never a guess. A pinned UUID that disappears is reported rather than replaced.
+- **Names are matched exactly** within their parent; an ambiguous or missing selection is an error, never a guess. A pinned UUID that disappears falls back to the name beside it, with a warning to run `coolship link`.
 
 ## Scope
 

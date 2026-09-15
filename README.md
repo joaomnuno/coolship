@@ -233,7 +233,7 @@ Supply selectors to run without prompts, which is what CI needs:
 coolship link --project Personal --environment production --application fenix-bot
 ```
 
-Names are matched exactly within their selected parent. Use `--project-uuid`, `--environment-uuid`, or `--application-uuid` to pin identity instead of a name; `link` writes a pin automatically when a name cannot describe the selection uniquely.
+Names are matched exactly within their selected parent. Use `--project-uuid`, `--environment-uuid`, or `--application-uuid` to select by UUID instead of a name. Whichever way a resource is selected, `link` writes its UUID beside its name.
 
 Replacing a different existing binding requires confirmation, or `--replace` when noninteractive. Re-running `link` with the same result leaves the file, including its comments, untouched.
 
@@ -487,7 +487,7 @@ application = "fenix-bot"
 root = "."
 ```
 
-`context` names a locally configured Coolify instance; it is neither a URL nor a token. `root` is the application root relative to the configuration directory. Optional `project_uuid`, `environment_uuid`, and `application_uuid` fields pin identity when names are ambiguous or when you ask for a pin. A pinned UUID is authoritative: if it disappears, Coolship reports that rather than falling back to a same-named replacement.
+`context` names a locally configured Coolify instance; it is neither a URL nor a token. `root` is the application root relative to the configuration directory. `link` and `init` also write `project_uuid`, `environment_uuid`, and `application_uuid` beside the names. Commands read those UUIDs directly, which takes one round of requests instead of listing every project. When a pinned UUID no longer exists, for example because the application was deleted and recreated under the same name, Coolship finds the resource by its name instead and warns once: `coolship.toml pins application <uuid> that no longer exists; found "web" by name. Run coolship link to refresh.` A name that then matches nothing, or more than one resource, is still an error, and so is a missing pin with no name beside it. Files with names only keep working unchanged, and running `link` again adds the pins without asking for review.
 
 Commit this file. **Tokens and secret values are never written to it.**
 

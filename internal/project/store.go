@@ -82,12 +82,28 @@ func Propose(value Project, key string, binding config.Binding) (Plan, error) {
 	case value.Config.Named() != plan.Config.Named():
 		plan.Review = true // converting between forms drops the other form's bindings
 	case key == "default":
-		plan.Review = true
+		plan.Review = !pinsOnly(value.Config.Project, binding)
 	default:
 		existing, present := value.Config.Apps[key]
-		plan.Review = present && existing != binding
+		plan.Review = present && existing != binding && !pinsOnly(existing, binding)
 	}
 	return plan, nil
+}
+
+// pinsOnly reports whether two bindings differ in their UUID pins alone: the
+// same names, context, root, and dev command. Writing such a change adds or
+// refreshes pins for the resources the file already names, which is what
+// link does to a name-only file or after a pin went missing, so it needs no
+// review.
+func pinsOnly(existing, proposed config.Binding) bool {
+	unpin := func(b config.Binding) config.Binding {
+		b.ProjectUUID, b.EnvironmentUUID, b.ApplicationUUID = "", "", ""
+		if b.Root == "" {
+			b.Root = "."
+		}
+		return b
+	}
+	return unpin(existing) == unpin(proposed)
 }
 
 // WriteBinding publishes a complete file without clobbering an existing one.
