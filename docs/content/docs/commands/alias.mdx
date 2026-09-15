@@ -1,0 +1,54 @@
+---
+title: alias
+description: Add a short name for coolship, such as cs, next to the coolship binary.
+---
+
+```text
+coolship alias [NAME] [flags]
+```
+
+`alias` adds `NAME` (default `cs`) as a second name for `coolship`. It writes one file in the directory the running binary lives in, after following any symlink to it: a symlink on Linux and macOS, or a copy named `NAME.exe` on Windows. Nothing else is written, and no request is made to Coolify.
+
+```text
+$ coolship alias
+Added cs: /home/you/.local/bin/cs runs coolship
+
+$ cs status
+```
+
+## What it refuses
+
+- **A name that runs something else.** When `NAME` is already a command on your `PATH` and is not Coolship, `alias` names that command and changes nothing. Pick another name: `coolship alias ship`.
+- **A file of that name that is not Coolship**, in the binary's directory, even when that directory is not on `PATH`.
+- **A directory it cannot write.** When `coolship` lives in a system directory such as `/usr/local/bin`, `alias` explains that and suggests running it with `sudo`, or moving the binary to a directory you own.
+
+Running `alias` again when the alias already runs this binary changes nothing. A link to or copy of an older Coolship binary is replaced. When the directory is not on `PATH`, or another command of the same name comes earlier on it, the alias is created and a warning says so.
+
+Coolship recognizes its own binary from the build information Go records in it; the file is never run.
+
+## Flags
+
+| Flag       | Purpose                                                                   |
+| ---------- | ------------------------------------------------------------------------- |
+| `--remove` | Remove the alias instead of adding it, only when it is a link to or copy of Coolship. |
+
+## Examples
+
+```bash
+coolship alias
+coolship alias ship
+coolship alias --remove
+coolship alias --remove ship
+```
+
+## JSON
+
+```json
+{ "name": "cs", "path": "/home/you/.local/bin/cs", "target": "/home/you/.local/bin/coolship", "status": "created" }
+```
+
+`status` is `created`, `exists` (nothing changed; `path` is where the alias already is), `removed`, or `absent` (`--remove` found nothing to remove). Optional `warnings` carry the same text as the `Warning:` lines.
+
+## Exit codes
+
+`0` when the alias was added, removed, or already in the wanted state; `1` when the directory cannot be written; `2` when the name is invalid, already runs another command, or `--remove` finds a file that is not Coolship.

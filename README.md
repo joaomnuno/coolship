@@ -58,15 +58,16 @@ On Linux (glibc or musl) and macOS, amd64 or arm64:
 curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
 ```
 
-The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
+The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. In a terminal it ends with the Coolship wordmark, the version and path, and the next steps: `coolship login`, and optionally `coolship alias` to add `cs` as a short name. `NO_COLOR` drops the colour; piped output and `--quiet` print a single `Installed` line instead. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never asks a question and never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
 
 Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 
-| Variable               | Flag        | Default           | Meaning                                                              |
-| ---------------------- | ----------- | ----------------- | -------------------------------------------------------------------- |
-| `COOLSHIP_VERSION`     | `--version` | latest            | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
-| `COOLSHIP_INSTALL_DIR` | `--dir`     | `$HOME/.local/bin` | Directory to install into, created if missing                        |
-|                        | `--dry-run` |                   | Resolve the version and print what would happen                      |
+| Variable               | Flag              | Default            | Meaning                                                              |
+| ---------------------- | ----------------- | ------------------ | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version`       | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`           | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run`       |                    | Resolve the version and print what would happen                      |
+|                        | `-q`, `--quiet`   |                    | Print only the installed path and version, a PATH hint, and errors   |
 
 Binaries are published by the release workflow; until that has run for a tag (v0.1.0 was tagged before it existed), the script reports the archive as unpublished and building from source is the way to get that version.
 
@@ -378,6 +379,15 @@ In a terminal, `config` opens a form that shows the binding, where credentials c
 coolship config show
 coolship config get verbosity
 coolship config set hints false
+```
+
+### `coolship alias`
+
+Add a short name for `coolship`, `cs` by default (`coolship alias ship` for another), next to the `coolship` binary: a symlink, or a copy on Windows. It refuses when the name already runs another command on your `PATH`, naming that command, and when the binary's directory is not writable, in which case it suggests running it with `sudo` or moving the binary. Running it again changes nothing. `coolship alias --remove` deletes the alias, but only when it is a link to or copy of Coolship.
+
+```text
+$ coolship alias
+Added cs: /home/you/.local/bin/cs runs coolship
 ```
 
 ### `coolship unlink`

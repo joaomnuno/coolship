@@ -7,6 +7,10 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Added
+- `coolship alias [NAME]` added a short name for Coolship, `cs` by default, next to the `coolship` binary: a symlink, or a copy on Windows. It refused when the name already ran another command on `PATH` (naming it) or when the binary's directory was not writable (suggesting `sudo` or moving the binary), and changed nothing when the alias already existed. `coolship alias --remove` deleted the alias only when it was a link to or copy of Coolship. It is listed under Configure in the help.
+- The installer ended with the Coolship wordmark, the installed version and path, `Next: coolship login`, and `Optional: coolship alias  (adds cs)` when stdout was a terminal. `NO_COLOR` removed the colour. Piped output kept the single `Installed` line, and the new `--quiet` flag printed only that line, any PATH hint, and errors. The script still never asked a question.
+
 ### Fixed
 - `logs` right after a deployment, or against a Compose application with a one-shot service that had exited, could refuse with "application is not running (status running:healthy)": Coolify's own logs endpoint resolves the container by name and can briefly disagree with the aggregated status it reports elsewhere. When that refusal comes with a status that still starts with `running`, `logs` now retries for about ten seconds before giving up, and the final refusal says what is actually known: "Coolify reports the application as running:healthy but has no running container to read logs from yet; this happens briefly after a deployment, or when a Compose service has exited. Retry in a moment." Any other status keeps the previous wording.
 - A deployment whose build Coolify skipped for an image with the same commit left the `build` stage dim, as if still pending, for the whole run. The checklist showed `– build  skipped (cached image)`, plain output printed `Stage build: skipped`, and the stage event carried the status `skipped`. Only Coolify's own skip line marked a stage skipped; a stage whose markers never arrived, such as when the token could not read the build log, stayed unmarked.

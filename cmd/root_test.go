@@ -165,7 +165,7 @@ func TestHelpGroupsCommandsByTask(t *testing.T) {
 		{"Get started", []string{"login", "init", "link"}},
 		{"Ship", []string{"deploy", "preview", "cancel", "deployments"}},
 		{"Run", []string{"start", "stop", "restart", "status", "logs", "open"}},
-		{"Configure", []string{"env", "domain", "config", "dev"}},
+		{"Configure", []string{"env", "domain", "config", "dev", "alias"}},
 		{"Maintain", []string{"doctor", "unlink", "logout", "completion", "help"}},
 	}
 	// Titles and commands must each appear after the previous one.

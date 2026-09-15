@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/joaomnuno/coolship/internal/alias"
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/suggest"
@@ -68,6 +69,13 @@ type settings struct {
 	openBrowser func(string) error
 	environment func(string) string
 	preferences preferences.Report
+	alias       alias.System
+}
+
+// WithAliasSystem supplies the executable path, PATH lookup, and OS that
+// alias reads. Without it, alias uses the running process.
+func WithAliasSystem(system alias.System) Option {
+	return func(s *settings) { s.alias = system }
 }
 
 // WithOpener supplies the browser launcher used by open. Without one, open
@@ -184,6 +192,7 @@ logs of that application.`,
 		{cobra.Group{ID: "configure", Title: "Configure"}, []*cobra.Command{
 			newEnvCommand(app, options, streams, order), newDomainCommand(app, options, streams),
 			newConfigCommand(app, options, streams, config.preferences, order), newDevCommand(app, options, streams),
+			newAliasCommand(options, streams, config.alias),
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
 			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
