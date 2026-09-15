@@ -144,7 +144,7 @@ Coolify answered in a shape Coolship does not expect, such as a list with pagina
 
 ### uncertain_submission
 
-A deployment request may have reached Coolify, but no answer came back. Coolship never repeats it by itself. Check the application's deployments (`coolship deployments`) before deploying again, so the same commit is not queued twice.
+A deployment request may have reached Coolify, but no answer came back. Coolship never repeats it by itself. Check the application's deployments (`coolship deployments`) before deploying again, so the same commit is not queued twice. An interrupt after the request was sent reports this code too, with exit code `130`.
 
 ### deployment_timeout
 
@@ -168,7 +168,7 @@ Any other failure. Exit code `1`.
 
 ### interrupted
 
-The run was interrupted, for example with Ctrl-C. Exit code `130`.
+The run was interrupted, for example with Ctrl-C. Exit code `130`. An interrupt after a deployment request was sent reports [`uncertain_submission`](#uncertain_submission) instead.
 
 ### cancelled
 

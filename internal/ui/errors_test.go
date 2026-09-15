@@ -93,6 +93,8 @@ func TestJSONFormatAlsoWritesTheErrorObjectOnStdout(t *testing.T) {
 		{"operation", errors.New("boom"), "unclassified", "Error: boom\n", false},
 		{"doctor", service.ErrChecksFailed, "checks_failed", "Error: doctor found problems that need attention\n", false},
 		{"interrupt", context.Canceled, "interrupted", "Interrupted\n", false},
+		{"interrupt after submission", &coolify.UncertainSubmissionError{ResourceUUID: "a1", Err: context.Canceled}, "uncertain_submission",
+			"Error [uncertain_submission]: deployment submission for application \"a1\" is uncertain; inspect Coolify before retrying: interrupted\n", true},
 		{"declined", service.ErrCancelled, "cancelled", "Cancelled\n", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

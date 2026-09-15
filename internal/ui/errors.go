@@ -74,14 +74,17 @@ type errorBody struct {
 // code, and reports whether the catalog knew it.
 func describeError(err error) (problem.Problem, bool) {
 	text := err.Error()
-	switch {
-	case errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled):
+	if errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled) {
 		return problem.Problem{Code: problem.CodeCancelled, Message: "cancelled"}, false
-	case errors.Is(err, context.Canceled):
-		return problem.Problem{Code: problem.CodeInterrupted, Message: strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")}, false
 	}
+	// The catalog comes before the interrupt: an interrupt after a deployment
+	// request was sent is an uncertain submission, not a safe stop.
 	if found, ok := problem.Classify(err); ok {
+		found.Message = strings.ReplaceAll(found.Message, context.Canceled.Error(), "interrupted")
 		return found, true
+	}
+	if errors.Is(err, context.Canceled) {
+		return problem.Problem{Code: problem.CodeInterrupted, Message: strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")}, false
 	}
 	switch {
 	case errors.Is(err, service.ErrChecksFailed):

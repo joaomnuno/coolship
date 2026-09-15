@@ -218,9 +218,15 @@ func Lookup(code Code) (Problem, bool) {
 }
 
 // Classify recognizes a catalogued failure anywhere in err's chain. An
-// interruption, and any error the catalog does not know, reports false.
+// interruption, and any error the catalog does not know, reports false. An
+// interruption after a deployment request was sent is still an uncertain
+// submission: the server may have accepted it, so a retry must check first.
 func Classify(err error) (Problem, bool) {
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil {
+		return Problem{}, false
+	}
+	var uncertain *coolify.UncertainSubmissionError
+	if errors.Is(err, context.Canceled) && !errors.As(err, &uncertain) {
 		return Problem{}, false
 	}
 	found, ok := recognize(err)

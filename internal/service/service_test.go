@@ -15,9 +15,11 @@ import (
 
 	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
+	"github.com/joaomnuno/coolship/internal/coolify"
 	"github.com/joaomnuno/coolship/internal/gitinfo"
 	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/preferences"
+	"github.com/joaomnuno/coolship/internal/problem"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 	"github.com/joaomnuno/coolship/internal/sshkey"
@@ -1938,6 +1940,15 @@ func TestLoginVerifiesBeforeSavingAndLogoutWarnsAboutDefault(t *testing.T) {
 	f.teamError = statusError{code: 401}
 	if _, err := app.Login(context.Background(), LoginOptions{URL: "https://Coolify.Example.com/", Name: "home", Token: "secret-token"}); err == nil || len(saved) != 0 || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("rejected token: err=%v saved=%d", err, len(saved))
+	}
+	// A known server failure keeps its typed cause for the error catalog, and
+	// its text is not followed by a hint the catalog will print anyway.
+	f.teamError = &coolify.HTTPError{StatusCode: 403, Method: "GET", Endpoint: "/team", Message: "API is disabled.", Denial: coolify.DenialAPIDisabled}
+	_, err := app.Login(context.Background(), LoginOptions{URL: "https://coolify.example.com", Name: "home", Token: "secret-token"})
+	var httpErr *coolify.HTTPError
+	if found, ok := problem.Classify(err); !errors.As(err, &httpErr) || !ok || found.Code != problem.CodeAPIDisabled ||
+		strings.Contains(err.Error(), found.Hint) || !strings.HasPrefix(err.Error(), "token was not accepted by https://coolify.example.com: ") || len(saved) != 0 {
+		t.Fatalf("login server failure: err=%v problem=%+v saved=%d", err, found, len(saved))
 	}
 	f.teamError = nil
 	result, err := app.Login(context.Background(), LoginOptions{URL: "https://Coolify.Example.com/", Name: "home", Token: "secret-token"})

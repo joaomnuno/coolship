@@ -164,6 +164,10 @@ func TestTransportFailuresAreNamedWithoutTheirAdviceTwice(t *testing.T) {
 	if _, ok := problem.Classify(&coolify.RequestError{Err: context.Canceled}); ok {
 		t.Fatal("an interrupt is not a catalogued problem")
 	}
+	sent := &service.DeploymentError{Err: &coolify.UncertainSubmissionError{ResourceUUID: "a1", Err: &coolify.RequestError{Method: http.MethodPost, Endpoint: "/deploy", Err: context.Canceled}}}
+	if found, ok := problem.Classify(sent); !ok || found.Code != problem.CodeUncertainSubmission {
+		t.Fatalf("an interrupt after the deployment request was sent: %+v ok=%v", found, ok)
+	}
 }
 
 func writeCredentials(t *testing.T, body string) string {

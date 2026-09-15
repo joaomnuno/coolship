@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/auth"
+	"github.com/joaomnuno/coolship/internal/problem"
 )
 
 // NormalizeInstanceURL applies the instance URL rule a login must satisfy, so
@@ -39,11 +39,11 @@ func (a *App) Login(ctx context.Context, options LoginOptions) (LoginResult, err
 	}
 	version, err := backend.Version(ctx)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("could not verify %s: %s", address, describeServerError(err))
+		return LoginResult{}, restate(err, "could not verify %s: %s", address, describeLoginFailure(err))
 	}
 	team, err := backend.Team(ctx)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("token was not accepted by %s: %s", address, describeServerError(err))
+		return LoginResult{}, restate(err, "token was not accepted by %s: %s", address, describeLoginFailure(err))
 	}
 	existing := a.deps.InspectCredentials(auth.Options{ConfigPath: options.ConfigPath})
 	replaced := false
@@ -58,6 +58,16 @@ func (a *App) Login(ctx context.Context, options LoginOptions) (LoginResult, err
 	}
 	saved := a.deps.InspectCredentials(auth.Options{ConfigPath: path})
 	return LoginResult{Name: options.Name, URL: address, Path: path, Default: saved.Default == options.Name, Server: version, Team: team.Name, Replaced: replaced}, nil
+}
+
+// describeLoginFailure words a failed verification request. A failure the
+// error catalog knows keeps its own text, because the executable boundary
+// prints the catalog's hint beside it; anything else gains the server hint.
+func describeLoginFailure(err error) string {
+	if _, ok := problem.Classify(err); ok {
+		return err.Error()
+	}
+	return describeServerError(err)
 }
 
 // Logout removes one stored instance. Nothing on the server changes; the
