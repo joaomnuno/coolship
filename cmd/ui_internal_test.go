@@ -73,6 +73,24 @@ func helpSections(t *testing.T) ([]string, map[string][]string) {
 	return titles, commands
 }
 
+// The menu is experimental, so the help says so where it lists it: under
+// Maintain, with a summary that starts with the marker.
+func TestHelpMarksTheMenuExperimentalUnderMaintain(t *testing.T) {
+	var out bytes.Buffer
+	root := NewRootCommand(nil, ui.Streams{Out: &out}, "test")
+	root.SetArgs([]string{"help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	maintain := strings.Index(out.String(), "\nMaintain\n")
+	if maintain < 0 {
+		t.Fatalf("help has no Maintain group: %s", out.String())
+	}
+	if !regexp.MustCompile(`\n  ui +\(experimental\) `).MatchString(out.String()[maintain:]) {
+		t.Fatalf("help does not list ui under Maintain as (experimental): %s", out.String())
+	}
+}
+
 func TestMenuListsTheHelpGroupsInTheirOrder(t *testing.T) {
 	options, _, err := captureMenu(t, nil, nil)
 	if err != nil {
