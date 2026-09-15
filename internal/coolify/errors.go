@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 )
 
@@ -18,11 +19,69 @@ import (
 // the caller must act on (a validation failure, a repository Coolify cannot
 // reach); reads and server faults carry the status alone, so a body that is
 // not an explanation is never repeated.
+//
+// A 403 is read on every method, because Coolify answers its access checks
+// with fixed sentences that say what to change: Denial names which one, and
+// Abilities lists the permissions a "Missing required permissions" refusal
+// named. Message keeps that sentence; any other 403 body of a read is dropped
+// as before. Instance is the instance's root URL (never credentials, no
+// /api/v1), kept so a caller can point at a Coolify page; it is not part of
+// the text.
 type HTTPError struct {
 	StatusCode int
 	Method     string
 	Endpoint   string
 	Message    string
+	Denial     Denial
+	Abilities  []string
+	Instance   string
+}
+
+// Denial is the access check a 403 from Coolify's API failed.
+type Denial string
+
+const (
+	// DenialAPIDisabled is "API is disabled.": API access is turned off in
+	// the instance settings.
+	DenialAPIDisabled Denial = "api_disabled"
+	// DenialIPNotAllowed is "You are not allowed to access the API.": the
+	// client address is outside the instance's API allowlist.
+	DenialIPNotAllowed Denial = "ip_not_allowed"
+	// DenialMissingPermissions is "Missing required permissions: a, b": the
+	// token lacks an ability the endpoint requires.
+	DenialMissingPermissions Denial = "missing_permissions"
+	// DenialTokenExceedsRole refuses a token whose abilities exceed its
+	// owner's role as a team member, who may only hold read tokens.
+	DenialTokenExceedsRole Denial = "token_exceeds_role"
+)
+
+// Refusal names the failed access check, or "" for any other response, so
+// callers can classify a 403 without importing this package.
+func (e *HTTPError) Refusal() string { return string(e.Denial) }
+
+const missingPermissionsPrefix = "Missing required permissions:"
+
+// parseDenial recognizes the sentences Coolify's ApiAllowed and ApiAbility
+// middleware put in a 403 body. The abilities are read from the sentence,
+// the only place the response carries them.
+func parseDenial(message string) (Denial, []string) {
+	switch {
+	case message == "API is disabled.":
+		return DenialAPIDisabled, nil
+	case message == "You are not allowed to access the API.":
+		return DenialIPNotAllowed, nil
+	case strings.HasPrefix(message, missingPermissionsPrefix):
+		var abilities []string
+		for _, ability := range strings.Split(strings.TrimPrefix(message, missingPermissionsPrefix), ",") {
+			if ability = strings.TrimSpace(ability); ability != "" {
+				abilities = append(abilities, ability)
+			}
+		}
+		return DenialMissingPermissions, abilities
+	case strings.HasPrefix(message, "This API token has permissions (") && strings.Contains(message, "exceed your current role"):
+		return DenialTokenExceedsRole, nil
+	}
+	return "", nil
 }
 
 // HTTPStatusCode lets callers classify a failure without importing this package.
@@ -69,6 +128,47 @@ func (e *RequestError) Unwrap() error { return e.Err }
 // stays reachable through Unwrap, but its text may carry a URL with
 // credentials or a proxy's own message, so it is never repeated.
 func describeTransport(err error) string {
+	switch transportKind(err) {
+	case TransportInterrupted:
+		return "request interrupted"
+	case TransportTimeout:
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "request timed out"
+		}
+		return "the request timed out; check the instance URL and the network"
+	case TransportHostNotFound:
+		return "the host name could not be resolved; check the instance URL"
+	case TransportRefused:
+		return "the connection was refused; check the instance URL and that Coolify is running"
+	case TransportCertificate:
+		return "the TLS certificate could not be verified; check the instance URL"
+	case TransportNotTLS:
+		return "the server did not answer with TLS; check the instance URL (http or https)"
+	case TransportHandshake:
+		return "the server refused the TLS handshake; check the instance URL (its certificate may not cover this host name)"
+	}
+	return "request failed"
+}
+
+// TransportKind names the cause of a request that got no response, from the
+// same fixed allow-list the text uses.
+type TransportKind string
+
+const (
+	TransportFailed       TransportKind = "failed"
+	TransportInterrupted  TransportKind = "interrupted"
+	TransportTimeout      TransportKind = "timeout"
+	TransportHostNotFound TransportKind = "host_not_found"
+	TransportRefused      TransportKind = "connection_refused"
+	TransportCertificate  TransportKind = "tls_certificate"
+	TransportNotTLS       TransportKind = "not_tls"
+	TransportHandshake    TransportKind = "tls_handshake"
+)
+
+// Kind classifies the transport cause without exposing its text.
+func (e *RequestError) Kind() TransportKind { return transportKind(e.Err) }
+
+func transportKind(err error) TransportKind {
 	var dnsError *net.DNSError
 	var certificateError *tls.CertificateVerificationError
 	var unknownAuthority x509.UnknownAuthorityError
@@ -78,25 +178,25 @@ func describeTransport(err error) string {
 	var timeout interface{ Timeout() bool }
 	switch {
 	case err == nil:
-		return "request failed"
+		return TransportFailed
 	case errors.Is(err, context.Canceled):
-		return "request interrupted"
+		return TransportInterrupted
 	case errors.Is(err, context.DeadlineExceeded):
-		return "request timed out"
+		return TransportTimeout
 	case errors.As(err, &dnsError):
-		return "the host name could not be resolved; check the instance URL"
+		return TransportHostNotFound
 	case errors.Is(err, syscall.ECONNREFUSED):
-		return "the connection was refused; check the instance URL and that Coolify is running"
+		return TransportRefused
 	case errors.As(err, &certificateError), errors.As(err, &unknownAuthority), errors.As(err, &hostnameError), errors.As(err, &certificateInvalid):
-		return "the TLS certificate could not be verified; check the instance URL"
+		return TransportCertificate
 	case errors.As(err, &recordHeader), isPlainHTTPAnswer(err):
-		return "the server did not answer with TLS; check the instance URL (http or https)"
+		return TransportNotTLS
 	case isRemoteTLSAlert(err):
-		return "the server refused the TLS handshake; check the instance URL (its certificate may not cover this host name)"
+		return TransportHandshake
 	case errors.As(err, &timeout) && timeout.Timeout():
-		return "the request timed out; check the instance URL and the network"
+		return TransportTimeout
 	}
-	return "request failed"
+	return TransportFailed
 }
 
 // plainHTTPAnswer is the fixed text net/http uses when an https request

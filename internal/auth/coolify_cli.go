@@ -37,8 +37,14 @@ func DefaultPath() (string, error) {
 
 // MissingCredentials is the failure every command reports when no Coolify CLI
 // configuration exists: it names the file and both ways to get credentials.
-func MissingCredentials(path string) error {
-	return fmt.Errorf("No Coolify credentials at %s; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN", path)
+func MissingCredentials(path string) error { return &MissingCredentialsError{Path: path} }
+
+// MissingCredentialsError is MissingCredentials as a type, so the executable
+// boundary can classify it.
+type MissingCredentialsError struct{ Path string }
+
+func (e *MissingCredentialsError) Error() string {
+	return fmt.Sprintf("No Coolify credentials at %s; run coolship login, or set COOLSHIP_URL and COOLSHIP_TOKEN", e.Path)
 }
 
 func load(path string) ([]storedInstance, error) {

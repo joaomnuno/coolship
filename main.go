@@ -111,7 +111,11 @@ func run() int {
 	streams.Trace.Flush()
 	if err != nil {
 		// A failed diagnostic write cannot be reported anywhere else.
-		_ = ui.PrintError(streams, err)
+		format := "human"
+		if jsonFormat(os.Args[1:]) {
+			format = "json"
+		}
+		_ = ui.ReportError(streams, format, err)
 	}
 	if notifier != nil {
 		// Last, after the output and any diagnostic; an interrupted run

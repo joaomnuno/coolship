@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/joaomnuno/coolship/internal/problem"
 	"github.com/joaomnuno/coolship/internal/service"
 )
 
@@ -26,38 +28,90 @@ func ExitCode(err error) int {
 	return 1
 }
 
-// PrintError renders the single diagnostic owned by the executable boundary on
-// stderr. An interrupt is reported as such, keeping any recovery detail
-// wrapped around it.
-func PrintError(streams Streams, err error) error {
+// PrintError is ReportError for human output.
+func PrintError(streams Streams, err error) error { return ReportError(streams, "human", err) }
+
+// ReportError renders the single diagnostic owned by the executable boundary.
+// A catalogued failure prints "Error [code]: message", then its hint and
+// documentation link, on stderr; anything else keeps its plain "Error:" line.
+// An interrupt is reported as such, keeping any recovery detail wrapped
+// around it. With --format json the same failure is also written to stdout
+// as {"error": {"code", "message", "hint", "docs_url"}}, using a generic code
+// when the catalog has no entry. A child process's status prints nothing in
+// either format: the child has already said what it had to say.
+func ReportError(streams Streams, format string, err error) error {
 	if err == nil {
 		return nil
 	}
 	streams = streams.Normalized()
-	w, style := streams.Err, streams.errPalette()
-	// A child process has already said what it had to say; only its status is kept.
 	var exit *service.ExitError
 	if errors.As(err, &exit) && !errors.Is(err, context.Canceled) {
 		return nil
 	}
-	text := err.Error()
-	if errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled) {
-		_, writeErr := fmt.Fprintln(w, style.apply(dim, "Cancelled"))
+	report, catalogued := describeError(err)
+	if writeErr := writeErrorText(streams, report, catalogued); writeErr != nil {
 		return writeErr
 	}
-	if errors.Is(err, context.Canceled) {
-		text = strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")
-		if text == "interrupted" {
-			_, writeErr := fmt.Fprintln(w, style.apply(dim, "Interrupted"))
-			return writeErr
-		}
+	if format != "json" {
+		return nil
 	}
-	// A rejected token, a missing ability, or a redirecting URL fails every
-	// command the same way; the guidance is added here, once, so no workflow
-	// has to know about HTTP.
-	if hint := service.ServerHint(err); hint != "" {
-		text += "; " + hint
+	return json.NewEncoder(streams.Out).Encode(errorObject{Error: errorBody{
+		Code: string(report.Code), Message: report.Message, Hint: report.Hint, DocsURL: report.DocsURL}})
+}
+
+type errorObject struct {
+	Error errorBody `json:"error"`
+}
+
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Hint    string `json:"hint"`
+	DocsURL string `json:"docs_url"`
+}
+
+// describeError classifies err through the catalog, or gives it a generic
+// code, and reports whether the catalog knew it.
+func describeError(err error) (problem.Problem, bool) {
+	text := err.Error()
+	switch {
+	case errors.Is(err, service.ErrCancelled) && !errors.Is(err, context.Canceled):
+		return problem.Problem{Code: problem.CodeCancelled, Message: "cancelled"}, false
+	case errors.Is(err, context.Canceled):
+		return problem.Problem{Code: problem.CodeInterrupted, Message: strings.ReplaceAll(text, context.Canceled.Error(), "interrupted")}, false
 	}
-	_, writeErr := fmt.Fprintf(w, "%s %s\n", style.apply(redBold, "Error:"), singleLine(text))
-	return writeErr
+	if found, ok := problem.Classify(err); ok {
+		return found, true
+	}
+	switch {
+	case errors.Is(err, service.ErrChecksFailed):
+		return problem.Problem{Code: problem.CodeChecksFailed, Message: text}, false
+	case errors.Is(err, service.ErrInput):
+		return problem.Problem{Code: problem.CodeInvalidInput, Message: text}, false
+	}
+	return problem.Problem{Code: problem.CodeUnclassified, Message: text}, false
+}
+
+func writeErrorText(streams Streams, report problem.Problem, catalogued bool) error {
+	w, style := streams.Err, streams.errPalette()
+	switch {
+	case report.Code == problem.CodeCancelled:
+		_, err := fmt.Fprintln(w, style.apply(dim, "Cancelled"))
+		return err
+	case report.Code == problem.CodeInterrupted && report.Message == "interrupted":
+		_, err := fmt.Fprintln(w, style.apply(dim, "Interrupted"))
+		return err
+	case !catalogued:
+		_, err := fmt.Fprintf(w, "%s %s\n", style.apply(redBold, "Error:"), singleLine(report.Message))
+		return err
+	}
+	lines := []string{fmt.Sprintf("%s %s", style.apply(redBold, "Error ["+string(report.Code)+"]:"), singleLine(report.Message))}
+	if report.Hint != "" {
+		lines = append(lines, style.apply(dim, "Hint: "+report.Hint))
+	}
+	if report.DocsURL != "" {
+		lines = append(lines, style.apply(dim, "Docs: "+report.DocsURL))
+	}
+	_, err := fmt.Fprintln(w, strings.Join(lines, "\n"))
+	return err
 }

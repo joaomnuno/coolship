@@ -69,6 +69,8 @@ header docs-index       Vary                             Accept
 check command-page      /docs/commands/deploy            200 text/html     'observe exactly that deployment'
 header command-page     Vary                             Accept
 check nested-page       /docs/guides/ci                  200 text/html     'COOLSHIP_TOKEN'
+# Every error code links to a heading on this page (internal/problem).
+check errors-page       /docs/platform/errors            200 text/html     'deployment_queue_full'
 check search            '/api/search?query=deploy'       200 json          'deploy'
 check llms-txt          /llms.txt                        200 text/markdown '/docs/commands/deploy'
 check page-markdown     /docs/commands/deploy.md         200 text/markdown '^# deploy$'

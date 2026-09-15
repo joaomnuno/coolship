@@ -606,6 +606,10 @@ func (e *TimeoutError) Error() string {
 }
 func (e *TimeoutError) Unwrap() error { return e.Err }
 
+// DeploymentTimeout lets the error catalog recognize the timeout without
+// importing this package.
+func (e *TimeoutError) DeploymentTimeout() time.Duration { return e.Timeout }
+
 // restated is a lower-layer failure reworded for the command that hit it. The
 // cause stays reachable through Unwrap for errors.Is and errors.As, but its
 // own text is not repeated.

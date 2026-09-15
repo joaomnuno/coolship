@@ -55,4 +55,25 @@ In a terminal, a few commands end with a dimmed next step on stderr: `link` and 
 | `2`   | Invalid input, configuration, or selection.               |
 | `130` | Interrupted.                                              |
 
-Errors are printed once, as a single `Error:` line on stderr, and classified into these codes at the process boundary. `--format json` does not change that: an error is still that plain text line on stderr, not a JSON object, and stdout carries nothing, or the partial result a failed deployment still prints. gh, Wrangler, Vercel, and Railway do the same with their JSON output, so a script checks the exit code first and reads stderr only to show the reason. Some commands give a code a specific meaning: `doctor` exits `1` when any check fails, `env diff --exit-code` exits `1` when there are differences, and `dev` exits with the child process's status.
+Errors are printed once, on stderr, and classified into these codes at the process boundary; see [Errors](#errors) for what is printed. Some commands give a code a specific meaning: `doctor` exits `1` when any check fails, `env diff --exit-code` exits `1` when there are differences, and `dev` exits with the child process's status.
+
+## Errors
+
+A failure Coolship recognizes is printed with its [error code](/docs/platform/errors), a hint, and a documentation link, on stderr:
+
+```text
+$ coolship deploy
+Error [missing_permissions]: Coolify POST /deploy: HTTP 403 Forbidden: Missing required permissions: deploy
+Hint: The API token lacks a permission this command needs. Create a token with read, write, and deploy (build logs and secret values also need read:sensitive) under Security, API Tokens, then run coolship login.
+Docs: https://coolify.io/docs/api/permissions
+```
+
+The link goes to Coolify's documentation when the fix is in Coolify's setup, such as API access or token permissions, and to the [error codes](/docs/platform/errors) page otherwise. Any other failure keeps a single `Error:` line with no code, hint, or link. An interrupt prints `Interrupted`, and a declined confirmation prints `Cancelled`.
+
+With `--format json`, the text above still goes to stderr, and stdout also gets one error object on its own line:
+
+```json
+{"error":{"code":"missing_permissions","message":"Coolify POST /deploy: HTTP 403 Forbidden: Missing required permissions: deploy","hint":"The API token lacks …","docs_url":"https://coolify.io/docs/api/permissions"}}
+```
+
+All four fields are always present. A failure without a catalog entry gets a generic code (`invalid_input`, `unclassified`, `checks_failed`, `interrupted`, or `cancelled`), with an empty `hint` and `docs_url`. The object comes after anything the command already printed, so a failed deployment's partial result, `doctor`'s checks, or the events of `logs --format json` are followed by the error object: read the last line, or the object that has an `error` key. A command that exits with a child process's status (`dev`, `env diff --exit-code`) prints no object. The exit code is the same in both formats, so a script can still check it first.

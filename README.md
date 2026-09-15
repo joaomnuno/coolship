@@ -539,7 +539,15 @@ Human output is colored only when the stream it goes to is a terminal, and each 
 
 `--verbose` prints one line on stderr per request Coolship sends (method, URL, status, time) and streams build logs; `--debug` adds every request and response with the token masked to its last four characters and secret values in bodies (variable values, private keys, passwords, tokens) shown as `[redacted]`; set `COOLSHIP_DEBUG_UNREDACTED=1` to see bodies exactly as sent. Both are long-only, since `-v` is the version. `COOLSHIP_VERBOSITY=normal|verbose|debug` sets the level in CI, and the `verbosity` preference sets the default. Stdout and `--format json` are the same at every level.
 
-A failure is one `Error:` line on stderr. Three server answers get the same explanation on every command, appended once: a rejected token (`HTTP 401 Unauthorized; the server rejected the token; run coolship login …`), a token missing an ability (`HTTP 403 Forbidden; the token lacks a required ability …`), and an `http://` URL the server redirects (`HTTP 301 Moved Permanently; use the https URL; redirects are not followed`). Transport failures are named in fixed words — the host name could not be resolved, the connection was refused, the TLS certificate could not be verified, the server did not answer with TLS, the request timed out — and never repeat the transport's own text, which can carry a URL.
+A failure Coolship recognizes is printed on stderr with a stable [error code](https://coolship.itrocas.com/docs/platform/errors), a hint, and a documentation link:
+
+```text
+Error [api_disabled]: list projects for binding: Coolify GET /projects: HTTP 403 Forbidden: API is disabled.
+Hint: API access is turned off on this Coolify instance. An instance admin can turn it on in Coolify under Settings, Advanced, API access.
+Docs: https://coolify.io/docs/api/ip-allowlist
+```
+
+The catalog covers missing credentials and contexts, unlinked directories, invalid `coolship.toml`, missing or ambiguous resources, a rejected token, Coolify's three access refusals (API disabled, IP not allowed, missing permissions), redirects, rate limits, a full deployment queue, server errors, and network and TLS failures. Problems in Coolify's own setup link to Coolify's documentation. Any other failure is one plain `Error:` line. With `--format json` the same failure is also written to stdout as `{"error":{"code","message","hint","docs_url"}}`; the exit code does not change. Transport failures are named in fixed words and never repeat the transport's own text, which can carry a URL.
 
 Two commands answer with a status and no message, like `git diff --exit-code`: `env diff --exit-code` when there are differences (the diff is the message), and `dev`, which exits with its child's status after the child has printed what it had to say. `deploy` and `preview` with `--format json` print the result, with the deployment UUID and its last observed status, before exiting 1 when a deployment fails or `--timeout` elapses.
 
