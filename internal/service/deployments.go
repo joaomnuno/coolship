@@ -62,13 +62,18 @@ func summarize(record models.DeploymentRecord) DeploymentSummary {
 // A cancelled or timed-out read is propagated instead, so the executable
 // boundary classifies it like every other interrupted command rather than
 // reporting a successful status with a note.
+// HistoryUnreadableWarning begins the warning Status adds when the
+// application was read but its deployment history was not, so a reader can
+// tell an unreadable history from an empty one.
+const HistoryUnreadableWarning = "Deployment history could not be read: "
+
 func lastDeployment(ctx context.Context, backend Backend, applicationUUID string) (*DeploymentSummary, string, error) {
 	page, err := backend.ListDeployments(ctx, applicationUUID, 1)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return nil, "Deployment history could not be read: " + err.Error(), nil
+		return nil, HistoryUnreadableWarning + err.Error(), nil
 	}
 	if len(page.Deployments) == 0 {
 		return nil, "", nil

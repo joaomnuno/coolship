@@ -17,6 +17,7 @@
     "dev",
     "domain",
     "alias",
-    "login"
+    "login",
+    "ui"
   ]
 }
