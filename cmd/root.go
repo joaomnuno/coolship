@@ -183,7 +183,7 @@ logs of that application.`,
 		}},
 		{cobra.Group{ID: "configure", Title: "Configure"}, []*cobra.Command{
 			newEnvCommand(app, options, streams, order), newDomainCommand(app, options, streams),
-			newConfigCommand(app, options, streams), newDevCommand(app, options, streams),
+			newConfigCommand(app, options, streams, config.preferences, order), newDevCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
 			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),

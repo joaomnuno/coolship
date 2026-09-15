@@ -1,9 +1,10 @@
-// Package preferences reads one developer's tastes on one machine: the default
-// verbosity, whether build logs stream, and color. They live in
-// preferences.toml under the user's configuration directory, are never
-// committed, and are never a project fact; the project's coolship.toml is
-// internal/config's, and the Coolify CLI credentials file is internal/auth's.
-// The file is only ever read, never created or written.
+// Package preferences reads and writes one developer's tastes on one machine:
+// the default verbosity, whether build logs stream, color, hints, and the
+// update check. They live in preferences.toml under the user's configuration
+// directory, are never committed, and are never a project fact; the
+// project's coolship.toml is internal/config's, and the Coolify CLI
+// credentials file is internal/auth's. Reading never creates the file; only
+// Apply, behind `coolship config set` and the config form, writes it.
 package preferences
 
 import (
@@ -54,7 +55,15 @@ type Preferences struct {
 	// UpdateCheck set to false turns off the daily check for a newer
 	// release; nil or true leaves it on.
 	UpdateCheck *bool `toml:"update_check" json:"update_check,omitempty"`
+	// Hints set to false turns off the next-step hints, the questions that
+	// follow them, and the offers to fix a failed command; nil or true
+	// leaves them on.
+	Hints *bool `toml:"hints" json:"hints,omitempty"`
 }
+
+// HintsEnabled reports whether hints, their questions, and fix-it offers
+// are on: they are unless the file sets hints = false.
+func (p Preferences) HintsEnabled() bool { return p.Hints == nil || *p.Hints }
 
 // Report is what Inspect found: where it looked, whether the file exists,
 // what it holds, and, when it exists but cannot be used, why.
@@ -202,7 +211,7 @@ func oneOf(key, value string, allowed []string) error {
 }
 
 // keyList names every key the file accepts, for the unknown-key error.
-const keyList = "verbosity, build_logs, color, and update_check"
+const keyList = "verbosity, build_logs, color, update_check, and hints"
 
 // describeDecodeError turns go-toml's errors into one line that names what
 // is wrong. The parser's source excerpts are left out: the message names the

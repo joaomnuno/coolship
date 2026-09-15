@@ -721,6 +721,9 @@ func describePreferences(report *service.PreferencesReport) string {
 	if report.UpdateCheck != nil {
 		set = append(set, "update check "+map[bool]string{true: "on", false: "off"}[*report.UpdateCheck])
 	}
+	if report.Hints != nil {
+		set = append(set, "hints "+map[bool]string{true: "on", false: "off"}[*report.Hints])
+	}
 	if len(set) == 0 {
 		return report.Path + " (no keys set)"
 	}

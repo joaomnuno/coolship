@@ -1,16 +1,42 @@
 ---
 title: config
-description: Show the effective configuration for this directory after overrides, reading files only.
+description: Show the effective configuration for this directory, and read or change your preferences.
 ---
 
 ```text
 coolship config [flags]
+coolship config show [flags]
+coolship config get KEY
+coolship config set KEY VALUE
 ```
 
-`config` shows the discovered configuration file, the selected target, the binding, which credentials would be used, and the preferences file, after applying any overrides. It reads files only: no request is made to Coolify and no token is shown.
+In a terminal, `config` opens a form. At the top it shows this directory's binding, where credentials come from, the instance, and the preferences file. None of that can be edited there, and no token is ever shown. Below are your [preferences](#preferences): `verbosity`, `build_logs`, `color`, `hints`, and `update_check`. Left and right change a value, Enter moves to the next one, and Shift+Tab goes back. Save writes only the keys you changed to `preferences.toml`, Discard leaves it as it was, and Esc leaves without writing and exits `130`.
 
 ```text
-$ coolship config --context home
+$ coolship config
+Coolship preferences
+Binding:      Personal / production / fenix-bot
+Credentials:  /home/you/.config/coolify/config.json
+Instance:     home at https://coolify.example.com
+Preferences:  /home/you/.config/coolship/preferences.toml (absent; saving creates it)
+┃ verbosity
+┃ Default output detail when neither --verbose nor --debug is given
+┃ ← normal →
+
+  build_logs
+  Stream build logs during a deployment; auto follows the verbosity
+  auto
+  …
+```
+
+When stdout is piped, with `--format json`, or when input is not a terminal, `config` prints the same view as `config show`, so scripts see no change.
+
+## config show
+
+`config show` shows the discovered configuration file, the selected target, the binding, which credentials would be used, and the preferences file, after applying any overrides. It reads files only: no request is made to Coolify and no token is shown.
+
+```text
+$ coolship config show --context home
 Configuration:    /home/you/my-app/coolship.toml
 Git root:         /home/you/my-app
 Target:           default
@@ -25,19 +51,32 @@ Preferences:      /home/you/.config/coolship/preferences.toml (absent)
 Override context: home
 ```
 
-## Examples
+Use it to see what `--cwd`, `--config`, `--context`, `--environment`, and `--target` resolve to, or which of the committed context and the `COOLSHIP_URL`/`COOLSHIP_TOKEN` pair applies.
+
+## config get and config set
+
+`config get KEY` prints the value in effect for one preference and nothing else, so a script can read it with `$(coolship config get verbosity)`. A key the file does not set prints its default. `config set KEY VALUE` writes one key. Like `gh config set`, it prints nothing on success when output is piped; in a terminal, one confirmation line goes to stderr.
 
 ```bash
-coolship config
-coolship config --target api
-coolship config --environment staging --format json
+coolship config get verbosity          # normal
+coolship config set verbosity verbose
+coolship config set build_logs auto    # removes the key
+coolship config set hints false
+coolship config get hints --format json
 ```
 
-Use it to see what `--cwd`, `--config`, `--context`, `--environment`, and `--target` resolve to, or which of the committed context and the `COOLSHIP_URL`/`COOLSHIP_TOKEN` pair applies.
+`set` creates the file and its directory when they are absent, with modes `0600` and `0700`. Every other line in the file, comments included, is kept, and a changed key keeps its place and its trailing comment. The new file replaces the old one in a single rename, so no reader ever sees half a file. When the file already has a problem elsewhere, such as an unknown key, nothing is written and the error names the problem.
+
+An unknown key or a value outside the key's list exits `2` and names the keys or values, with the closest key when the name looks like a typo:
+
+```text
+$ coolship config get colour
+Error: unknown preference "colour" (did you mean "color"?); the keys are verbosity, build_logs, color, hints, update_check
+```
 
 ## Preferences
 
-Preferences are one developer's tastes on one machine, as opposed to the configuration in `coolship.toml`, which the team shares and commits. They live in a TOML file Coolship reads but never creates:
+Preferences are one developer's tastes on one machine, as opposed to the configuration in `coolship.toml`, which the team shares and commits. They live in a TOML file that Coolship reads on every command and writes only through `config set` and the `config` form:
 
 - Unix and macOS: `~/.config/coolship/preferences.toml`, or `$XDG_CONFIG_HOME/coolship/preferences.toml` when `XDG_CONFIG_HOME` is an absolute path
 - Windows: `%AppData%\coolship\preferences.toml`
@@ -47,12 +86,21 @@ Preferences are one developer's tastes on one machine, as opposed to the configu
 verbosity = "normal"   # normal | verbose | debug
 build_logs = true      # true streams build logs, false collapses them; absent follows the verbosity
 color = "auto"         # auto | always | never
+hints = true           # false turns off hints, the questions after them, and fix-it offers
 update_check = true    # false turns off the daily check for a newer release
 ```
 
-`verbosity` is the default when neither `--verbose`, `--debug`, nor `COOLSHIP_VERBOSITY` is given (see [verbosity](/docs/platform/output#verbosity)), and `build_logs` decides the build log when neither `--logs` nor `--no-logs` is given. `color` is read and checked today and takes effect in a later version. `update_check = false` turns off the [update notice](#update-notice). Credentials never go in this file: the Coolify URL and token stay in [Coolify CLI's file](/docs/concepts/credentials), so one login serves both tools.
+| Key            | Values                           | Default  |
+| -------------- | -------------------------------- | -------- |
+| `verbosity`    | `normal`, `verbose`, `debug`     | `normal` |
+| `build_logs`   | `auto`, `true`, `false`          | `auto`   |
+| `color`        | `auto`, `always`, `never`        | `auto`   |
+| `hints`        | `true`, `false`                  | `true`   |
+| `update_check` | `true`, `false`                  | `true`   |
 
-The `Preferences` line shows the path, then `(absent)` when there is no file or the keys it sets, such as `(verbosity verbose, build logs off, color auto)`. An unknown key, a value outside its list, or a file that cannot be read is warned about once at the start of every command and the file is ignored; the line then says `(ignored: …)` with the reason. A broken file never stops a deploy.
+`verbosity` is the default when neither `--verbose`, `--debug`, nor `COOLSHIP_VERBOSITY` is given (see [verbosity](/docs/platform/output#verbosity)), and `build_logs` decides the build log when neither `--logs` nor `--no-logs` is given; `auto` means the key is absent and the verbosity decides. `color` is read and checked today and takes effect in a later version. `hints = false` turns off the next-step hints after a command, the questions that follow them, and the offers to fix a failed command. `update_check = false` turns off the [update notice](#update-notice). Credentials never go in this file: the Coolify URL and token stay in [Coolify CLI's file](/docs/concepts/credentials), so one login serves both tools.
+
+The `Preferences` line of `config show` shows the path, then `(absent)` when there is no file or the keys it sets, such as `(verbosity verbose, build logs off, color auto)`. An unknown key, a value outside its list, or a file that cannot be read is warned about once at the start of every command and the file is ignored; the line then says `(ignored: …)` with the reason. A broken file never stops a deploy.
 
 ## Update notice
 
@@ -65,6 +113,8 @@ A new Coolship release is available: v0.4.0 (you have v0.3.0). Upgrade: curl -fs
 The notice only appears when stderr is a terminal. It never appears in CI (when `CI` is set), with `--format json`, or for a development build. Set `COOLSHIP_NO_UPDATE_NOTIFIER=1` or `update_check = false` in the preferences file to turn it off. The time of the last check and the release it found are kept in `state.json`, next to `preferences.toml`. Coolship writes that file itself, and it can be deleted at any time.
 
 ## JSON
+
+`config show --format json`, and `config --format json`, print:
 
 ```json
 {
@@ -94,8 +144,14 @@ The notice only appears when stderr is a terminal. It never appears in CI (when 
 }
 ```
 
-`binding` is the selected table from `coolship.toml`, including any UUID pins and `dev` setting. `credential_source` is `file` when the Coolify CLI configuration supplies the credentials and reflects the environment pair when `COOLSHIP_URL` and `COOLSHIP_TOKEN` do; `git_root`, `credential_path`, `instance`, `instance_url`, `overrides`, and `warnings` are omitted when empty. `preferences` carries `path`, `present`, the keys the file sets (`verbosity`, `build_logs`, `color`, `update_check`; an absent key is omitted), and `error` with the reason when a present file is ignored.
+`binding` is the selected table from `coolship.toml`, including any UUID pins and `dev` setting. `credential_source` is `file` when the Coolify CLI configuration supplies the credentials and reflects the environment pair when `COOLSHIP_URL` and `COOLSHIP_TOKEN` do; `git_root`, `credential_path`, `instance`, `instance_url`, `overrides`, and `warnings` are omitted when empty. `preferences` carries `path`, `present`, the keys the file sets (`verbosity`, `build_logs`, `color`, `update_check`, `hints`; an absent key is omitted), and `error` with the reason when a present file is ignored.
+
+`config get KEY --format json` and `config set KEY VALUE --format json` print one object. `set` is `true` when the file sets the key, and `false` when the value is the default, as after `config set build_logs auto`:
+
+```json
+{ "key": "verbosity", "value": "verbose", "set": true, "path": "/home/you/.config/coolship/preferences.toml" }
+```
 
 ## Exit codes
 
-`0` when the configuration could be resolved; `2` when the directory is not linked, the file is invalid, the target is ambiguous, or the credentials cannot be selected.
+`0` when the configuration could be resolved or the preference was read or written; `1` when the preferences file could not be written; `2` when the directory is not linked (for `config show`), the file is invalid, the target is ambiguous, the credentials cannot be selected, or a preference key or value is unknown; `130` when the form is left with Esc or Ctrl-C.

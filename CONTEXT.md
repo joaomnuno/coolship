@@ -23,7 +23,7 @@ The project's `coolship.toml`: which target a directory is bound to, and the fac
 _Avoid_: Settings, project config, binding file
 
 **Preferences**:
-One developer's tastes on one machine: default verbosity, whether build logs stream, color. Never committed and never a project fact.
+One developer's tastes on one machine: default verbosity, whether build logs stream, color, hints, and the update check. Kept in `preferences.toml`, changed with `coolship config` or `config set`. Never committed and never a project fact.
 _Avoid_: User config, settings, options
 
 **Credentials**:
