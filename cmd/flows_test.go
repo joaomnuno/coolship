@@ -118,6 +118,9 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	handle("GET /api/v1/projects", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{{"uuid": "project-1", "name": "Personal"}})
 	})
+	handle("GET /api/v1/projects/project-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		write(w, map[string]any{"uuid": "project-1", "name": "Personal", "environments": []map[string]any{{"uuid": "env-1", "name": "production"}}})
+	})
 	handle("GET /api/v1/projects/project-1/environments", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{{"uuid": "env-1", "name": "production"}})
 	})
@@ -470,7 +473,8 @@ func TestLinkedProjectDrivesEveryWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("written configuration is unreadable: %v", err)
 	}
-	if binding.Project.Application != "fenix-bot" || binding.Project.Environment != "production" || binding.Project.Project != "Personal" {
+	if binding.Project.Application != "fenix-bot" || binding.Project.Environment != "production" || binding.Project.Project != "Personal" ||
+		binding.Project.ProjectUUID != "project-1" || binding.Project.EnvironmentUUID != "env-1" || binding.Project.ApplicationUUID != "app-1" {
 		t.Fatalf("unexpected binding %+v", binding.Project)
 	}
 
@@ -515,11 +519,13 @@ func TestLinkedProjectDrivesEveryWorkflow(t *testing.T) {
 		t.Errorf("logs output %q", out)
 	}
 
-	// One preparation per invocation. link resolves once while selecting and
-	// once while verifying its own write; status, deploy, and logs add one each.
+	// One preparation per invocation. link lists while selecting, then
+	// verifies its own write through the pins it wrote; status, deploy, and
+	// logs each read the pins directly, with no list at all.
 	want := map[string]int{
-		"GET /api/v1/projects":                        5,
-		"GET /api/v1/projects/project-1/environments": 5,
+		"GET /api/v1/projects":                        1,
+		"GET /api/v1/projects/project-1":              4,
+		"GET /api/v1/projects/project-1/environments": 1,
 		"GET /api/v1/projects/project-1/env-1":        5,
 		"GET /api/v1/applications/app-1":              4,
 		"POST /api/v1/deploy":                         1,
@@ -587,7 +593,7 @@ func TestInitCreatesThenEveryCommandResolvesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding, err := config.Parse(written)
-	if err != nil || binding.Project.Application != name || binding.Project.Project != "Personal" || binding.Project.Environment != "production" || binding.Project.ApplicationUUID != "" {
+	if err != nil || binding.Project.Application != name || binding.Project.Project != "Personal" || binding.Project.Environment != "production" || binding.Project.ApplicationUUID != "app-"+name {
 		t.Fatalf("written binding %+v: %v", binding.Project, err)
 	}
 	// status resolves the new application from the same directory with no flags.

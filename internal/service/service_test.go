@@ -1090,7 +1090,29 @@ func TestLinkPersistsBindingAndRequiresReviewedReplacement(t *testing.T) {
 	if string(unchanged) != string(original) {
 		t.Fatal("idempotent link rewrote comments")
 	}
-	options.ApplicationUUID = "app-1"
+	if parsed.Project.ProjectUUID != "project-1" || parsed.Project.EnvironmentUUID != "env-1" || parsed.Project.ApplicationUUID != "app-1" {
+		t.Fatalf("link did not pin every resource: %+v", parsed.Project)
+	}
+	// A name-only file, as earlier versions wrote, gains its pins without review.
+	namesOnly := parsed
+	namesOnly.Project.ProjectUUID, namesOnly.Project.EnvironmentUUID, namesOnly.Project.ApplicationUUID = "", "", ""
+	namesData, err := config.Marshal(namesOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(result.Path, namesData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Link(context.Background(), options, nil, nil); err != nil {
+		t.Fatalf("refreshing pins needed review: %v", err)
+	}
+	if refreshed, _ := os.ReadFile(result.Path); string(refreshed) != string(data) {
+		t.Fatalf("refreshed file = %s, want %s", refreshed, data)
+	}
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(result.Path), "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	options.Root = "sub"
 	_, err = app.Link(context.Background(), options, nil, nil)
 	if !errors.Is(err, project.ErrReplacementRequired) {
 		t.Fatalf("expected replacement guard, got %v", err)

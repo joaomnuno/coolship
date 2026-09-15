@@ -14,6 +14,9 @@ project = "Personal"
 environment = "production"
 application = "fenix-bot"
 root = "."
+project_uuid = "rxv3lqhdvuprnl433dczvo0s"
+environment_uuid = "5omkp5uuj0qpet6dy16r6bag"
+application_uuid = "mm4c0zpbrzx8z96t0qiw3tff"
 ```
 
 | Field         | Meaning                                                                                                                    |
@@ -25,8 +28,13 @@ root = "."
 | `application` | Exact application name within that environment.                                                                            |
 | `root`        | The application root, relative to the configuration file's directory.                                                      |
 | `dev`         | Optional shell line for [`coolship dev`](/docs/commands/dev) to run when no command is given, for example `"npm run dev"`.  |
+| `*_uuid`      | The UUIDs `link` pinned for the project, environment, and application. Optional; a file with names only works too.         |
 
-Optional `project_uuid`, `environment_uuid`, and `application_uuid` fields pin identity when names are ambiguous or when you ask for a pin (`link --project-uuid`, `--environment-uuid`, `--application-uuid`). A pinned UUID is authoritative: if it disappears, Coolship reports that rather than falling back to a same-named replacement. `link` writes a pin automatically when a name cannot describe the selection uniquely.
+## UUID pins
+
+`link` and `init` also write `project_uuid`, `environment_uuid`, and `application_uuid` beside the names. Commands read those UUIDs directly, which takes one round of requests instead of listing every project. When a pinned UUID no longer exists, for example because the application was deleted and recreated under the same name, Coolship finds the resource by its name instead and warns once: `coolship.toml pins application <uuid> that no longer exists; found "web" by name. Run coolship link to refresh.` A name that then matches nothing, or more than one resource, is still an error, and so is a missing pin with no name beside it. Files with names only keep working unchanged, and running `link` again adds the pins without asking for review.
+
+While a pin holds, it is authoritative: a resource renamed in Coolify is still found, with a warning that its name changed. `--environment` on a pinned binding looks the application up by name in the requested environment, keeping only the project pin. A binding whose application has a UUID and no name cannot be moved that way; link the other environment instead.
 
 **Commit this file.** Tokens and secret values are never written to it, and neither are pulled variables.
 

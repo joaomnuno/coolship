@@ -16,9 +16,15 @@ type MissingError struct {
 	Name     string
 	UUID     string
 	Scope    string
+	// Fallback reports that UUID was pinned but missing, and Name was looked
+	// up in its place and matched nothing.
+	Fallback bool
 }
 
 func (e *MissingError) Error() string {
+	if e.Fallback {
+		return fmt.Sprintf("%s with pinned UUID %q no longer exists in %s, and no %s there is named %q; check the binding or run coolship link", e.Resource, e.UUID, e.Scope, e.Resource, e.Name)
+	}
 	selector := fmt.Sprintf("named %q", e.Name)
 	if e.UUID != "" {
 		selector = fmt.Sprintf("with pinned UUID %q", e.UUID)

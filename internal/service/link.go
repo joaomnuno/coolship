@@ -107,7 +107,6 @@ func (a *App) Link(ctx context.Context, options LinkOptions, selectChoice Select
 		credentials: credentials, authOptions: authOptions, target: options.Target, root: options.Root, replace: options.Replace,
 		projects: projects, project: remoteProject, environments: environments, environment: environment,
 		applications: details.Applications, application: application,
-		pinProject: options.ProjectUUID != "", pinEnvironment: options.EnvironmentUUID != "", pinApplication: options.ApplicationUUID != "",
 	}, confirm)
 	if err != nil {
 		return LinkResult{}, err
@@ -222,7 +221,7 @@ func defaultInstance(instances []auth.Instance) string {
 }
 
 // bindingRequest is a chosen application together with the candidate lists it
-// was chosen from, which decide whether names describe it uniquely.
+// was chosen from.
 type bindingRequest struct {
 	credentials  auth.Credentials
 	authOptions  auth.Options
@@ -235,8 +234,6 @@ type bindingRequest struct {
 	environment  models.Environment
 	applications []models.Application
 	application  models.Application
-	// Explicit UUID selectors are always written as pins.
-	pinProject, pinEnvironment, pinApplication bool
 }
 
 type bindingOutcome struct {
@@ -260,35 +257,15 @@ func proposedRoot(p project.Project, target, explicit string) string {
 // writeBinding composes the binding, verifies it through the resolver exactly
 // as every later command will, reviews a replacement, and writes the file.
 func (a *App) writeBinding(ctx context.Context, p project.Project, backend Backend, request bindingRequest, confirm Confirm) (bindingOutcome, error) {
-	binding := config.Binding{Context: request.credentials.Name, Project: request.project.Name,
-		Environment: request.environment.Name, Application: request.application.Name, Root: proposedRoot(p, request.target, request.root)}
+	// Every resource is pinned by UUID beside its name: the pins are read
+	// directly, and the names find the resource again if a pin goes missing.
+	binding := config.Binding{Context: request.credentials.Name,
+		Project: request.project.Name, ProjectUUID: request.project.UUID,
+		Environment: request.environment.Name, EnvironmentUUID: request.environment.UUID,
+		Application: request.application.Name, ApplicationUUID: request.application.UUID,
+		Root: proposedRoot(p, request.target, request.root)}
 	if request.authOptions.URL != "" {
 		binding.Context = ""
-	}
-	projectMatches, environmentMatches, applicationMatches := 0, 0, 0
-	for _, item := range request.projects {
-		if item.Name == binding.Project {
-			projectMatches++
-		}
-	}
-	for _, item := range request.environments {
-		if item.Name == binding.Environment {
-			environmentMatches++
-		}
-	}
-	for _, item := range request.applications {
-		if item.Name == binding.Application {
-			applicationMatches++
-		}
-	}
-	if request.pinProject || projectMatches > 1 {
-		binding.ProjectUUID = request.project.UUID
-	}
-	if request.pinEnvironment || environmentMatches > 1 {
-		binding.EnvironmentUUID = request.environment.UUID
-	}
-	if request.pinApplication || applicationMatches > 1 {
-		binding.ApplicationUUID = request.application.UUID
 	}
 	proposal, err := project.Propose(p, request.target, binding)
 	if err != nil {

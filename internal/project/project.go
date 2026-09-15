@@ -81,10 +81,14 @@ func Select(value Project, targetName, environmentOverride string) (Target, erro
 		binding.Root = "."
 	}
 	if environmentOverride != "" && environmentOverride != binding.Environment {
-		if binding.EnvironmentUUID != "" || binding.ApplicationUUID != "" {
-			return Target{}, fmt.Errorf("%w: --environment conflicts with the environment or application UUID pin; link the requested environment explicitly", config.ErrInvalid)
+		// The environment and application pins name resources in the bound
+		// environment, so another environment is found by names alone. An
+		// application pinned without a name has nothing to find there.
+		if binding.Application == "" {
+			return Target{}, fmt.Errorf("%w: --environment needs an application name, but the binding pins only the application UUID; link the requested environment explicitly", config.ErrInvalid)
 		}
 		binding.Environment = environmentOverride
+		binding.EnvironmentUUID, binding.ApplicationUUID = "", ""
 	}
 	root, err := resolveRoot(value.ConfigRoot, binding.Root)
 	if err != nil {

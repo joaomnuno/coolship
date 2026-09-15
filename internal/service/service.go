@@ -128,7 +128,9 @@ func targetInfo(p project.Context) TargetInfo {
 func (a *App) Status(ctx context.Context, options Options) (StatusResult, error) {
 	// The history needs only the application's UUID, so it is read beside
 	// the application rather than after it. A failed resolution cancels it
-	// and discards whatever it found.
+	// and discards whatever it found. A pinned application that turns out to
+	// be missing is found by name and reported again with its real UUID; that
+	// read replaces the first, which is cancelled.
 	historyCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type history struct {
@@ -136,13 +138,18 @@ func (a *App) Status(ctx context.Context, options Options) (StatusResult, error)
 		warning string
 		err     error
 	}
-	read := make(chan history, 1)
-	started := false
+	var read chan history
+	cancelRead := func() {}
+	defer func() { cancelRead() }()
 	s, err := a.prepareAlongside(ctx, options, func(backend Backend, uuid string) {
-		started = true
+		cancelRead()
+		readCtx, cancelThis := context.WithCancel(historyCtx)
+		cancelRead = cancelThis
+		result := make(chan history, 1)
+		read = result
 		go func() {
-			last, warning, err := lastDeployment(historyCtx, backend, uuid)
-			read <- history{last, warning, err}
+			last, warning, err := lastDeployment(readCtx, backend, uuid)
+			result <- history{last, warning, err}
 		}()
 	})
 	if err != nil {
@@ -151,7 +158,7 @@ func (a *App) Status(ctx context.Context, options Options) (StatusResult, error)
 	result := StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
 		URL: s.project.Application.FQDN, Warnings: s.warnings}
 	var found history
-	if started {
+	if read != nil {
 		found = <-read
 	} else {
 		found.last, found.warning, found.err = lastDeployment(ctx, s.backend, s.project.Application.UUID)

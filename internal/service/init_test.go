@@ -71,7 +71,8 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsed, err := config.Parse(data)
-	if err != nil || parsed.Project != (config.Binding{Context: "home", Project: "Personal", Environment: "production", Application: "new-app", Root: "."}) {
+	if err != nil || parsed.Project != (config.Binding{Context: "home", Project: "Personal", ProjectUUID: "project-1", Environment: "production", EnvironmentUUID: "env-1",
+		Application: "new-app", ApplicationUUID: "app-new-app", Root: "."}) {
 		t.Fatalf("binding %+v: %v", parsed.Project, err)
 	}
 	// Every later command resolves the new application from that file.
@@ -330,9 +331,10 @@ func TestInitSurfacesServerRefusalAndDeploys(t *testing.T) {
 	if err != nil || result.Deployment == nil || result.Deployment.DeploymentUUID != "deploy-1" || result.Deployment.Status != "finished" || f.lastDeploy.ApplicationUUID != "app-new-app" {
 		t.Fatalf("result=%+v err=%v last=%+v", result, err, f.lastDeploy)
 	}
-	// init resolves once to select and once to verify its write, like link;
-	// the deployment reuses that verified binding rather than resolving again.
-	if !reflect.DeepEqual(events, []string{"deployment:queued", "deployment:finished"}) || f.calls["projects"] != resolved+2 {
+	// init lists projects once to select and verifies its write through the
+	// pins it wrote, like link; the deployment reuses that verified binding
+	// rather than resolving again.
+	if !reflect.DeepEqual(events, []string{"deployment:queued", "deployment:finished"}) || f.calls["projects"] != resolved+1 {
 		t.Fatalf("events=%v calls=%v", events, f.calls)
 	}
 }

@@ -131,21 +131,31 @@ func TestTargetRootAndEnvironmentOverride(t *testing.T) {
 	if target.Key != "default" || target.AppRoot != filepath.Join(root, "apps", "web") || target.Binding.Environment != "staging" || value.Config.Project.Environment != "production" {
 		t.Fatalf("unexpected target or mutated source: %#v %#v", target, value)
 	}
-	for _, pin := range []string{"environment", "application"} {
-		t.Run(pin, func(t *testing.T) {
-			pinned := value
-			if pin == "environment" {
-				pinned.Config.Project.EnvironmentUUID = "environment-id"
-			} else {
-				pinned.Config.Project.ApplicationUUID = "application-id"
-			}
-			if _, err := project.Select(pinned, "", "staging"); !errors.Is(err, config.ErrInvalid) {
-				t.Fatalf("override must reject conflicting pin: %v", err)
-			}
-			if _, err := project.Select(pinned, "", "production"); err != nil {
-				t.Fatalf("same-environment override should retain pin: %v", err)
-			}
-		})
+	// link pins every resource, so another environment is found by names:
+	// the environment and application pins are dropped, the project pin kept.
+	pinned := value
+	pinned.Config.Project.ProjectUUID = "project-id"
+	pinned.Config.Project.EnvironmentUUID = "environment-id"
+	pinned.Config.Project.ApplicationUUID = "application-id"
+	target, err = project.Select(pinned, "", "staging")
+	if err != nil {
+		t.Fatalf("override on a pinned binding: %v", err)
+	}
+	if b := target.Binding; b.Environment != "staging" || b.EnvironmentUUID != "" || b.ApplicationUUID != "" || b.ProjectUUID != "project-id" || b.Application != pinned.Config.Project.Application {
+		t.Fatalf("override kept the wrong pins: %#v", b)
+	}
+	if pinned.Config.Project.EnvironmentUUID != "environment-id" {
+		t.Fatal("override mutated the source binding")
+	}
+	target, err = project.Select(pinned, "", "production")
+	if err != nil || target.Binding.EnvironmentUUID != "environment-id" || target.Binding.ApplicationUUID != "application-id" {
+		t.Fatalf("same-environment override should retain pins: %#v %v", target.Binding, err)
+	}
+	// An application pinned without a name has nothing to find elsewhere.
+	unnamed := pinned
+	unnamed.Config.Project.Application = ""
+	if _, err := project.Select(unnamed, "", "staging"); !errors.Is(err, config.ErrInvalid) {
+		t.Fatalf("override must reject an unnamed application pin: %v", err)
 	}
 }
 
@@ -390,6 +400,12 @@ func TestProposeAddsTargetsWithoutReviewButReviewsChangesAndConversions(t *testi
 	plan, err = project.Propose(value, "api", same)
 	if err != nil || !plan.Unchanged {
 		t.Fatalf("identical target: plan=%+v err=%v", plan, err)
+	}
+	refreshed := same
+	refreshed.ProjectUUID, refreshed.EnvironmentUUID, refreshed.ApplicationUUID = "p-new", "e-new", "a-new"
+	plan, err = project.Propose(value, "api", refreshed)
+	if err != nil || plan.Review || plan.Unchanged {
+		t.Fatalf("refreshed pins need no review: plan=%+v err=%v", plan, err)
 	}
 	changed := same
 	changed.Application = "backend-v2"
