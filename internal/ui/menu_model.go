@@ -333,13 +333,25 @@ const (
 	footerLines = 2
 )
 
+// compact reports a terminal too short for the header and footer with even
+// one list row under them. The view then drops both and draws only the list,
+// and the filter line while one is typed.
+func (m menuModel) compact() bool {
+	return m.height > 0 && m.height < headerLines+footerLines+1
+}
+
 // listHeight is how many list rows fit; zero means the height is unknown and
 // the whole list is drawn.
 func (m menuModel) listHeight() int {
-	if m.height <= 0 {
+	switch {
+	case m.height <= 0:
 		return 0
+	case m.compact() && m.filtering:
+		return max(1, m.height-1)
+	case m.compact():
+		return m.height
 	}
-	return max(1, m.height-headerLines-footerLines)
+	return m.height - headerLines - footerLines
 }
 
 // scroll moves the window over the list so the cursor's row, and the title
@@ -391,6 +403,16 @@ func (m menuModel) rows() ([]menuRow, int) {
 }
 
 func (m menuModel) View() tea.View {
+	if m.compact() {
+		var out strings.Builder
+		if m.filtering && m.height > 1 {
+			out.WriteString(m.style.apply(cyan, "/") + " " + singleLine(m.filter) + m.style.apply(dim, "▏") + "\n")
+		}
+		out.WriteString(m.list())
+		view := tea.NewView(m.fit(strings.TrimSuffix(out.String(), "\n")))
+		view.AltScreen = true
+		return view
+	}
 	var out strings.Builder
 	out.WriteString(m.style.apply(bold, "coolship ui") + "  " + m.style.apply(yellow, "experimental") + "\n")
 	for _, line := range m.header() {
@@ -470,6 +492,11 @@ func (m menuModel) header() []string {
 func (m menuModel) lastDeployment() string {
 	last := m.status.LastDeployment
 	if last == nil {
+		for _, warning := range m.status.Warnings {
+			if reason, ok := strings.CutPrefix(warning, service.HistoryUnreadableWarning); ok {
+				return m.style.apply(yellow, "unavailable") + "  " + m.style.apply(dim, singleLine(reason))
+			}
+		}
 		return m.style.apply(dim, "none yet")
 	}
 	status := singleLine(last.Status)

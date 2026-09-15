@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -175,6 +176,44 @@ func TestMenuShowsAFailedRead(t *testing.T) {
 	view := viewText(model)
 	if !strings.Contains(view, "✗ Status unavailable") || !strings.Contains(view, "server unreachable") {
 		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestMenuTellsAnUnreadableHistoryFromAnEmptyOne(t *testing.T) {
+	empty := testStatus()
+	empty.LastDeployment = nil
+	empty.Warnings = []string{"COOLSHIP_URL and COOLSHIP_TOKEN select this invocation's instance; committed context is not used."}
+	model, _ := loaded(t, newTestMenu(t, 0, nil), empty, nil)
+	if view := viewText(model); !strings.Contains(view, "Last deployment: none yet") {
+		t.Fatalf("empty history with an unrelated warning:\n%s", view)
+	}
+	unreadable := empty
+	unreadable.Warnings = append(slices.Clone(empty.Warnings), service.HistoryUnreadableWarning+"403 Forbidden")
+	model, _ = loaded(t, newTestMenu(t, 0, nil), unreadable, nil)
+	view := viewText(model)
+	if !strings.Contains(view, "Last deployment: unavailable  403 Forbidden") || strings.Contains(view, "none yet") {
+		t.Fatalf("unreadable history:\n%s", view)
+	}
+}
+
+func TestMenuFitsATerminalTooShortForTheHeader(t *testing.T) {
+	for height := 1; height <= headerLines+footerLines+1; height++ {
+		model := newTestMenu(t, 0, nil)
+		model, _ = step(t, model, tea.WindowSizeMsg{Width: 60, Height: height})
+		model, _ = loaded(t, model, testStatus(), nil)
+		for _, keys := range [][]string{nil, {"up"}, {"s"}} {
+			current := model
+			for _, key := range keys {
+				current, _ = step(t, current, press(key))
+			}
+			view := viewText(current)
+			if lines := strings.Count(view, "\n") + 1; lines > height {
+				t.Errorf("height %d after %q: view is %d lines:\n%s", height, keys, lines, view)
+			}
+			if !strings.Contains(view, "› ") {
+				t.Errorf("height %d after %q: the selection is not in view:\n%s", height, keys, view)
+			}
+		}
 	}
 }
 
