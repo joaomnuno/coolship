@@ -102,7 +102,7 @@ func (a *App) CheckLogin(ctx context.Context, options LoginOptions) (LoginCheck,
 	if err != nil {
 		return LoginCheck{}, input(err)
 	}
-	if match.Duplicate != "" {
+	if match.Duplicate != "" && !a.makesDefault(options, match.Duplicate) {
 		return LoginCheck{}, input(&auth.DuplicateLoginError{Name: match.Duplicate, URL: address})
 	}
 	backend, err := a.backend(auth.Credentials{Name: options.Name, URL: address, Token: token})
@@ -118,6 +118,16 @@ func (a *App) CheckLogin(ctx context.Context, options LoginOptions) (LoginCheck,
 		return LoginCheck{}, restate(err, "token was not accepted by %s: %s", address, describeLoginFailure(err))
 	}
 	return LoginCheck{Server: version, Team: team.Name}, nil
+}
+
+// makesDefault reports whether saving a login the file already holds under
+// duplicate still changes something: --default for that same context when it
+// is not the default yet.
+func (a *App) makesDefault(options LoginOptions, duplicate string) bool {
+	if !options.Default || options.Name != duplicate {
+		return false
+	}
+	return a.deps.InspectCredentials(auth.Options{ConfigPath: options.ConfigPath}).Default != duplicate
 }
 
 // SaveLogin writes a checked login to the Coolify CLI configuration, so both

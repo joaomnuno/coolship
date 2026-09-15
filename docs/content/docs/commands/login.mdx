@@ -55,13 +55,13 @@ A check that fails says exactly what happened, with the same code, hint, and lin
 
 When the URL is already saved, `login` asks whether to replace that context's token, save under a new name, or leave. A new name may not be one already saved.
 
-At `--verbose` or `--debug`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command.
+At `--verbose` or `--debug`, with `--format json`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command.
 
 ## Without a terminal
 
 Pass `--url` and `--name` (or `--context`) and pipe the token on stdin with `--token-stdin`. The same checks run in the same order, and a failure exits with its [error code](/docs/platform/errors) instead of asking again. For Coolify Cloud, pass `--url https://app.coolify.io`. The token is never accepted as a flag, so it stays out of shell history and process listings. Create a token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities.
 
-A URL and token that a saved context already holds are refused with [`already_saved`](/docs/platform/errors#already_saved), exiting `2`; nothing needed saving. The same URL with another token is saved under the name you pass.
+A URL and token that a saved context already holds are refused with [`already_saved`](/docs/platform/errors#already_saved), exiting `2`; nothing needed saving. The exception is `--default` with that context's own name while another context is the default: the login is saved again and becomes the default. The same URL with another token is saved under the name you pass.
 
 ## Flags
 

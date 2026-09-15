@@ -1158,6 +1158,11 @@ func TestLoginChecksTheURLBeforeTheTokenAndNamesTheFlags(t *testing.T) {
 	if strings.Index(diagnostic, "Keys & Tokens") < strings.Index(diagnostic, "Context name") {
 		t.Fatalf("token hint must come with the token prompt: %q", diagnostic)
 	}
+	// --format json asks line by line, never through the form.
+	diagnostic, err = run("https://coolify.example.com\nlab\ntyped\n", true, "login", "--format", "json")
+	if err != nil || seen.Name != "lab" || !strings.Contains(diagnostic, "Coolify URL (https://app.coolify.io for Coolify Cloud):") {
+		t.Fatalf("json: seen=%+v err=%v stderr=%q", seen, err, diagnostic)
+	}
 }
 
 func TestUnlinkPromptListsEveryTargetItRemoves(t *testing.T) {

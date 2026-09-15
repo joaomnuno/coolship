@@ -2009,13 +2009,15 @@ func TestLoginChecksTheInstanceFirstAndRefusesADuplicate(t *testing.T) {
 	built, saves := 0, 0
 	healthErr := error(&coolify.NotCoolifyError{Endpoint: "/api/health", StatusCode: 404})
 	match := auth.Match{}
+	savedDefault, madeDefault := "", false
 	app := New(Dependencies{
 		NewBackend:         func(auth.Credentials) (Backend, error) { built++; return f, nil },
 		CheckHealth:        func(context.Context, string) error { return healthErr },
 		FindLogin:          func(string, string, string) (auth.Match, error) { return match, nil },
-		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{} },
-		SaveCredentials: func(p string, _ auth.Stored, _ bool) (string, error) {
+		InspectCredentials: func(auth.Options) auth.Report { return auth.Report{Default: savedDefault} },
+		SaveCredentials: func(p string, _ auth.Stored, makeDefault bool) (string, error) {
 			saves++
+			madeDefault = makeDefault
 			return p, nil
 		},
 	})
@@ -2042,5 +2044,23 @@ func TestLoginChecksTheInstanceFirstAndRefusesADuplicate(t *testing.T) {
 	match = auth.Match{Names: []string{"lab"}}
 	if result, err := app.Login(context.Background(), options); err != nil || result.Name != "home" || built != 1 || saves != 1 {
 		t.Fatalf("new token: %+v %v", result, err)
+	}
+	// --default for the context that already holds the token still changes
+	// something while another context is the default, so it is saved.
+	match = auth.Match{Names: []string{"home"}, Duplicate: "home"}
+	savedDefault = "lab"
+	options.Default = true
+	if _, err := app.Login(context.Background(), options); err != nil || built != 2 || saves != 2 || !madeDefault {
+		t.Fatalf("--default on a saved login: err=%v built=%d saves=%d default=%t", err, built, saves, madeDefault)
+	}
+	// Once it is the default, or when --default names another context, there
+	// is nothing to change.
+	savedDefault = "home"
+	if _, err := app.Login(context.Background(), options); !errors.Is(err, ErrInput) || saves != 2 {
+		t.Fatalf("--default on the default: err=%v saves=%d", err, saves)
+	}
+	savedDefault, options.Name = "lab", "work"
+	if _, err := app.Login(context.Background(), options); !errors.Is(err, ErrInput) || saves != 2 {
+		t.Fatalf("--default under another name: err=%v saves=%d", err, saves)
 	}
 }
