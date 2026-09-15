@@ -13,6 +13,18 @@ type commandOptions struct {
 	format string
 	// verbosity is resolved once, before any command runs.
 	verbosity ui.Verbosity
+	// noHints is the hints = false preference; every next-step hint goes
+	// through hint so the preference is honored in one place.
+	noHints bool
+}
+
+// hint prints a next-step suggestion unless the hints preference is off;
+// ui.Hint decides whether the streams and format want one at all.
+func (o *commandOptions) hint(streams ui.Streams, text string) {
+	if o.noHints {
+		return
+	}
+	ui.Hint(streams, o.format, text)
 }
 
 func noArgs(command *cobra.Command, args []string) error {

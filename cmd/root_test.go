@@ -565,6 +565,18 @@ func TestNextStepHintsOnlyInInteractiveHumanOutput(t *testing.T) {
 		if got := run(true, append(test.args, "--format", "json")...); got != "" {
 			t.Errorf("%v json stderr = %q", test.args, got)
 		}
+		// hints = false in the preferences file silences every hint.
+		off := false
+		var out, diagnostic bytes.Buffer
+		root := cmd.NewRootCommand(app, ui.Streams{Out: &out, Err: &diagnostic, Interactive: true}, "test",
+			cmd.WithPreferences(preferences.Report{Path: "prefs.toml", Present: true, Preferences: preferences.Preferences{Hints: &off}}))
+		root.SetArgs(test.args)
+		if err := root.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("%v hints off: %v", test.args, err)
+		}
+		if diagnostic.String() != "" {
+			t.Errorf("%v hints off stderr = %q", test.args, diagnostic.String())
+		}
 	}
 }
 

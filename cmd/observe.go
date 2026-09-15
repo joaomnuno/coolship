@@ -73,7 +73,7 @@ func observeDeployment(streams ui.Streams, options *commandOptions, noWait, logs
 		// that only stopped (a timeout, Ctrl-C) does not. Hint prints only
 		// for human output on interactive streams.
 		if result.DeploymentUUID != "" && deploymentOutcome(result.Status) == ui.OutcomeFailed {
-			ui.Hint(streams, options.format, ui.FailedDeployHint(options.Target))
+			options.hint(streams, ui.FailedDeployHint(options.Target))
 		}
 		return err
 	}
