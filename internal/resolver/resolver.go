@@ -181,6 +181,27 @@ func ResolveAlongside(ctx context.Context, catalog Catalog, target project.Targe
 		startApplication(selectedApplication.UUID)
 	}
 	application, err := applicationRead.wait()
+	if err != nil && pinnedApplication && notFound(err) {
+		// The environment still listed the pin, but the application itself is
+		// gone: a deletion race or a stale listing. It is missing all the same.
+		if selectors.Application == "" {
+			return Binding{}, &MissingError{Resource: "application", Scope: applicationScope, UUID: selectors.ApplicationUUID}
+		}
+		pinnedApplication = false
+		others := make([]models.Application, 0, len(environment.Applications))
+		for _, candidate := range environment.Applications {
+			if candidate.UUID != selectors.ApplicationUUID {
+				others = append(others, candidate)
+			}
+		}
+		selectedApplication, err = choose(others, applicationChoice, "application", applicationScope, selectors.Application, "")
+		if err != nil {
+			return Binding{}, fellBack(err, selectors.ApplicationUUID)
+		}
+		stale = append(stale, stalePin{"application", selectors.ApplicationUUID, selectedApplication.Name})
+		startApplication(selectedApplication.UUID)
+		application, err = applicationRead.wait()
+	}
 	if err != nil {
 		return Binding{}, fmt.Errorf("read selected application: %w", err)
 	}
