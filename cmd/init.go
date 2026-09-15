@@ -122,9 +122,11 @@ directory as its root, which becomes the application's base directory.`,
 				return nil
 			}
 			// Without --deploy, a question takes the place of the deploy hint.
-			ask := result.Deployment == nil && options.hintsShown(streams)
+			// As a fix, the command that failed runs next and decides whether
+			// to deploy, so neither is offered here.
+			ask := result.Deployment == nil && options.hintsShown(streams) && !options.rerunPending
 			showNextSteps(command.Context(), app, options, streams, ui.NextStepOptions{Target: create.Target,
-				Compose: result.Plan.BuildPack == service.BuildPackCompose, NoDeploy: ask || result.Deployment != nil})
+				Compose: result.Plan.BuildPack == service.BuildPackCompose, NoDeploy: ask || result.Deployment != nil || options.rerunPending})
 			if !ask {
 				return nil
 			}

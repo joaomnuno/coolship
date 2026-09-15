@@ -7,7 +7,7 @@ When Coolship recognizes a failure, it prints a stable code with it, a hint, and
 
 ```text
 $ coolship status
-Error [api_disabled]: Coolify GET /projects: HTTP 403 Forbidden: API is disabled.
+Error [api_disabled]: read project for binding: Coolify GET /projects/p0kq4g8wcs8o4gkkwwk4s0gc: HTTP 403 Forbidden: API is disabled.
 Hint: API access is turned off on this Coolify instance. An instance admin can turn it on in Coolify under Settings, Advanced, API access.
 Docs: https://coolify.io/docs/api/ip-allowlist
 ```
@@ -36,7 +36,7 @@ The credentials could not be used as given: `COOLSHIP_URL` without `COOLSHIP_TOK
 
 ### already_saved
 
-`coolship login` was given an instance URL and token that a saved context already holds, so there was nothing to save. The message names the context. Use it with `--context NAME`, make it the default with `coolship login --name NAME --default`, or run `coolship logout NAME` first to save the same token under another name.
+`coolship login` was given an instance URL and token that a saved context already holds, so there was nothing to save. The message names the context. Use it with `--context NAME`, or make it the default by logging in again with the same URL and token, that context's name, and `--default` (`coolship login --url URL --name NAME --default --token-stdin`), or run `coolship logout NAME` first to save the same token under another name.
 
 ## Project binding
 
@@ -76,7 +76,7 @@ Coolify answered for a different resource than the one asked for, so Coolship st
 
 ### unauthorized
 
-Coolify answered `401`: the token is revoked, expired, or belongs to another instance. Run `coolship login` to save a new token, or check `COOLSHIP_TOKEN`. Tokens are created in Coolify under **Security**, **API Tokens**; see Coolify's [API tokens](https://coolify.io/docs/core/security/credentials/api-tokens).
+Coolify answered `401`: the token is revoked, expired, or belongs to another instance. Run `coolship login` to save a new token, or check `COOLSHIP_TOKEN`. Tokens are created in Coolify under **Keys & Tokens**, **API tokens**; see Coolify's [API tokens](https://coolify.io/docs/core/security/credentials/api-tokens).
 
 ### api_disabled
 
@@ -88,7 +88,7 @@ Coolify answered `403` with `You are not allowed to access the API.`: this machi
 
 ### missing_permissions
 
-Coolify answered `403` with `Missing required permissions: …`, naming the permissions the request needed. Coolship needs a token with `read`, `write`, and `deploy`; build logs and secret values also need `read:sensitive`. Create one under **Security**, **API Tokens**, then run `coolship login`. See Coolify's [API permissions](https://coolify.io/docs/api/permissions).
+Coolify answered `403` with `Missing required permissions: …`, naming the permissions the request needed. Coolship needs a token with `read`, `write`, and `deploy`; build logs and secret values also need `read:sensitive`. Create one under **Keys & Tokens**, **API tokens**, then run `coolship login`. See Coolify's [API permissions](https://coolify.io/docs/api/permissions).
 
 ### token_exceeds_role
 
@@ -172,7 +172,7 @@ Any other failure. Exit code `1`.
 
 ### checks_failed
 
-`doctor` found at least one failed check. Its result on stdout says which. Exit code `1`.
+`doctor` found at least one failed check. With `--format json`, `doctor` prints its checks with `"failed": true` on stdout in place of an error object, so the result stays one JSON value. Exit code `1`.
 
 ### interrupted
 

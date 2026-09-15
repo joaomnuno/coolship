@@ -22,7 +22,7 @@ $ cs status
 - **A file of that name that is not Coolship**, in the binary's directory, even when that directory is not on `PATH`.
 - **A directory it cannot write.** When `coolship` lives in a system directory such as `/usr/local/bin`, `alias` explains that and suggests running it with `sudo`, or moving the binary to a directory you own.
 
-Running `alias` again when the alias already runs this binary changes nothing. A link to or copy of an older Coolship binary is replaced. When the directory is not on `PATH`, or another command of the same name comes earlier on it, the alias is created and a warning says so.
+Running `alias` again when the alias already runs this binary changes nothing. A link to an older Coolship binary is replaced, and so is a copy on Windows. A separate Coolship binary of that name, a regular file such as the installed `coolship` next to a development build, is never replaced; `alias` refuses and names it. When the directory is not on `PATH`, or another command of the same name comes earlier on it, the alias is created and a warning says so.
 
 Coolship recognizes its own binary from the build information Go records in it; the file is never run.
 
@@ -30,7 +30,7 @@ Coolship recognizes its own binary from the build information Go records in it; 
 
 | Flag       | Purpose                                                                   |
 | ---------- | ------------------------------------------------------------------------- |
-| `--remove` | Remove the alias instead of adding it, only when it is a link to or copy of Coolship. |
+| `--remove` | Remove the alias instead of adding it, only when it is a link to Coolship, or a copy on Windows. A separate Coolship binary is left in place. |
 
 ## Examples
 

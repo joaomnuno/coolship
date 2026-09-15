@@ -59,7 +59,7 @@ changing one, or converting between the two forms, requires review.`,
 			if err := ui.NewRenderer(streams, options.format).Link(result); err != nil {
 				return err
 			}
-			showNextSteps(command.Context(), app, options, streams, ui.NextStepOptions{Target: link.Target})
+			showNextSteps(command.Context(), app, options, streams, ui.NextStepOptions{Target: link.Target, NoDeploy: options.rerunPending})
 			return nil
 		},
 	}

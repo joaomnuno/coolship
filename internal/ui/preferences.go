@@ -141,7 +141,8 @@ func (m *preferencesForm) changes() []preferences.Change {
 
 // preferencesHeader is the read-only part of the form: the binding, where
 // credentials come from, the instance, and the preferences file. A token is
-// never part of a ConfigResult, so it cannot appear.
+// never part of a ConfigResult, so it cannot appear. Without a binding the
+// credentials and instance are still shown, from what Config could read.
 func preferencesHeader(input PreferencesForm, style palette) string {
 	result := input.Config
 	binding := ""
@@ -154,10 +155,8 @@ func preferencesHeader(input PreferencesForm, style palette) string {
 			binding += " [" + result.Target + "]"
 		}
 	}
-	rows := [][2]string{{"Binding", binding}}
-	if input.ConfigError == nil {
-		rows = append(rows, [2]string{"Credentials", describeCredentials(result)}, [2]string{"Instance", describeInstance(result)})
-	}
+	rows := [][2]string{{"Binding", binding},
+		{"Credentials", describeCredentials(result)}, {"Instance", describeInstance(result)}}
 	file := input.Report.Path
 	switch {
 	case input.Report.Err != nil && file == "":

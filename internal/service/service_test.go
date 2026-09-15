@@ -1409,6 +1409,11 @@ func TestConfigIsLocalAndReportsCredentialProblemsAsWarnings(t *testing.T) {
 	if result.Instance != "home" || result.CredentialSource != "file" || *factories != 0 || f.calls["projects"] != 0 {
 		t.Fatalf("config must resolve credentials locally and never build a backend: %+v factories=%d calls=%v", result, *factories, f.calls)
 	}
+	// Without a binding the error stands, and the credentials are still known.
+	unbound, err := app.Config(context.Background(), Options{CWD: t.TempDir()})
+	if !errors.Is(err, ErrInput) || unbound.CredentialSource != "file" || unbound.Instance != "home" || unbound.Binding.Application != "" {
+		t.Fatalf("unbound config: %+v, %v", unbound, err)
+	}
 	broken := New(Dependencies{
 		ResolveCredentials: func(auth.Options) (auth.Credentials, error) {
 			return auth.Credentials{}, errors.New("no default instance")

@@ -32,14 +32,11 @@ const (
 var loginTitles = []string{"Instance type", "URL", "Check instance", "Context name", "Token", "Check token", "Save"}
 
 // LoginFormAvailable reports whether login can run its form: interactive
-// input from a terminal, stderr a terminal it can draw on at normal
-// verbosity, and a text result. With --format json the checklist would print
-// plain step lines under the form's redraws, so JSON asks line by line, like
-// link and init. Anything less asks line by line, or not at all.
+// input from a terminal and stderr a terminal it can draw on at normal
+// verbosity. The form and its checklist use stderr only, so --format json
+// runs it too and only the result reaches stdout. Anything less asks line by
+// line, or not at all.
 func LoginFormAvailable(streams Streams, format string) bool {
-	if format == "json" {
-		return false
-	}
 	_, _, ok := terminalInput(streams.Normalized())
 	return ok
 }
@@ -50,7 +47,10 @@ func LoginFormAvailable(streams Streams, format string) bool {
 // right after its URL, and the token right after it is typed; nothing is
 // written until the last step. Leaving returns service.ErrCancelled.
 func RunLoginForm(ctx context.Context, streams Streams, format string, actions LoginActions, preset service.LoginOptions, open func(string) error) (service.LoginResult, error) {
-	steps := NewSteps(streams, format, loginTitles)
+	// The checklist is drawn on stderr whatever the format: with --format
+	// json, plain step lines would print under the form's redraws, and the
+	// result alone goes to stdout.
+	steps := NewSteps(streams, "human", loginTitles)
 	form := newLoginForm(actions, preset)
 	if err := runFlow(ctx, streams, steps, form.stages(), open); err != nil {
 		return service.LoginResult{}, err

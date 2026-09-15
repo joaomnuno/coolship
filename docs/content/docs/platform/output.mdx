@@ -68,7 +68,7 @@ When a command fails in a way Coolship can set right, the error is printed as us
 | [`not_linked`](/docs/platform/errors#not_linked) | Choose `coolship link`, `coolship init`, or leave. |
 | [`unknown_context`](/docs/platform/errors#unknown_context), [`no_default_context`](/docs/platform/errors#no_default_context) | Pick a saved context for this run, log in, or leave. |
 | `api_disabled`, `ip_not_allowed` | Open Settings, Advanced on the instance in a browser. |
-| `missing_permissions`, `token_exceeds_role` | Open Security, API Tokens on the instance, then log in with the new token. |
+| `missing_permissions`, `token_exceeds_role` | Open Keys & Tokens, API tokens on the instance, then log in with the new token. |
 
 ```text
 $ coolship status
@@ -109,7 +109,7 @@ A failure Coolship recognizes is printed with its [error code](/docs/platform/er
 ```text
 $ coolship deploy
 Error [missing_permissions]: Coolify POST /deploy: HTTP 403 Forbidden: Missing required permissions: deploy
-Hint: The API token lacks a permission this command needs. Create a token with read, write, and deploy (build logs and secret values also need read:sensitive) under Security, API Tokens, then run coolship login.
+Hint: The API token lacks a permission this command needs. Create a token with read, write, and deploy (build logs and secret values also need read:sensitive) under Keys & Tokens, API tokens, then run coolship login.
 Docs: https://coolify.io/docs/api/permissions
 ```
 
@@ -121,4 +121,4 @@ With `--format json`, the text above still goes to stderr, and stdout also gets 
 {"error":{"code":"missing_permissions","message":"Coolify POST /deploy: HTTP 403 Forbidden: Missing required permissions: deploy","hint":"The API token lacks …","docs_url":"https://coolify.io/docs/api/permissions"}}
 ```
 
-All four fields are always present. A failure without a catalog entry gets a generic code (`invalid_input`, `unclassified`, `checks_failed`, `interrupted`, or `cancelled`), with an empty `hint` and `docs_url`. The object comes after anything the command already printed, so a failed deployment's partial result, `doctor`'s checks, or the events of `logs --format json` are followed by the error object: read the last line, or the object that has an `error` key. A command that exits with a child process's status (`dev`, `env diff --exit-code`) prints no object. The exit code is the same in both formats, so a script can still check it first.
+All four fields are always present. A failure without a catalog entry gets a generic code (`invalid_input`, `unclassified`, `checks_failed`, `interrupted`, or `cancelled`), with an empty `hint` and `docs_url`. The object comes after anything the command already printed, so the events of `logs --format json` are followed by it: read the last line, or the object that has an `error` key. A command whose result already says what failed prints that result and no error object, so stdout stays one JSON value: `doctor`'s checks, with `"failed": true`, and a deployment that failed or timed out after it was queued, with its last status. A command that exits with a child process's status (`dev`, `env diff --exit-code`) prints no object. The exit code is the same in both formats, so a script can still check it first.

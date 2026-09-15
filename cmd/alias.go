@@ -20,7 +20,8 @@ binary: a symlink, or a copy on Windows. Nothing else is written.
 alias refuses when NAME already runs another command on your PATH, naming
 that command, and when the binary's directory is not writable. Running it
 again when the alias exists changes nothing. --remove deletes the alias,
-but only when it is a link to or copy of Coolship.`,
+but only when it is a link to Coolship, or a copy on Windows. A separate
+Coolship binary of that name is never replaced or removed.`,
 		Example: `  coolship alias
   coolship alias ship
   coolship alias --remove`,
@@ -57,7 +58,8 @@ func aliasError(err error) error {
 	var name *alias.NameError
 	var conflict *alias.ConflictError
 	var notCoolship *alias.NotCoolshipError
-	if errors.As(err, &name) || errors.As(err, &conflict) || errors.As(err, &notCoolship) {
+	var separate *alias.SeparateBinaryError
+	if errors.As(err, &name) || errors.As(err, &conflict) || errors.As(err, &notCoolship) || errors.As(err, &separate) {
 		return inputError(err)
 	}
 	return err

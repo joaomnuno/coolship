@@ -53,7 +53,10 @@ and secret values also need sensitive read.`,
 				login.Name = options.Context
 			}
 			renderer := ui.NewRenderer(streams, options.format)
-			if !tokenStdin && ui.LoginFormAvailable(streams, options.format) {
+			// With a terminal on stdin, --token-stdin would read the token
+			// from that same terminal, so the form asks for it instead,
+			// unechoed, with every step's Retry, Go back, and Leave.
+			if ui.LoginFormAvailable(streams, options.format) {
 				result, err := ui.RunLoginForm(ctx, streams, options.format, app, login, openBrowser)
 				if err != nil {
 					return err
@@ -101,7 +104,8 @@ func loginWithoutPrompts(ctx context.Context, app Application, login service.Log
 }
 
 // loginLineByLine asks one line at a time, for input that is interactive but
-// cannot run the form, such as a run at --verbose. The checks run in the
+// cannot run the form: a run at --verbose or --debug, or interactive input
+// that is not a terminal. The checks run in the
 // form's order: the instance right after its URL, then the token.
 func loginLineByLine(ctx context.Context, app Application, login service.LoginOptions, tokenStdin bool, streams ui.Streams) (service.LoginResult, error) {
 	prompter := ui.NewPrompter(streams)
