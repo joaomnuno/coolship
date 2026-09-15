@@ -60,6 +60,10 @@ type Application interface {
 	Domain(context.Context, service.Options) (service.DomainResult, error)
 	DomainSet(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
 	Login(context.Context, service.LoginOptions) (service.LoginResult, error)
+	SavedContexts(configPath string) []service.SavedContext
+	CheckInstance(ctx context.Context, url string) (string, error)
+	CheckLogin(context.Context, service.LoginOptions) (service.LoginCheck, error)
+	SaveLogin(context.Context, service.LoginOptions, service.LoginCheck) (service.LoginResult, error)
 	Logout(context.Context, service.LogoutOptions) (service.LogoutResult, error)
 	ProjectState(context.Context, service.Options) (service.ProjectState, error)
 	Contexts(service.Options) ([]auth.Instance, error)
@@ -183,7 +187,7 @@ logs of that application.`,
 		commands []*cobra.Command
 	}{
 		{cobra.Group{ID: "start", Title: "Get started"}, []*cobra.Command{
-			newLoginCommand(app, options, streams), newInitCommand(app, options, streams), newLinkCommand(app, options, streams),
+			newLoginCommand(app, options, streams, config.openBrowser), newInitCommand(app, options, streams), newLinkCommand(app, options, streams),
 		}},
 		{cobra.Group{ID: "ship", Title: "Ship"}, []*cobra.Command{
 			newDeployCommand(app, options, streams, prefs), newPreviewCommand(app, options, streams, config.environment, prefs),

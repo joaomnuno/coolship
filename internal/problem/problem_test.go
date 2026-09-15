@@ -213,6 +213,10 @@ func TestLocalSetupFailuresOfferTheirFix(t *testing.T) {
 		{"uncertain", &coolify.UncertainSubmissionError{ResourceUUID: "a1", Err: &coolify.RequestError{Err: timeout{}}}, problem.CodeUncertainSubmission, problem.FixNone, "", ""},
 		{"not running", &coolify.NotRunningError{Message: "Application is not running."}, problem.CodeAppNotRunning, problem.FixNone, "application is not running", ""},
 		{"protocol", &coolify.ProtocolError{Endpoint: "/version", Reason: "odd"}, problem.CodeUnexpectedResponse, problem.FixNone, "Coolify /version: odd", ""},
+		{"not coolify", fmt.Errorf("no Coolify answered at https://x: %w", &coolify.NotCoolifyError{Endpoint: "/api/health", StatusCode: 404}), problem.CodeNotCoolify, problem.FixNone,
+			"no Coolify answered at https://x: Coolify GET /api/health: HTTP 404 Not Found", ""},
+		{"already saved", &service.InputError{Err: &auth.DuplicateLoginError{Name: "home", URL: "https://c.example.com"}}, problem.CodeAlreadySaved, problem.FixNone,
+			`https://c.example.com and this token are already saved as context "home"`, "home"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			found, ok := problem.Classify(test.err)

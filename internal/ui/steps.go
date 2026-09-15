@@ -98,6 +98,21 @@ func (s *Steps) Fail(i int, err error) {
 	s.change(i, service.StageFailed, func(row *stageRow, now time.Time) { s.end(row, status, now) })
 }
 
+// Answer ends step i as a question answered: the answer is shown in the
+// column a time would take, and no time is shown. The plain path prints
+// nothing, since the answer was typed where it can already be seen.
+func (s *Steps) Answer(i int, answer string) {
+	s.change(i, "", func(row *stageRow, now time.Time) {
+		*row = stageRow{name: row.name, status: service.StageDone, answer: true, detail: answer, started: now, ended: now}
+	})
+}
+
+// Reset returns step i to not reached, for a form that goes back to an
+// earlier question. The plain path prints nothing.
+func (s *Steps) Reset(i int) {
+	s.change(i, "", func(row *stageRow, _ time.Time) { *row = stageRow{name: row.name} })
+}
+
 // Skip marks step i as not run, with the reason in parentheses when given.
 func (s *Steps) Skip(i int, reason string) {
 	s.change(i, service.StageSkipped, func(row *stageRow, _ time.Time) {

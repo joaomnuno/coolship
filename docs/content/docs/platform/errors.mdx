@@ -34,6 +34,10 @@ Contexts are saved, but none is the default and no `--context` was given. Pass `
 
 The credentials could not be used as given: `COOLSHIP_URL` without `COOLSHIP_TOKEN` (or the reverse), those variables combined with `--context`, an instance URL that is not an absolute HTTP(S) URL, or a credentials file that is not valid JSON. The message says which. Fix the variables or the file; `coolship login` rewrites a context.
 
+### already_saved
+
+`coolship login` was given an instance URL and token that a saved context already holds, so there was nothing to save. The message names the context. Use it with `--context NAME`, or run `coolship logout NAME` first to save the same token under another name.
+
 ## Project binding
 
 ### not_linked
@@ -135,6 +139,10 @@ The request got no answer in time. Check the instance URL and the network, then 
 ### network_error
 
 The request failed for another network reason, which Coolship does not repeat because a proxy's message can carry credentials. Check the network and any proxy between this machine and Coolify, then retry; `--debug` shows each attempt.
+
+### not_coolify
+
+Something answered at the instance URL, but not Coolify: `coolship login` asks Coolify's public health check, `GET /api/health`, before it asks for a token, and got another status or another answer. The URL usually points at a different site, or at a path below Coolify's own. Use the address you open Coolify at in a browser, such as `https://coolify.example.com`, or `https://app.coolify.io` for Coolify Cloud.
 
 ### unexpected_response
 
