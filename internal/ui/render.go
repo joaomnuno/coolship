@@ -12,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/joaomnuno/coolship/internal/alias"
 	"github.com/joaomnuno/coolship/internal/service"
 )
 
@@ -943,6 +944,30 @@ func (r *Renderer) Login(result service.LoginResult) error {
 	}
 	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s) as team %s on Coolify %s%s\nSaved to %s\n",
 		verb, singleLine(result.Name), singleLine(result.URL), singleLine(result.Team), singleLine(result.Server), suffix, singleLine(result.Path))
+	return err
+}
+
+// Alias reports what coolship alias did. Notes such as the directory not
+// being on PATH go to stderr first, as warnings.
+func (r *Renderer) Alias(result alias.Result) error {
+	if err := r.warnings(result.Warnings); err != nil {
+		return err
+	}
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	name, path := singleLine(result.Name), singleLine(result.Path)
+	var err error
+	switch result.Status {
+	case alias.StatusCreated:
+		_, err = fmt.Fprintf(r.streams.Out, "Added %s: %s runs coolship\n", r.out.apply(bold, name), path)
+	case alias.StatusExists:
+		_, err = fmt.Fprintf(r.streams.Out, "%s already runs coolship: %s\n", r.out.apply(bold, name), path)
+	case alias.StatusRemoved:
+		_, err = fmt.Fprintf(r.streams.Out, "Removed %s: %s\n", r.out.apply(bold, name), path)
+	case alias.StatusAbsent:
+		_, err = fmt.Fprintf(r.streams.Out, "No alias %s at %s; nothing was removed\n", r.out.apply(bold, name), path)
+	}
 	return err
 }
 

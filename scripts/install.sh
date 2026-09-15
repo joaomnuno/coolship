@@ -20,6 +20,7 @@ SCRIPT_URL=https://raw.githubusercontent.com/$REPO/main/scripts/install.sh
 version=${COOLSHIP_VERSION:-latest}
 install_dir=${COOLSHIP_INSTALL_DIR:-}
 dry_run=0
+quiet=0
 tmp=
 staged=
 
@@ -27,7 +28,7 @@ usage() {
 	cat <<USAGE
 Install coolship from GitHub Releases.
 
-Usage: install.sh [--version X.Y.Z] [--dir DIR] [--dry-run] [--help]
+Usage: install.sh [--version X.Y.Z] [--dir DIR] [--dry-run] [--quiet] [--help]
        curl -fsSL $SCRIPT_URL | sh -s -- [options]
 
 Options:
@@ -36,6 +37,8 @@ Options:
   --dir DIR         Install into DIR (created if missing).
   --dry-run         Resolve the version and print what would happen, without
                     downloading or installing anything.
+  -q, --quiet       Print only the installed path and version, any PATH
+                    hint, and errors.
   -h, --help        Show this help.
 
 Environment:
@@ -45,12 +48,48 @@ Environment:
                         that mirrors GitHub's releases/ paths.
 
 The archive's SHA-256 is checked against the release's checksums.txt before
-anything is installed. The script never runs sudo; if DIR needs root it
-prints the command to run instead.
+anything is installed. The script never runs sudo and never asks a question;
+if DIR needs root it prints the command to run instead. When stdout is a
+terminal it ends with the Coolship wordmark and the next steps (NO_COLOR
+turns the colour off).
 USAGE
 }
 
 log() { printf '%s\n' "$*"; }
+# progress: a line --quiet leaves out.
+progress() { if [ "$quiet" = 0 ]; then log "$@"; fi; }
+
+# welcome VERSION PATH: the wordmark and next steps, for a person at a
+# terminal. A pipe, a CI log, and --quiet get one plain line instead.
+welcome() {
+	if [ "$quiet" = 1 ] || [ ! -t 1 ]; then
+		log "Installed $2 ($1)"
+		return
+	fi
+	accent= reset= faint=
+	if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
+		# The site's ember accent in the 256-colour palette.
+		accent=$(printf '\033[1;38;5;208m')
+		faint=$(printf '\033[2m')
+		reset=$(printf '\033[0m')
+	fi
+	printf '\n%s' "$accent"
+	cat <<'WORDMARK'
+   ████   ████    ████   ██      █████ ██  ██ ██ █████
+  ██     ██  ██  ██  ██  ██     ██     ██  ██ ██ ██  ██
+  ██     ██  ██  ██  ██  ██      ████  ██████ ██ ██  ██
+  ██     ██  ██  ██  ██  ██         ██ ██  ██ ██ █████
+  ██     ██  ██  ██  ██  ██         ██ ██  ██ ██ ██
+   ████   ████    ████   ██████ █████  ██  ██ ██ ██
+WORDMARK
+	printf '%s\n' "$reset"
+	printf '  %s\n' "$1"
+	printf '  %s%s%s\n\n' "$faint" "$2" "$reset"
+	printf '  Next:      %scoolship login%s\n' "$accent" "$reset"
+	if [ ! -e "$(dirname "$2")/cs" ]; then
+		printf '  Optional:  coolship alias  (adds cs)\n'
+	fi
+}
 fail() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
@@ -89,6 +128,7 @@ while [ $# -gt 0 ]; do
 		;;
 	--dir=*) install_dir=${1#--dir=} ;;
 	--dry-run) dry_run=1 ;;
+	-q | --quiet) quiet=1 ;;
 	*) fail "unknown option '$1' (try --help)" ;;
 	esac
 	shift
@@ -179,7 +219,7 @@ if [ "$version" = latest ] || [ -z "$version" ]; then
 	fi
 	[ -n "$tag" ] || fail "could not determine the latest release: either $REPO has no published release yet or the request failed; pass --version X.Y.Z to install a specific tag"
 	version=${tag#v}
-	log "Latest release: $version"
+	progress "Latest release: $version"
 else
 	version=${version#v}
 fi
@@ -237,7 +277,7 @@ fi
 
 make_tmp
 
-log "Downloading $asset_url"
+progress "Downloading $asset_url"
 download "$asset_url" "$tmp/$asset" || fail "download failed: $asset_url (is v$version a published release with binaries for $os/$arch?)"
 download "$sums_url" "$tmp/checksums.txt" || fail "download failed: $sums_url; refusing to install without a checksum"
 
@@ -250,7 +290,7 @@ if [ "$actual" != "$expected" ]; then
   actual   $actual
 The download may be corrupted or tampered with; nothing was installed."
 fi
-log "Verified sha256 $actual"
+progress "Verified sha256 $actual"
 
 mkdir "$tmp/extract"
 tar -xzf "$tmp/$asset" -C "$tmp/extract" || fail "could not extract $asset"
@@ -280,7 +320,7 @@ fi
 
 mv -f "$staged" "$install_dir/coolship" || fail "could not install $install_dir/coolship"
 staged=
-log "Installed $install_dir/coolship ($installed_version)"
+welcome "$installed_version" "$install_dir/coolship"
 
 # --- PATH --------------------------------------------------------------------
 

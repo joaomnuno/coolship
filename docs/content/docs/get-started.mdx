@@ -16,15 +16,28 @@ On Linux (glibc or musl) and macOS, amd64 or arm64:
 curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
 ```
 
-The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
+The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never asks a question and never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
+
+In a terminal the script ends with the Coolship wordmark, the installed version and path, and what to run next:
+
+```text
+  coolship v0.4.0
+  /home/you/.local/bin/coolship
+
+  Next:      coolship login
+  Optional:  coolship alias  (adds cs)
+```
+
+`NO_COLOR` drops the colour. Piped output, such as a CI log, and `--quiet` print a single `Installed` line instead. [`coolship alias`](/docs/commands/alias) adds `cs` as a short name for `coolship`.
 
 Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 
-| Variable               | Flag        | Default            | Meaning                                                              |
-| ---------------------- | ----------- | ------------------ | -------------------------------------------------------------------- |
-| `COOLSHIP_VERSION`     | `--version` | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
-| `COOLSHIP_INSTALL_DIR` | `--dir`     | `$HOME/.local/bin` | Directory to install into, created if missing                        |
-|                        | `--dry-run` |                    | Resolve the version and print what would happen                      |
+| Variable               | Flag            | Default            | Meaning                                                              |
+| ---------------------- | --------------- | ------------------ | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version`     | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`         | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run`     |                    | Resolve the version and print what would happen                      |
+|                        | `-q`, `--quiet` |                    | Print only the installed path and version, a PATH hint, and errors   |
 
 ### Build from source
 
