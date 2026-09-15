@@ -58,8 +58,32 @@ func Resolve(options Options) (Credentials, error) {
 	if options.Context != "" {
 		return Credentials{}, contextNotFound(options.Context, instanceNames(instances))
 	}
-	return Credentials{}, fmt.Errorf("%w: no default instance; pass --context NAME or run coolship login --default", ErrInvalid)
+	return Credentials{}, &NoDefaultContextError{}
 }
+
+// NoDefaultContextError reports saved contexts of which none is the default
+// while no --context was given. It is ErrInvalid for errors.Is.
+type NoDefaultContextError struct{}
+
+func (e *NoDefaultContextError) Error() string {
+	return ErrInvalid.Error() + ": no default instance; pass --context NAME or run coolship login --default"
+}
+func (e *NoDefaultContextError) Is(target error) bool { return target == ErrInvalid }
+
+// ContextNotFoundError names a --context that matches no saved context, with
+// the names that are saved. It is ErrContextNotFound for errors.Is.
+type ContextNotFoundError struct {
+	Name  string
+	Saved []string // sorted
+}
+
+func (e *ContextNotFoundError) Error() string {
+	if len(e.Saved) == 0 {
+		return fmt.Sprintf("%s: %q; no contexts are saved, run coolship login", ErrContextNotFound, e.Name)
+	}
+	return fmt.Sprintf("%s: %q%s; saved contexts: %s", ErrContextNotFound, e.Name, suggest.DidYouMean(e.Name, e.Saved), strings.Join(e.Saved, ", "))
+}
+func (e *ContextNotFoundError) Is(target error) bool { return target == ErrContextNotFound }
 
 // List exposes context identities for selection, with no credential fields.
 func List(options Options) ([]Instance, error) {
@@ -89,12 +113,9 @@ func List(options Options) ([]Instance, error) {
 // meant to be, so a typo is fixed without opening the credentials file. Only
 // names are listed: never a URL or a token.
 func contextNotFound(name string, names []string) error {
-	if len(names) == 0 {
-		return fmt.Errorf("%w: %q; no contexts are saved, run coolship login", ErrContextNotFound, name)
-	}
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
-	return fmt.Errorf("%w: %q%s; saved contexts: %s", ErrContextNotFound, name, suggest.DidYouMean(name, sorted), strings.Join(sorted, ", "))
+	return &ContextNotFoundError{Name: name, Saved: sorted}
 }
 
 func instanceNames(instances []storedInstance) []string {

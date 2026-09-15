@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/auth"
+	"github.com/joaomnuno/coolship/internal/problem"
 	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/resolver"
 )
@@ -132,20 +133,35 @@ func describeBinding(target project.Target) string {
 // hit it. The backend is reached through its interface, so the status code is
 // read through an interface as well. Other statuses, and other errors, yield
 // an empty string.
+//
+// The hints are the error catalog's, so a doctor detail and the diagnostic of
+// a failed command say the same thing; a 403 is told apart by the refusal
+// Coolify named when the catalog recognizes it.
 func ServerHint(err error) string {
 	var status interface{ HTTPStatusCode() int }
 	if !errors.As(err, &status) {
 		return ""
 	}
-	switch code := status.HTTPStatusCode(); {
-	case code == http.StatusUnauthorized:
-		return "the server rejected the token; run coolship login to save a valid API token, or check COOLSHIP_TOKEN"
-	case code == http.StatusForbidden:
-		return "the token lacks a required ability; it needs read, write, and deploy (build logs and secret values also need sensitive read)"
-	case code >= 300 && code < 400:
-		return "use the https URL; redirects are not followed"
+	if found, ok := problem.Classify(err); ok {
+		switch found.Code {
+		case problem.CodeUnauthorized, problem.CodeAPIDisabled, problem.CodeIPNotAllowed, problem.CodeMissingPermissions,
+			problem.CodeTokenExceedsRole, problem.CodeForbidden, problem.CodeRedirect:
+			return found.Hint
+		}
 	}
-	return ""
+	var code problem.Code
+	switch status := status.HTTPStatusCode(); {
+	case status == http.StatusUnauthorized:
+		code = problem.CodeUnauthorized
+	case status == http.StatusForbidden:
+		code = problem.CodeForbidden
+	case status >= 300 && status < 400:
+		code = problem.CodeRedirect
+	default:
+		return ""
+	}
+	entry, _ := problem.Lookup(code)
+	return entry.Hint
 }
 
 // describeServerError names the status and its explanation where the request
@@ -154,7 +170,7 @@ func describeServerError(err error) string {
 	var status interface{ HTTPStatusCode() int }
 	if hint := ServerHint(err); hint != "" && errors.As(err, &status) {
 		code := status.HTTPStatusCode()
-		return fmt.Sprintf("HTTP %d %s; %s", code, http.StatusText(code), hint)
+		return fmt.Sprintf("HTTP %d %s. %s", code, http.StatusText(code), hint)
 	}
 	return err.Error()
 }

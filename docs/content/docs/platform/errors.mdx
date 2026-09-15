@@ -1,0 +1,175 @@
+---
+title: Error codes
+description: The stable code each known failure carries, what it means, and how to fix it.
+---
+
+When Coolship recognizes a failure, it prints a stable code with it, a hint, and a link to the page that explains the fix:
+
+```text
+$ coolship status
+Error [api_disabled]: Coolify GET /projects: HTTP 403 Forbidden: API is disabled.
+Hint: API access is turned off on this Coolify instance. An instance admin can turn it on in Coolify under Settings, Advanced, API access.
+Docs: https://coolify.io/docs/api/ip-allowlist
+```
+
+A problem in Coolify's own setup links to Coolify's documentation; everything else links to a heading on this page. With `--format json` the same failure is also written to stdout as one object, while the text stays on stderr; see [Output and exit codes](/docs/platform/output#errors). Codes are never renamed, so a script can match on them. The exit code is the same as without a code.
+
+A failure Coolship has no entry for keeps its plain `Error:` line and has no hint. In JSON it gets one of the [generic codes](#generic-codes) at the end of this page.
+
+## Credentials and contexts
+
+### no_credentials
+
+No [credentials file](/docs/concepts/credentials) exists and `COOLSHIP_URL` and `COOLSHIP_TOKEN` are not set. Run `coolship login` to save a Coolify URL and API token, or set both variables, as CI does.
+
+### unknown_context
+
+`--context`, or the context committed in `coolship.toml`, names no saved context. The message lists the saved names and the closest one. Pass `--context` with a saved name, or run `coolship login --name NAME` to save that context.
+
+### no_default_context
+
+Contexts are saved, but none is the default and no `--context` was given. Pass `--context NAME`, or run `coolship login --default` to make one the default.
+
+### invalid_credentials
+
+The credentials could not be used as given: `COOLSHIP_URL` without `COOLSHIP_TOKEN` (or the reverse), those variables combined with `--context`, an instance URL that is not an absolute HTTP(S) URL, or a credentials file that is not valid JSON. The message says which. Fix the variables or the file; `coolship login` rewrites a context.
+
+## Project binding
+
+### not_linked
+
+No `coolship.toml` was found in this directory or above it. Run `coolship link` to bind an existing Coolify application, or `coolship init` to create one. See [Project binding](/docs/concepts/project-binding).
+
+### target_not_selected
+
+The configuration is valid, but no single target applies: an unknown target name, a target name given to a file with a single `[project]` table, or a directory that no target's root (or more than one) contains. Targets are the `[apps.<name>]` tables; see [Monorepos](/docs/guides/monorepos).
+
+### invalid_config
+
+`coolship.toml` cannot be read: invalid TOML, an unknown field, a missing name or UUID, or a root outside the file's directory. Fix the file by hand, or run `coolship link --replace` to write the binding again.
+
+### config_changed
+
+`coolship.toml` changed on disk between reading it and writing it. Review the file and run the command again.
+
+### binding_exists
+
+The directory is already bound, and replacing the binding was not confirmed. Pass `--replace` to `link` (or `--yes` to `unlink`), or run `coolship unlink` first.
+
+### resource_not_found
+
+The project, environment, or application the binding names, or the UUID it pins, no longer exists on the instance. Check the names and UUIDs in `coolship.toml`, or run `coolship link` to bind the application again.
+
+### resource_ambiguous
+
+More than one resource matches the name the binding gives. Run `coolship link` and pick the one you mean; the binding then pins its UUID.
+
+### identity_mismatch
+
+Coolify answered for a different resource than the one asked for, so Coolship stopped before acting on it. Check the application in Coolify, then run `coolship link` again.
+
+## Coolify access
+
+### unauthorized
+
+Coolify answered `401`: the token is revoked, expired, or belongs to another instance. Run `coolship login` to save a new token, or check `COOLSHIP_TOKEN`. Tokens are created in Coolify under **Security**, **API Tokens**; see Coolify's [API tokens](https://coolify.io/docs/core/security/credentials/api-tokens).
+
+### api_disabled
+
+Coolify answered `403` with `API is disabled.`: API access is turned off on this self-hosted instance. An instance admin turns it on in Coolify under **Settings**, **Advanced**, **API access**. Coolify Cloud always has it on. See Coolify's [IP allowlist](https://coolify.io/docs/api/ip-allowlist) page, which covers both settings.
+
+### ip_not_allowed
+
+Coolify answered `403` with `You are not allowed to access the API.`: this machine's address is not in the instance's API allowlist. An instance admin adds it in Coolify under **Settings**, **Advanced**, **Allowed API IPs**. See Coolify's [IP allowlist](https://coolify.io/docs/api/ip-allowlist).
+
+### missing_permissions
+
+Coolify answered `403` with `Missing required permissions: …`, naming the permissions the request needed. Coolship needs a token with `read`, `write`, and `deploy`; build logs and secret values also need `read:sensitive`. Create one under **Security**, **API Tokens**, then run `coolship login`. See Coolify's [API permissions](https://coolify.io/docs/api/permissions).
+
+### token_exceeds_role
+
+Coolify refused a token whose permissions exceed its owner's role: team members may only hold read-only tokens. Ask a team admin for a higher role, or create a token with read permissions only. See Coolify's [API permissions](https://coolify.io/docs/api/permissions).
+
+### forbidden
+
+Coolify, or a proxy in front of it, answered `403` without one of the explanations above. Usually the token lacks a permission; check it has `read`, `write`, and `deploy`, and that no proxy blocks `/api/v1`.
+
+### redirect
+
+The instance URL answered with a redirect. Coolship never follows redirects, so the token is never sent to another address. Run `coolship login` with the final URL, usually the `https` one.
+
+### rate_limited
+
+Coolify answered `429` to a request other than a deployment: the token is sending requests faster than the instance allows. Wait a minute and retry. See Coolify's [rate limits](https://coolify.io/docs/api/rate-limits).
+
+### deployment_queue_full
+
+Coolify answered `429` to a deployment: the server is already running as many builds as it allows. Wait for a running deployment to finish, then retry. Each server in Coolify sets its own concurrent build limit.
+
+### server_error
+
+Coolify answered with a `5xx` status: it failed while handling the request. Retry, and check the Coolify logs if it keeps failing.
+
+### app_not_running
+
+`logs` was refused because the application has no running container. Deploy or start it (`coolship deploy`, `coolship start`); right after a deployment, retry in a moment.
+
+## Network
+
+### host_not_found
+
+The instance's host name could not be resolved. Check the instance URL (`coolship doctor` shows the one in use) and your DNS.
+
+### connection_refused
+
+The instance's address refused the connection. Check the URL and its port, and that Coolify is running.
+
+### tls_error
+
+The TLS connection failed: the certificate could not be verified, the server answered plain HTTP to an `https` URL, or it refused the handshake. Check the scheme (`http` or `https`) and that the certificate covers the host name.
+
+### request_timeout
+
+The request got no answer in time. Check the instance URL and the network, then retry.
+
+### network_error
+
+The request failed for another network reason, which Coolship does not repeat because a proxy's message can carry credentials. Check the network and any proxy between this machine and Coolify, then retry; `--debug` shows each attempt.
+
+### unexpected_response
+
+Coolify answered in a shape Coolship does not expect, such as a list with pagination or a missing field. Check that the instance runs a [supported Coolify version](/docs/concepts/server-compatibility) with `coolship doctor`.
+
+## Deployments
+
+### uncertain_submission
+
+A deployment request may have reached Coolify, but no answer came back. Coolship never repeats it by itself. Check the application's deployments (`coolship deployments`) before deploying again, so the same commit is not queued twice.
+
+### deployment_timeout
+
+`--timeout` elapsed while Coolship watched a deployment. The deployment keeps running on the server; follow it with `coolship deployments` or in Coolify, or pass a longer `--timeout`.
+
+## Generic codes
+
+These codes appear only in the JSON error object, for failures the catalog has no entry for; the text keeps its plain line.
+
+### invalid_input
+
+A flag, argument, or selection was invalid, or a noninteractive run needed `--yes`. Exit code `2`.
+
+### unclassified
+
+Any other failure. Exit code `1`.
+
+### checks_failed
+
+`doctor` found at least one failed check. Its result on stdout says which. Exit code `1`.
+
+### interrupted
+
+The run was interrupted, for example with Ctrl-C. Exit code `130`.
+
+### cancelled
+
+A confirmation was declined. Exit code `130`.

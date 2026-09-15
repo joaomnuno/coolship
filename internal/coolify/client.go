@@ -24,6 +24,7 @@ const (
 
 type Client struct {
 	baseURL    *url.URL
+	instance   string // root URL without /api/v1, for pages a refusal points at
 	token      string
 	http       *http.Client
 	retries    int
@@ -90,7 +91,10 @@ func NewClient(baseURL, token string, opts ...Option) (*Client, error) {
 		return nil, errors.New("Coolify URL has an invalid path")
 	}
 	u.RawPath = path
-	c := &Client{baseURL: u, token: token, http: &http.Client{Timeout: 30 * time.Second}, retries: 2, retryDelay: 200 * time.Millisecond, userAgent: DefaultUserAgent}
+	root := *u
+	root.RawPath = strings.TrimSuffix(path, "/api/v1")
+	root.Path, _ = url.PathUnescape(root.RawPath)
+	c := &Client{baseURL: u, instance: root.String(), token: token, http: &http.Client{Timeout: 30 * time.Second}, retries: 2, retryDelay: 200 * time.Millisecond, userAgent: DefaultUserAgent}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
@@ -209,7 +213,18 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 				traced, _ = io.ReadAll(io.LimitReader(resp.Body, maxMessageBytes))
 				refusal = bytes.NewReader(traced)
 			}
-			if (method != http.MethodGet && refused) || (explain != nil && explain(resp.StatusCode)) {
+			var denial Denial
+			var abilities []string
+			switch {
+			case resp.StatusCode == http.StatusForbidden:
+				// Coolify's access checks answer with fixed sentences on
+				// every method; a read keeps only those.
+				message = serverMessage(refusal)
+				denial, abilities = parseDenial(message)
+				if denial == "" && method == http.MethodGet {
+					message = ""
+				}
+			case (method != http.MethodGet && refused) || (explain != nil && explain(resp.StatusCode)):
 				message = serverMessage(refusal)
 			}
 			resp.Body.Close()
@@ -221,7 +236,8 @@ func (c *Client) fetchExplaining(ctx context.Context, method string, parts []str
 				}
 				continue
 			}
-			return nil, "", &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint, Message: message}
+			return nil, "", &HTTPError{StatusCode: resp.StatusCode, Method: method, Endpoint: endpoint, Message: message,
+				Denial: denial, Abilities: abilities, Instance: c.instance}
 		}
 		if strings.Contains(resp.Header.Get("Link"), `rel="next"`) || strings.Contains(resp.Header.Get("Link"), "rel=next") {
 			resp.Body.Close()

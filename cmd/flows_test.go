@@ -1232,11 +1232,12 @@ func linkedDirectory(t *testing.T) string {
 func TestRejectedTokensAndRedirectsExplainThemselvesOnEveryCommand(t *testing.T) {
 	for _, test := range []struct {
 		status int
+		code   string
 		hint   string
 	}{
-		{http.StatusUnauthorized, "run coolship login"},
-		{http.StatusForbidden, "lacks a required ability"},
-		{http.StatusMovedPermanently, "redirects are not followed"},
+		{http.StatusUnauthorized, "unauthorized", "Run coolship login"},
+		{http.StatusForbidden, "forbidden", "lacks a required ability"},
+		{http.StatusMovedPermanently, "redirect", "does not follow redirects"},
 	} {
 		t.Run(fmt.Sprint(test.status), func(t *testing.T) {
 			refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1258,10 +1259,12 @@ func TestRejectedTokensAndRedirectsExplainThemselvesOnEveryCommand(t *testing.T)
 					t.Fatal(err)
 				}
 				text := diagnostic.String()
-				if !strings.Contains(text, fmt.Sprintf("HTTP %d", test.status)) || !strings.Contains(text, test.hint) || strings.Count(text, test.hint) != 1 {
+				if !strings.HasPrefix(text, "Error ["+test.code+"]: ") || !strings.Contains(text, fmt.Sprintf("HTTP %d", test.status)) ||
+					strings.Count(text, test.hint) != 1 || !strings.Contains(text, "\nDocs: https://") {
 					t.Fatalf("%v: %q", args, text)
 				}
-				if strings.Contains(text, "private-detail") || strings.Contains(text, testToken) || strings.Count(text, "\n") != 1 {
+				// The error, its hint, and its documentation link.
+				if strings.Contains(text, "private-detail") || strings.Contains(text, testToken) || strings.Count(text, "\n") != 3 {
 					t.Fatalf("%v leaks or spans lines: %q", args, text)
 				}
 			}

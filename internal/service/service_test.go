@@ -1535,7 +1535,7 @@ func TestDoctorReportsEveryStep(t *testing.T) {
 		app, _, _ := testApp(f)
 		result, _ := app.Doctor(context.Background(), linkedOptions(t))
 		for _, check := range result.Checks {
-			if check.Name == "Server" && (!strings.HasPrefix(check.Detail, "HTTP 403 Forbidden; ") || !strings.Contains(check.Detail, "lacks a required ability")) {
+			if check.Name == "Server" && (!strings.HasPrefix(check.Detail, "HTTP 403 Forbidden. ") || !strings.Contains(check.Detail, "lacks a required ability")) {
 				t.Fatalf("server detail: %q", check.Detail)
 			}
 		}
