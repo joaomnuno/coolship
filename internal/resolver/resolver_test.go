@@ -266,6 +266,48 @@ func TestPinMissWithNameHitFallsBackAndWarnsOnce(t *testing.T) {
 	}
 }
 
+// An environment that still lists a pinned application whose own read is a
+// 404 has lost that pin too: a deletion race or a stale listing.
+func TestPinnedApplicationReadNotFoundFallsBack(t *testing.T) {
+	stale := func() (*fakeCatalog, project.Target) {
+		catalog, target := catalogFixture()
+		catalog.details["p1/e1"] = models.Environment{UUID: "e1", Name: "production", Applications: []models.Application{
+			{UUID: "gone", Name: "web"}, {UUID: "a1", Name: "web"},
+		}}
+		target.Binding.ApplicationUUID = "gone"
+		return catalog, target
+	}
+
+	catalog, target := stale()
+	var alongside []string
+	result, err := ResolveAlongside(context.Background(), catalog, target, func(uuid string) { alongside = append(alongside, uuid) })
+	if err != nil || result.Application.UUID != "a1" || result.Application.Status != "running:healthy" {
+		t.Fatalf("binding = %#v, error = %v", result, err)
+	}
+	want := `coolship.toml pins application gone that no longer exists; found "web" by name. Run coolship link to refresh.`
+	if !reflect.DeepEqual(result.Warnings, []string{want}) {
+		t.Errorf("warnings = %q, want %q", result.Warnings, want)
+	}
+	if !reflect.DeepEqual(alongside, []string{"gone", "a1"}) {
+		t.Errorf("alongside = %v, want gone then a1", alongside)
+	}
+
+	catalog, target = stale()
+	target.Binding.Application = "api"
+	_, err = Resolve(context.Background(), catalog, target)
+	var missing *MissingError
+	if !errors.As(err, &missing) || missing.Resource != "application" || missing.UUID != "gone" || !missing.Fallback {
+		t.Fatalf("name miss error = %v", err)
+	}
+
+	catalog, target = stale()
+	target.Binding.Application = ""
+	_, err = Resolve(context.Background(), catalog, target)
+	if !errors.As(err, &missing) || missing.Resource != "application" || missing.UUID != "gone" || missing.Fallback {
+		t.Fatalf("nameless pin error = %v", err)
+	}
+}
+
 func TestPinMissWithNameMissIsAnError(t *testing.T) {
 	for _, test := range []struct {
 		resource string
