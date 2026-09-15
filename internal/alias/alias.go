@@ -138,7 +138,7 @@ func Create(system System, name string) (Result, error) {
 
 	// Something else answering to the name on PATH would shadow the alias or
 	// be shadowed by it; either way the user should choose.
-	if found, err := system.LookPath(name); err == nil {
+	if found, ok := lookPath(system, name); ok {
 		if absolute, err := filepath.Abs(found); err == nil {
 			found = absolute
 		}
@@ -175,7 +175,7 @@ func Create(system System, name string) (Result, error) {
 		return Result{}, &DirError{Dir: filepath.Dir(path), Executable: exe, Args: "alias " + name, Err: err}
 	}
 
-	if found, err := system.LookPath(name); err != nil {
+	if found, ok := lookPath(system, name); !ok {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("%s is not on your PATH, so %s will not be found until it is", filepath.Dir(path), name))
 	} else if resolved, err := filepath.EvalSymlinks(found); err != nil || !samePath(resolved, exe) && !samePath(found, path) {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("%s runs %s first, because it comes earlier on your PATH", name, found))
@@ -227,7 +227,9 @@ func locate(system System, name string) (exe, path string, err error) {
 		file += ".exe"
 	}
 	path = filepath.Join(filepath.Dir(exe), file)
-	if samePath(path, exe) {
+	// Compare case-insensitively: on macOS and Windows filesystems COOLSHIP
+	// names the running binary itself, and removing it would delete Coolship.
+	if strings.EqualFold(filepath.Clean(path), filepath.Clean(exe)) {
 		return "", "", &NameError{Name: name, Reason: "that is the name of the coolship binary itself"}
 	}
 	return exe, path, nil
@@ -308,6 +310,17 @@ func write(system System, exe, path string) error {
 		}
 	}
 	return os.Rename(stagedPath, path)
+}
+
+// lookPath finds name on PATH. A match found through a relative PATH entry
+// such as "." comes back with exec.ErrDot; it still runs when the user types
+// the name, so it counts as found.
+func lookPath(system System, name string) (string, bool) {
+	found, err := system.LookPath(name)
+	if found != "" && (err == nil || errors.Is(err, exec.ErrDot)) {
+		return found, true
+	}
+	return "", false
 }
 
 func samePath(a, b string) bool {
