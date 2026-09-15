@@ -51,6 +51,7 @@ A verb that cannot run without a value ends in `…` and asks for it before runn
 - `preview` asks for the pull request number (`--pr`).
 - `domain set` asks for one or more domains, separated by spaces.
 - `logout` asks for the context to remove.
+- `config get` asks for the preference key, and `config set` for the key and its value.
 
 Esc at that prompt goes back to the menu, and Ctrl-C leaves without running anything. An answer that starts with a dash is passed as a value, never as a flag. Arguments that are optional, such as the deployment UUID of `cancel` or the command after `dev --`, are not asked for; run those commands directly to pass them.
 

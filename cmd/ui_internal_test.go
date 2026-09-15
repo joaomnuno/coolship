@@ -166,6 +166,9 @@ func TestMenuAsksForEveryRequiredArgument(t *testing.T) {
 			t.Errorf("menuInputs names %q, which the menu does not list", name)
 		}
 	}
+	if inputs := menuInputs["config set"]; len(inputs) != 2 || inputs[0].Flag != "" || inputs[1].Flag != "" {
+		t.Error("config set does not ask for its key and value as two positional arguments")
+	}
 	if len(menuInputs["preview"]) == 0 || menuInputs["preview"][0].Flag != "pr" {
 		t.Error("preview does not ask for --pr")
 	}
