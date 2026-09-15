@@ -32,9 +32,14 @@ const (
 var loginTitles = []string{"Instance type", "URL", "Check instance", "Context name", "Token", "Check token", "Save"}
 
 // LoginFormAvailable reports whether login can run its form: interactive
-// input from a terminal, and stderr a terminal it can draw on at normal
-// verbosity. Anything less asks line by line, or not at all.
-func LoginFormAvailable(streams Streams) bool {
+// input from a terminal, stderr a terminal it can draw on at normal
+// verbosity, and a text result. With --format json the checklist would print
+// plain step lines under the form's redraws, so JSON asks line by line, like
+// link and init. Anything less asks line by line, or not at all.
+func LoginFormAvailable(streams Streams, format string) bool {
+	if format == "json" {
+		return false
+	}
 	_, _, ok := terminalInput(streams.Normalized())
 	return ok
 }

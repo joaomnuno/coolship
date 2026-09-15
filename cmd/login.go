@@ -53,7 +53,7 @@ and secret values also need sensitive read.`,
 				login.Name = options.Context
 			}
 			renderer := ui.NewRenderer(streams, options.format)
-			if !tokenStdin && ui.LoginFormAvailable(streams) {
+			if !tokenStdin && ui.LoginFormAvailable(streams, options.format) {
 				result, err := ui.RunLoginForm(ctx, streams, options.format, app, login, openBrowser)
 				if err != nil {
 					return err
