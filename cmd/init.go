@@ -102,6 +102,15 @@ directory as its root, which becomes the application's base directory.`,
 				// Piped, JSON, and verbose runs keep their lines.
 				result, err = app.Init(command.Context(), create, prompter.Select, prompter.ConfirmInit, renderer.DeploymentEvent)
 			}
+			if err != nil && result.Target.ApplicationUUID != "" {
+				// Created and linked; only the deployment failed, so a fix
+				// deploys again rather than creating again.
+				deploy := append([]string{"deploy"}, globalArgs(command.Root())...)
+				if flag := command.Flags().Lookup("timeout"); flag != nil && flag.Changed {
+					deploy = append(deploy, "--timeout="+flag.Value.String())
+				}
+				return followUp(err, deploy)
+			}
 			if err != nil {
 				return err
 			}

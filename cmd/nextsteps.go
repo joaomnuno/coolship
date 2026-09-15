@@ -43,5 +43,6 @@ func offerDeploy(command *cobra.Command, options *commandOptions, streams ui.Str
 	case !yes:
 		return nil
 	}
-	return options.run(command.Context(), append([]string{"deploy"}, globalArgs(command.Root())...))
+	deploy := append([]string{"deploy"}, globalArgs(command.Root())...)
+	return followUp(options.run(command.Context(), deploy), deploy)
 }

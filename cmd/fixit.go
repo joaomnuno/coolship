@@ -9,7 +9,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/problem"
+	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
@@ -35,7 +37,31 @@ func Execute(ctx context.Context, app Application, streams ui.Streams, version s
 	}
 	f := &fixer{app: app, streams: streams, version: version, opts: opts, config: collectSettings(opts),
 		root: root, command: command, args: args}
+	var follow *followUpError
+	if errors.As(err, &follow) {
+		f.args, f.followUp = follow.args, follow.args[0]
+	}
 	return f.offer(ctx, err)
+}
+
+// followUpError is the failure of a command another one started once its own
+// work was done, such as the deployment after init created and linked the
+// application. A fix runs that command again, not the whole line.
+type followUpError struct {
+	args []string // the follow-up's command line, its name first
+	err  error
+}
+
+func (e *followUpError) Error() string { return e.err.Error() }
+func (e *followUpError) Unwrap() error { return e.err }
+
+// followUp marks err, when there is one, as the failure of the command args
+// name.
+func followUp(err error, args []string) error {
+	if err == nil {
+		return nil
+	}
+	return &followUpError{args: args, err: err}
 }
 
 // mutatingCommands change something on the server, so a rerun after a fix
@@ -54,7 +80,10 @@ type fixer struct {
 	config  settings
 	root    *cobra.Command
 	command *cobra.Command // the command that failed
-	args    []string
+	args    []string       // the command line a fix runs again
+	// followUp names the command another one started, when that is what
+	// failed; the rerun is that command alone.
+	followUp string
 }
 
 // offer prints failure and puts the fix to the user, returning what the
@@ -228,8 +257,9 @@ func (f *fixer) openPage(ctx context.Context, prompter *ui.Prompter, found probl
 	return f.args, true, nil
 }
 
-// savedContext names the saved context for an instance URL, preferring the
-// one --context names when several share it.
+// savedContext names the saved context for an instance URL. When several
+// share it, the one the credentials came from wins: the context --context
+// names, else the one coolship.toml commits for the target, else the default.
 func (f *fixer) savedContext(instance string) (string, string) {
 	instance = strings.TrimRight(instance, "/")
 	if instance == "" {
@@ -240,16 +270,44 @@ func (f *fixer) savedContext(instance string) (string, string) {
 		return "", ""
 	}
 	wanted := f.flag("context")
-	name, address := "", ""
-	for _, saved := range contexts {
+	if wanted == "" {
+		wanted = f.committedContext()
+	}
+	var first, fallback, exact *auth.Instance
+	for i := range contexts {
+		saved := &contexts[i]
 		if strings.TrimRight(saved.URL, "/") != instance {
 			continue
 		}
-		if name == "" || saved.Name == wanted {
-			name, address = saved.Name, saved.URL
+		switch {
+		case wanted != "" && saved.Name == wanted:
+			exact = saved
+		case wanted == "" && saved.Default:
+			fallback = saved
+		case first == nil:
+			first = saved
 		}
 	}
-	return name, address
+	for _, found := range []*auth.Instance{exact, fallback, first} {
+		if found != nil {
+			return found.Name, found.URL
+		}
+	}
+	return "", ""
+}
+
+// committedContext is the context coolship.toml names for the selected
+// target, or "" when there is none to read.
+func (f *fixer) committedContext() string {
+	p, err := project.Discover(project.Paths{CWD: f.flag("cwd"), ConfigPath: f.flag("config")}, false)
+	if err != nil {
+		return ""
+	}
+	target, err := project.Select(p, f.flag("target"), f.flag("environment"))
+	if err != nil {
+		return ""
+	}
+	return target.Binding.Context
 }
 
 func (f *fixer) serviceOptions() service.Options {
@@ -265,6 +323,9 @@ func (f *fixer) flag(name string) string {
 
 // name is the failed command's path below the root, such as "env push".
 func (f *fixer) name() string {
+	if f.followUp != "" {
+		return f.followUp
+	}
 	return strings.TrimPrefix(f.command.CommandPath(), f.root.CommandPath()+" ")
 }
 
