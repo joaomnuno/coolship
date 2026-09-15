@@ -516,3 +516,25 @@ func TestRunMenuRefusesWithoutATerminal(t *testing.T) {
 		t.Fatalf("message does not point at help: %v", err)
 	}
 }
+
+func TestMenuOpensOnlyWhenInteractiveOnBothTerminals(t *testing.T) {
+	tests := []struct {
+		name        string
+		interactive bool
+		inTerminal  bool
+		outTerminal bool
+		open        bool
+	}{
+		{name: "interactive on both terminals", interactive: true, inTerminal: true, outTerminal: true, open: true},
+		{name: "CI with pseudo-terminals", inTerminal: true, outTerminal: true},
+		{name: "piped stdin", interactive: true, outTerminal: true},
+		{name: "piped stdout", interactive: true, inTerminal: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if open := menuOpens(test.interactive, test.inTerminal, test.outTerminal); open != test.open {
+				t.Fatalf("menuOpens(%v, %v, %v) = %v", test.interactive, test.inTerminal, test.outTerminal, open)
+			}
+		})
+	}
+}

@@ -59,8 +59,8 @@ The menu lists `env pull`, `env diff`, and `env push` rather than `env`, which o
 
 ## Terminal
 
-`ui` needs a terminal on both stdin and stdout. Without one it exits with code `2` and suggests `coolship help`. While the menu is open, request lines from `--verbose` and `--debug` are held back so they do not draw over it; the chosen verb runs at the verbosity you asked for.
+`ui` needs a terminal on both stdin and stdout, and it does not open in CI, where Coolship asks nothing even if the job attaches a pseudo-terminal. Without one it exits with code `2` and suggests `coolship help`. While the menu is open, request lines from `--verbose` and `--debug` are held back so they do not draw over it; the chosen verb runs at the verbosity you asked for.
 
 ## Exit codes
 
-`0` when the menu is left without choosing; otherwise the chosen verb's own exit code. `2` when stdin or stdout is not a terminal.
+`0` when the menu is left without choosing; otherwise the chosen verb's own exit code. `2` when stdin or stdout is not a terminal, and in CI.

@@ -61,9 +61,9 @@ type MenuOptions struct {
 	Now       func() time.Time
 }
 
-// ErrMenuNeedsTerminal is why the menu refuses to open without a terminal on
-// both stdin and stdout.
-var ErrMenuNeedsTerminal = errors.New("coolship ui needs a terminal on stdin and stdout; run 'coolship help' to list the commands")
+// ErrMenuNeedsTerminal is why the menu refuses to open: stdin or stdout is
+// not a terminal, or Coolship was told to ask nothing, as CI does.
+var ErrMenuNeedsTerminal = errors.New("coolship ui needs a terminal on stdin and stdout, and does not open in CI; run 'coolship help' to list the commands")
 
 // RunMenu opens the menu full-screen on the terminal and returns the
 // arguments of the verb chosen there, as they would be typed after
@@ -144,17 +144,25 @@ func inputOutcome(err error, interrupted bool) (reopen bool, _ error) {
 	return false, err
 }
 
-// menuTerminal returns stdin and stdout when both are terminals.
+// menuTerminal returns stdin and stdout when the menu may open on them.
 func menuTerminal(streams Streams) (*os.File, *os.File, bool) {
-	in, ok := streams.In.(*os.File)
-	if !ok || !term.IsTerminal(int(in.Fd())) {
-		return nil, nil, false
-	}
-	out, ok := streams.Out.(*os.File)
-	if !ok || !term.IsTerminal(int(out.Fd())) {
+	in, isFile := streams.In.(*os.File)
+	inTerminal := isFile && term.IsTerminal(int(in.Fd()))
+	out, isFile := streams.Out.(*os.File)
+	outTerminal := isFile && term.IsTerminal(int(out.Fd()))
+	if !menuOpens(streams.Interactive, inTerminal, outTerminal) {
 		return nil, nil, false
 	}
 	return in, out, true
+}
+
+// menuOpens reports whether the menu may take over the screen. It waits for
+// keys, so stdin and stdout must be terminals, and the process must be the
+// interactive one the executable decided on: CI answers nothing even where the
+// job hands the command a pseudo-terminal, and every other prompt honours that
+// decision, so a menu that ignored it would hang such a job.
+func menuOpens(interactive, inTerminal, outTerminal bool) bool {
+	return interactive && inTerminal && outTerminal
 }
 
 // askInputs asks for a verb's inputs, if it has any, and returns the verb's

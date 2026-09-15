@@ -473,7 +473,7 @@ Three rules keep this safe:
 
 > **Experimental.** `coolship ui` is a draft. Its keys and layout may change in any release, and it may be removed.
 
-Open a full-screen menu with the linked application's status and last deployment at the top and every verb below, in the help's groups and order. The arrow keys or `j` and `k` move, typing filters, and Enter closes the menu and runs the verb exactly as if typed. Esc, `q`, or Ctrl-C leaves without running anything. It needs a terminal; bare `coolship` never opens it. See [ui](https://coolship.itrocas.com/docs/commands/ui).
+Open a full-screen menu with the linked application's status and last deployment at the top and every verb below, in the help's groups and order. The arrow keys or `j` and `k` move, typing filters, and Enter closes the menu and runs the verb exactly as if typed. Esc, `q`, or Ctrl-C leaves without running anything. It needs a terminal and does not open in CI; bare `coolship` never opens it. See [ui](https://coolship.itrocas.com/docs/commands/ui).
 
 ### Shared options
 
