@@ -190,7 +190,9 @@ func (f *fixer) fix(ctx context.Context, prompter *ui.Prompter, found problem.Pr
 		if err != nil || choice == "leave" {
 			return nil, false, err
 		}
-		return f.args, true, f.execute(ctx, append([]string{choice}, globals...))
+		// The failed command runs next, so link or init must not deploy or
+		// suggest deploying: deploy after init would otherwise queue twice.
+		return f.args, true, f.execute(ctx, append([]string{choice}, globals...), withRerunPending())
 	case problem.FixPickContext:
 		return f.pickContext(ctx, prompter, found, globals)
 	case problem.FixOpenURL:
@@ -334,8 +336,8 @@ func (f *fixer) say(text string) {
 }
 
 // execute runs a command line in a new tree, which offers no fix of its own.
-func (f *fixer) execute(ctx context.Context, args []string) error {
-	root := NewRootCommand(f.app, f.streams, f.version, f.opts...)
+func (f *fixer) execute(ctx context.Context, args []string, extra ...Option) error {
+	root := NewRootCommand(f.app, f.streams, f.version, append(slices.Clone(f.opts), extra...)...)
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
 }

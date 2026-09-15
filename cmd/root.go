@@ -78,6 +78,16 @@ type settings struct {
 	preferences preferences.Report
 	alias       alias.System
 	runMenu     menuRunner
+	// rerunPending is set when a fix runs this tree and the failed command
+	// runs again right after it, so the fix must not offer that work itself.
+	rerunPending bool
+}
+
+// withRerunPending marks a tree run as a fix whose original command runs
+// again next: init asks no "Deploy now?" and link and init give no deploy
+// hint, so one command never queues two deployments.
+func withRerunPending() Option {
+	return func(s *settings) { s.rerunPending = true }
 }
 
 // WithAliasSystem supplies the executable path, PATH lookup, and OS that
@@ -114,7 +124,7 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 	config := collectSettings(opts)
 	// A file that could not be read left the zero value: no preference.
 	prefs := config.preferences.Preferences
-	options := &commandOptions{format: "human", noHints: !prefs.HintsEnabled()}
+	options := &commandOptions{format: "human", noHints: !prefs.HintsEnabled(), rerunPending: config.rerunPending}
 	// A follow-up, such as deploy after init, runs in a tree of its own built
 	// from the same dependencies, so it behaves exactly as if typed.
 	options.run = func(ctx context.Context, args []string) error {

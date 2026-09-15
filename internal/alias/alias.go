@@ -101,6 +101,17 @@ func (e *NotCoolshipError) Error() string {
 	return fmt.Sprintf("%s is not a link to or copy of Coolship; it was left in place", e.Path)
 }
 
+// SeparateBinaryError refuses to replace or remove a Coolship binary that is
+// not an alias: a regular file rather than a link to one.
+type SeparateBinaryError struct {
+	Name string
+	Path string
+}
+
+func (e *SeparateBinaryError) Error() string {
+	return fmt.Sprintf("%s is a separate Coolship binary, not an alias, so it was left in place. Pick another name, or delete it yourself if you no longer need it", e.Path)
+}
+
 // DirError reports that the binary's directory cannot be written.
 type DirError struct {
 	Dir        string
@@ -157,15 +168,15 @@ func Create(system System, name string) (Result, error) {
 		}
 	}
 
-	if _, err := os.Lstat(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
 		if current(system, path, exe) {
 			result.Status = StatusExists
 			return result, nil
 		}
-		// A link to or copy of an older Coolship binary is refreshed below;
-		// anything else stays.
-		if !system.IsCoolship(path) {
-			return Result{}, &ConflictError{Name: name, Path: path}
+		// An alias of an older Coolship binary is refreshed below; a separate
+		// Coolship binary and anything else stay.
+		if err := keep(system, name, path, info); err != nil {
+			return Result{}, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Result{}, err
@@ -192,14 +203,21 @@ func Remove(system System, name string) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Name: name, Path: path, Target: exe, Status: StatusRemoved}
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
 		result.Status = StatusAbsent
 		return result, nil
 	} else if err != nil {
 		return Result{}, err
 	}
-	if !current(system, path, exe) && !system.IsCoolship(path) {
-		return Result{}, &NotCoolshipError{Name: name, Path: path}
+	if !current(system, path, exe) {
+		if err := keep(system, name, path, info); err != nil {
+			var conflict *ConflictError
+			if errors.As(err, &conflict) {
+				return Result{}, &NotCoolshipError{Name: name, Path: path}
+			}
+			return Result{}, err
+		}
 	}
 	if err := os.Remove(path); err != nil {
 		return Result{}, &DirError{Dir: filepath.Dir(path), Executable: exe, Args: "alias --remove " + name, Err: err}
@@ -251,6 +269,22 @@ func validate(name string) error {
 		}
 	}
 	return nil
+}
+
+// keep returns why the file at path, which is not this binary, must stay, or
+// nil when it is an alias of another Coolship binary that may be replaced or
+// removed: a symlink to one, or on Windows, where aliases are copies, a copy
+// of one. A regular Coolship binary elsewhere is a separate installation,
+// such as the installed coolship next to a development build, and stays.
+func keep(system System, name, path string, info os.FileInfo) error {
+	coolship := system.IsCoolship(path)
+	switch {
+	case !coolship:
+		return &ConflictError{Name: name, Path: path}
+	case info.Mode()&os.ModeSymlink != 0, system.GOOS == "windows" && info.Mode().IsRegular():
+		return nil
+	}
+	return &SeparateBinaryError{Name: name, Path: path}
 }
 
 // current reports whether path already is this exact binary: a symlink that

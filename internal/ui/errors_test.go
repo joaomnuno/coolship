@@ -143,3 +143,20 @@ func TestExitStatusThatIsTheWholeAnswerPrintsNothing(t *testing.T) {
 		t.Fatal("bare exit status changed its text")
 	}
 }
+
+// A command that already wrote its JSON result, such as doctor with a failed
+// check, keeps stdout one JSON value: the text goes to stderr and no error
+// object follows. The exit code stays the failure's.
+func TestReportErrorAddsNoObjectAfterAWrittenResult(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := ResultWritten(service.ErrChecksFailed)
+	if writeErr := ReportError(Streams{Out: &stdout, Err: &stderr}, "json", err); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "doctor found problems") {
+		t.Fatalf("stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+	if ExitCode(err) != 1 || !errors.Is(err, service.ErrChecksFailed) {
+		t.Fatalf("exit %d, err %v", ExitCode(err), err)
+	}
+}

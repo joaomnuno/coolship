@@ -18,6 +18,9 @@ type commandOptions struct {
 	// noHints is the hints = false preference; every next-step hint goes
 	// through hint so the preference is honored in one place.
 	noHints bool
+	// rerunPending: this run is a fix, and the command that failed runs
+	// again after it, so deploying is left to that command.
+	rerunPending bool
 	// run executes another command line in a new tree with the same
 	// dependencies, for a follow-up the user asked for.
 	run func(ctx context.Context, args []string) error

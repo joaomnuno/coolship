@@ -56,7 +56,8 @@ func ReportError(streams Streams, format string, err error) error {
 	if writeErr := writeErrorText(streams, report, catalogued); writeErr != nil {
 		return writeErr
 	}
-	if format != "json" {
+	var written *resultWrittenError
+	if format != "json" || errors.As(err, &written) {
 		return nil
 	}
 	return json.NewEncoder(streams.Out).Encode(errorObject{Error: errorBody{
@@ -77,6 +78,23 @@ type reportedError struct{ err error }
 
 func (e *reportedError) Error() string { return e.err.Error() }
 func (e *reportedError) Unwrap() error { return e.err }
+
+// ResultWritten marks a failure whose command already wrote its JSON result
+// on stdout, such as doctor's checks or a failed deployment's result. That
+// document already says what failed, so with --format json no error object
+// follows it and stdout stays one JSON value. The text on stderr and the
+// exit code are unchanged.
+func ResultWritten(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &resultWrittenError{err: err}
+}
+
+type resultWrittenError struct{ err error }
+
+func (e *resultWrittenError) Error() string { return e.err.Error() }
+func (e *resultWrittenError) Unwrap() error { return e.err }
 
 type errorObject struct {
 	Error errorBody `json:"error"`

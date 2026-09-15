@@ -394,7 +394,7 @@ coolship config set hints false
 
 ### `coolship alias`
 
-Add a short name for `coolship`, `cs` by default (`coolship alias ship` for another), next to the `coolship` binary: a symlink, or a copy on Windows. It refuses when the name already runs another command on your `PATH`, naming that command, and when the binary's directory is not writable, in which case it suggests running it with `sudo` or moving the binary. Running it again changes nothing. `coolship alias --remove` deletes the alias, but only when it is a link to or copy of Coolship.
+Add a short name for `coolship`, `cs` by default (`coolship alias ship` for another), next to the `coolship` binary: a symlink, or a copy on Windows. It refuses when the name already runs another command on your `PATH`, naming that command, and when the binary's directory is not writable, in which case it suggests running it with `sudo` or moving the binary. Running it again changes nothing. `coolship alias --remove` deletes the alias, but only when it is a link to Coolship, or a copy on Windows. A separate Coolship binary of that name, such as the installed `coolship` next to a development build, is never replaced or removed.
 
 ```text
 $ coolship alias
@@ -468,6 +468,12 @@ Three rules keep this safe:
 `push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Its confirmation lists what it creates, updates, and deletes, and also the withheld keys it skips (`--force` overwrites them) and the remote-only keys it keeps (`--prune` deletes them), so nothing is a surprise afterwards. In a terminal the push is a two-step checklist, `Compare variables` then `Write variables`, drawn like the deploy checklist and naming keys, never values. Changes take effect on the next deployment.
 
 `env diff --exit-code` exits with status 1 when there are added, changed, or removed keys — withheld keys do not count — and prints the diff with no further message, like `git diff --exit-code`, so CI can fail when `.env` drifts. A repeated `pull` leaves one comment per withheld key, not one per run.
+
+### `coolship ui` (experimental)
+
+> **Experimental.** `coolship ui` is a draft. Its keys and layout may change in any release, and it may be removed.
+
+Open a full-screen menu with the linked application's status and last deployment at the top and every verb below, in the help's groups and order. The arrow keys or `j` and `k` move, typing filters, and Enter closes the menu and runs the verb exactly as if typed. Esc, `q`, or Ctrl-C leaves without running anything. It needs a terminal; bare `coolship` never opens it. See [ui](https://coolship.itrocas.com/docs/commands/ui).
 
 ### Shared options
 

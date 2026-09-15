@@ -161,16 +161,57 @@ func TestCreateReportsAnExistingAliasElsewhere(t *testing.T) {
 	}
 }
 
-func TestCreateRefreshesAStaleCoolshipCopy(t *testing.T) {
+func TestCreateRefreshesALinkToAnotherCoolship(t *testing.T) {
 	symlinks(t)
 	f := newFixture(t, "linux")
-	writeFile(t, filepath.Join(f.bin, "cs"), "COOLSHIP-OLD")
+	writeFile(t, filepath.Join(f.bin, "coolship-old"), "COOLSHIP-OLD")
+	if err := os.Symlink("coolship-old", filepath.Join(f.bin, "cs")); err != nil {
+		t.Fatal(err)
+	}
 	result, err := Create(f.system, "cs")
 	if err != nil || result.Status != StatusCreated {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
 	if target, err := os.Readlink(filepath.Join(f.bin, "cs")); err != nil || target != "coolship" {
-		t.Fatalf("stale copy not replaced by a link: %q %v", target, err)
+		t.Fatalf("stale link not replaced: %q %v", target, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(f.bin, "coolship-old")); string(data) != "COOLSHIP-OLD" {
+		t.Fatal("the old binary the link pointed to was changed")
+	}
+}
+
+func TestCreateRefreshesAStaleCopyOnWindows(t *testing.T) {
+	f := newFixture(t, "windows")
+	writeFile(t, filepath.Join(f.bin, "cs.exe"), "COOLSHIP-OLD")
+	result, err := Create(f.system, "cs")
+	if err != nil || result.Status != StatusCreated {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(f.bin, "cs.exe")); string(data) != "COOLSHIP-BINARY" {
+		t.Fatalf("stale copy not refreshed: %q", data)
+	}
+}
+
+// A regular Coolship binary beside the running one, such as the installed
+// coolship next to a coolship-dev build, is not an alias: neither Create nor
+// Remove touches it.
+func TestSeparateCoolshipBinaryIsLeftInPlace(t *testing.T) {
+	f := newFixture(t, "linux")
+	f.path = nil
+	other := filepath.Join(f.bin, "cs")
+	writeFile(t, other, "COOLSHIP-INSTALLED")
+	for name, operation := range map[string]func(System, string) (Result, error){"create": Create, "remove": Remove} {
+		_, err := operation(f.system, "cs")
+		var separate *SeparateBinaryError
+		if !errors.As(err, &separate) || separate.Path != other {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+		if info, err := os.Lstat(other); err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("%s: the separate binary was replaced or removed", name)
+		}
+		if data, _ := os.ReadFile(other); string(data) != "COOLSHIP-INSTALLED" {
+			t.Fatalf("%s: the separate binary changed: %q", name, data)
+		}
 	}
 }
 

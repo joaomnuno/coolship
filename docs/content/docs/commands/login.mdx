@@ -55,7 +55,7 @@ A check that fails says exactly what happened, with the same code, hint, and lin
 
 When the URL is already saved, `login` asks whether to replace that context's token, save under a new name, or leave. A new name may not be one already saved.
 
-At `--verbose` or `--debug`, with `--format json`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command.
+With `--format json` the form runs the same way, and only the result goes to stdout. With `--token-stdin` and a terminal on stdin, the form asks for the token without echoing it. At `--verbose` or `--debug`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command.
 
 ## Without a terminal
 
@@ -68,7 +68,7 @@ A URL and token that a saved context already holds are refused with [`already_sa
 | Flag            | Purpose                                                          |
 | --------------- | ---------------------------------------------------------------- |
 | `--url URL`     | Coolify instance URL, e.g. `https://coolify.example.com` or `https://app.coolify.io`. |
-| `--name NAME`   | Context name (default: derived from the URL's host).             |
+| `--name NAME`   | Context name (default: `--context`, or derived from the URL's host). |
 | `--token-stdin` | Read the API token from stdin.                                   |
 | `--default`     | Make this the default context.                                   |
 

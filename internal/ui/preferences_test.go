@@ -48,12 +48,16 @@ func TestPreferencesFormShowsHeaderAndCurrentValues(t *testing.T) {
 			t.Errorf("%s starts at %q; want %q", name, got, want)
 		}
 	}
-	// Without a binding the header says why and still edits preferences.
+	// Without a binding the header says why, still shows the credentials and
+	// instance Config could read, and still edits preferences.
 	input := formInput
 	input.ConfigError = errors.New("not linked")
+	input.Config = service.ConfigResult{CredentialSource: "file", CredentialPath: "/home/u/.config/coolify/config.json",
+		Instance: "home", InstanceURL: "https://coolify.example.com"}
 	input.Report = preferences.Report{Path: "/p.toml"}
 	view = startPreferencesForm(t, input).form.View()
-	if !strings.Contains(view, "Binding:      none (not linked)") || strings.Contains(view, "Credentials:") || !strings.Contains(view, "/p.toml (absent; saving creates it)") {
+	if !strings.Contains(view, "Binding:      none (not linked)") || !strings.Contains(view, "Credentials:  /home/u/.config/coolify/config.json") ||
+		!strings.Contains(view, "Instance:     home at https://coolify.example.com") || !strings.Contains(view, "/p.toml (absent; saving creates it)") {
 		t.Fatalf("unlinked header:\n%s", view)
 	}
 }

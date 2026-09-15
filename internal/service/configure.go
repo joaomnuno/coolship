@@ -19,11 +19,11 @@ func (a *App) Config(ctx context.Context, options Options) (ConfigResult, error)
 	}
 	p, err := project.Discover(project.Paths{CWD: options.CWD, ConfigPath: options.ConfigPath}, false)
 	if err != nil {
-		return ConfigResult{}, input(err)
+		return a.unboundConfig(options), input(err)
 	}
 	target, err := project.Select(p, options.Target, options.Environment)
 	if err != nil {
-		return ConfigResult{}, input(err)
+		return a.unboundConfig(options), input(err)
 	}
 	result := ConfigResult{
 		ConfigPath: p.ConfigPath, ConfigRoot: p.ConfigRoot, GitRoot: p.GitRoot,
@@ -58,6 +58,20 @@ func (a *App) Config(ctx context.Context, options Options) (ConfigResult, error)
 	}
 	result.Preferences = preferencesReport(a.deps.Preferences)
 	return result, nil
+}
+
+// unboundConfig is what Config still knows when no binding applies: where
+// credentials come from and the instance they select without a committed
+// context. The config form shows it in its header; commands that print the
+// configuration report the error instead.
+func (a *App) unboundConfig(options Options) ConfigResult {
+	authOptions := a.authOptions(options, "")
+	report := a.deps.InspectCredentials(authOptions)
+	result := ConfigResult{CredentialSource: report.Source, CredentialPath: report.Path}
+	if credentials, err := a.deps.ResolveCredentials(authOptions); err == nil {
+		result.Instance, result.InstanceURL = credentials.Name, credentials.URL
+	}
+	return result
 }
 
 // preferencesReport describes the preferences file without a second read:

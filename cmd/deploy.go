@@ -63,7 +63,10 @@ func deploymentFailure(renderer *ui.Renderer, format string, result service.Depl
 	}
 	// The failure is what the caller must learn; a lost write cannot displace it.
 	if format == "json" {
-		_ = renderer.Deploy(result)
+		// The result is stdout's one JSON value; no error object follows it.
+		if renderer.Deploy(result) == nil {
+			return ui.ResultWritten(err)
+		}
 	} else if result.URL != "" {
 		_ = renderer.DeploymentPage(result.URL)
 	}

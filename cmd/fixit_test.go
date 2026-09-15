@@ -18,6 +18,7 @@ import (
 	"github.com/joaomnuno/coolship/internal/coolify"
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/problem"
+	"github.com/joaomnuno/coolship/internal/project"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 )
@@ -206,6 +207,40 @@ func TestFixLinkOffersLinkThenRunsTheCommandAgain(t *testing.T) {
 	}
 	if !strings.Contains(run.out, "Linked project") || !strings.Contains(run.out, "running") {
 		t.Fatalf("stdout: %s", run.out)
+	}
+}
+
+// Init run as the fix for deploy leaves deploying to the rerun: no "Deploy
+// now?" and no deploy hint, so one deploy queues one deployment.
+func TestFixLinkWithInitLeavesDeployingToTheRerun(t *testing.T) {
+	linked := false
+	deploys := 0
+	app := fakeApplication{
+		init: func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error) {
+			linked = true
+			return service.InitResult{Target: service.TargetInfo{Application: "web", ApplicationUUID: "a-1"}}, nil
+		},
+		state: func(context.Context, service.Options) (service.ProjectState, error) {
+			return service.ProjectState{}, nil
+		},
+		deploy: func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error) {
+			deploys++
+			if !linked {
+				return service.DeployResult{}, &service.InputError{Err: project.ErrNotLinked}
+			}
+			return service.DeployResult{DeploymentUUID: "d-1", Status: "finished"}, nil
+		},
+	}
+	// 2 picks init; y would answer a "Deploy now?", and Enter continues.
+	var out, diagnostic bytes.Buffer
+	err := cmd.Execute(context.Background(), app, ui.Streams{In: strings.NewReader("2\ny\n"), Out: &out, Err: &diagnostic, Interactive: true},
+		"test", []string{"deploy"})
+	if err != nil || deploys != 2 {
+		t.Fatalf("err %v, deploys %d\nstderr: %s", err, deploys, diagnostic.String())
+	}
+	if strings.Contains(diagnostic.String(), "Deploy now?") || strings.Contains(diagnostic.String(), "coolship deploy ") ||
+		!strings.Contains(diagnostic.String(), "Continue with coolship deploy? [Y/n]") {
+		t.Fatalf("stderr: %s", diagnostic.String())
 	}
 }
 

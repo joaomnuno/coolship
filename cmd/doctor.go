@@ -25,7 +25,9 @@ Exit status is 1 when any check fails. Warnings do not fail the command.`,
 				return err
 			}
 			if result.Failed {
-				return service.ErrChecksFailed
+				// With --format json the result on stdout already lists the
+				// failed checks; no error object follows it.
+				return ui.ResultWritten(service.ErrChecksFailed)
 			}
 			return nil
 		},
