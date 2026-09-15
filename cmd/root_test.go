@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joaomnuno/coolship/cmd"
+	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/config"
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
@@ -44,6 +45,10 @@ type fakeApplication struct {
 	rstart func(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error)
 	list   func(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error)
 	cancel func(context.Context, service.CancelOptions, service.ConfirmCancel) (service.CancelResult, error)
+	// state and contexts answer the next-step hints and the context
+	// picker; nil reads as unavailable and as no saved contexts.
+	state    func(context.Context, service.Options) (service.ProjectState, error)
+	contexts func(service.Options) ([]auth.Instance, error)
 }
 
 func (f fakeApplication) Stop(ctx context.Context, options service.StopOptions, confirm service.ConfirmStop, emit service.Emitter) (service.StopResult, error) {
@@ -60,6 +65,19 @@ func (f fakeApplication) Deployments(ctx context.Context, options service.Deploy
 }
 func (f fakeApplication) Cancel(ctx context.Context, options service.CancelOptions, confirm service.ConfirmCancel) (service.CancelResult, error) {
 	return f.cancel(ctx, options, confirm)
+}
+
+func (f fakeApplication) ProjectState(ctx context.Context, options service.Options) (service.ProjectState, error) {
+	if f.state == nil {
+		return service.ProjectState{}, errors.New("no project state in this fake")
+	}
+	return f.state(ctx, options)
+}
+func (f fakeApplication) Contexts(options service.Options) ([]auth.Instance, error) {
+	if f.contexts == nil {
+		return nil, nil
+	}
+	return f.contexts(options)
 }
 
 func (f fakeApplication) Login(ctx context.Context, options service.LoginOptions) (service.LoginResult, error) {
@@ -553,7 +571,8 @@ func TestNextStepHintsOnlyInInteractiveHumanOutput(t *testing.T) {
 	}{
 		{[]string{"link"}, "Next: coolship deploy\n"},
 		{[]string{"link", "--target", "api"}, "Next: coolship deploy --target api\n"},
-		{[]string{"init", "--yes"}, "Next: coolship deploy\n"},
+		// init asks instead of hinting; end of input answers no.
+		{[]string{"init", "--yes"}, "Deploy now? [y/N] \n"},
 		{[]string{"deployments"}, "No deployments yet. Next: coolship deploy\n"},
 	} {
 		if got := run(true, test.args...); got != test.want {

@@ -92,16 +92,18 @@ const (
 // Problem is one classified failure. Message is the error's own text, less
 // any advice the Hint now gives. FixURL is set for FixOpenURL: the Coolify
 // page on the instance that answered. Context names the context involved,
-// when the error says which.
+// when the error says which. Instance is the URL of the instance that
+// answered, when a response says which, so a fix can log in to it again.
 type Problem struct {
-	Code    Code
-	Owner   Owner
-	Message string
-	Hint    string
-	DocsURL string
-	Fix     FixKind
-	FixURL  string
-	Context string
+	Code     Code
+	Owner    Owner
+	Message  string
+	Hint     string
+	DocsURL  string
+	Fix      FixKind
+	FixURL   string
+	Context  string
+	Instance string
 }
 
 // DocsBase is the Coolship errors page; each code is a heading on it.
@@ -242,6 +244,7 @@ func Classify(err error) (Problem, bool) {
 		}
 	}
 	p.Context = found.context
+	p.Instance = found.instance
 	if p.Fix == FixOpenURL {
 		if found.instance == "" {
 			p.Fix = FixNone

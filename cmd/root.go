@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/joaomnuno/coolship/internal/alias"
+	"github.com/joaomnuno/coolship/internal/auth"
 	"github.com/joaomnuno/coolship/internal/preferences"
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/suggest"
@@ -60,6 +61,8 @@ type Application interface {
 	DomainSet(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
 	Login(context.Context, service.LoginOptions) (service.LoginResult, error)
 	Logout(context.Context, service.LogoutOptions) (service.LogoutResult, error)
+	ProjectState(context.Context, service.Options) (service.ProjectState, error)
+	Contexts(service.Options) ([]auth.Instance, error)
 }
 
 // Option configures process-level behavior the command tree cannot own.
@@ -102,16 +105,18 @@ func WithPreferences(report preferences.Report) Option {
 
 // NewRootCommand constructs an offline command tree with explicit dependencies.
 func NewRootCommand(app Application, streams ui.Streams, version string, opts ...Option) *cobra.Command {
-	streams = streams.Normalized()
-	var config settings
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&config)
-		}
-	}
+	streams = sharedInput(streams.Normalized())
+	config := collectSettings(opts)
 	// A file that could not be read left the zero value: no preference.
 	prefs := config.preferences.Preferences
 	options := &commandOptions{format: "human", noHints: !prefs.HintsEnabled()}
+	// A follow-up, such as deploy after init, runs in a tree of its own built
+	// from the same dependencies, so it behaves exactly as if typed.
+	options.run = func(ctx context.Context, args []string) error {
+		next := NewRootCommand(app, streams, version, opts...)
+		next.SetArgs(args)
+		return next.ExecuteContext(ctx)
+	}
 	var verbosity verbosityFlags
 	root := &cobra.Command{
 		Use:   "coolship",

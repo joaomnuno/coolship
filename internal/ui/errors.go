@@ -48,6 +48,10 @@ func ReportError(streams Streams, format string, err error) error {
 	if errors.As(err, &exit) && !errors.Is(err, context.Canceled) {
 		return nil
 	}
+	var reported *reportedError
+	if errors.As(err, &reported) {
+		return nil
+	}
 	report, catalogued := describeError(err)
 	if writeErr := writeErrorText(streams, report, catalogued); writeErr != nil {
 		return writeErr
@@ -58,6 +62,21 @@ func ReportError(streams Streams, format string, err error) error {
 	return json.NewEncoder(streams.Out).Encode(errorObject{Error: errorBody{
 		Code: string(report.Code), Message: report.Message, Hint: report.Hint, DocsURL: report.DocsURL}})
 }
+
+// Reported marks a failure whose diagnostic is already on screen, such as
+// the one printed above an offer to fix it, so ReportError does not print it
+// again. The failure keeps its exit code and its place in the error chain.
+func Reported(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &reportedError{err: err}
+}
+
+type reportedError struct{ err error }
+
+func (e *reportedError) Error() string { return e.err.Error() }
+func (e *reportedError) Unwrap() error { return e.err }
 
 type errorObject struct {
 	Error errorBody `json:"error"`

@@ -104,8 +104,9 @@ func run() int {
 	if notifier != nil {
 		notifier.Start(ctx)
 	}
-	err := cmd.NewRootCommand(app, streams, resolved, cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv),
-		cmd.WithPreferences(prefs)).ExecuteContext(ctx)
+	// A failure Coolship can set right is offered a fix in there, once.
+	err := cmd.Execute(ctx, app, streams, resolved, os.Args[1:], cmd.WithOpener(ui.OpenBrowser), cmd.WithEnvironment(os.Getenv),
+		cmd.WithPreferences(prefs))
 	// Repeated request lines still held back are summarized before anything
 	// else reaches stderr.
 	streams.Trace.Flush()

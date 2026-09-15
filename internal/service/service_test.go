@@ -241,6 +241,9 @@ func (f *fakeBackend) CreateApplication(_ context.Context, spec models.Applicati
 }
 
 func (f *fakeBackend) ListEnvironmentVariables(_ context.Context, id string) ([]models.EnvironmentVariable, error) {
+	// ProjectState reads the variables beside the deployment history.
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls["envs"]++
 	if id != "app-1" {
 		return nil, errors.New("wrong application")

@@ -7,7 +7,7 @@ description: Create a Coolify application for this repository from its Git remot
 coolship init [flags]
 ```
 
-`init` is the first step for a repository that is not on Coolify yet. It reads the `origin` remote and the checked-out branch from Git (SSH forms are normalized to `https://github.com/owner/repo`), detects the build pack from the application root, shows the plan, and creates the application only after you confirm. Nothing is deployed unless you pass `--deploy`.
+`init` is the first step for a repository that is not on Coolify yet. It reads the `origin` remote and the checked-out branch from Git (SSH forms are normalized to `https://github.com/owner/repo`), detects the build pack from the application root, shows the plan, and creates the application only after you confirm. Nothing is deployed unless you pass `--deploy`, or answer `y` to `Deploy now? [y/N]`, which a terminal asks afterwards along with the [next steps](/docs/platform/output#hints) for the new application.
 
 ```text
 $ coolship init

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -92,19 +93,33 @@ directory as its root, which becomes the application's base directory.`,
 			}
 			prompter := ui.NewPrompter(streams)
 			renderer := ui.NewRenderer(streams, options.format)
-			result, err := app.Init(command.Context(), create, prompter.Select, prompter.ConfirmInit, renderer.DeploymentEvent)
+			steps := ui.NewSteps(streams, options.format, []string{"Plan the application", "Create the application", "Write coolship.toml"})
+			var result service.InitResult
+			var err error
+			if steps.Live() {
+				result, err = initWithSteps(command.Context(), app, create, prompter, steps, renderer.DeploymentEvent)
+			} else {
+				// Piped, JSON, and verbose runs keep their lines.
+				result, err = app.Init(command.Context(), create, prompter.Select, prompter.ConfirmInit, renderer.DeploymentEvent)
+			}
 			if err != nil {
 				return err
 			}
 			if err := renderer.Init(result); err != nil {
 				return err
 			}
-			// Only a new, undeployed binding has deploy as its next step; a
-			// created deploy key already printed its own instructions.
-			if result.Deployment == nil && result.Target.ApplicationUUID != "" {
-				options.hint(streams, ui.NextDeploy(create.Target))
+			// A created deploy key already printed its own instructions.
+			if result.Target.ApplicationUUID == "" {
+				return nil
 			}
-			return nil
+			// Without --deploy, a question takes the place of the deploy hint.
+			ask := result.Deployment == nil && options.hintsShown(streams)
+			showNextSteps(command.Context(), app, options, streams, ui.NextStepOptions{Target: create.Target,
+				Compose: result.Plan.BuildPack == service.BuildPackCompose, NoDeploy: ask || result.Deployment != nil})
+			if !ask {
+				return nil
+			}
+			return offerDeploy(command, options, streams)
 		},
 	}
 	command.Flags().StringVar(&create.Repository, "repo", "", "Repository URL (default: the origin remote)")
@@ -131,4 +146,62 @@ directory as its root, which becomes the application's base directory.`,
 	command.Flags().BoolVar(&create.Deploy, "deploy", false, "Deploy after creating and wait for it")
 	command.Flags().DurationVar(&create.Timeout, "timeout", 10*time.Minute, "Maximum time to wait for the deployment with --deploy")
 	return command
+}
+
+// initWithSteps runs init as a checklist: planning, with every choice asked
+// while the checklist is paused, then the creation and the binding. The
+// confirmation pauses it too, so the plan is read below the finished
+// planning step; --yes answers it here. A deployment that follows closes the
+// checklist and prints its own progress, as before.
+func initWithSteps(ctx context.Context, app Application, options service.InitOptions, prompter *ui.Prompter, steps *ui.Steps, emit service.Emitter) (service.InitResult, error) {
+	defer steps.Close()
+	yes := options.Yes
+	options.Yes = false
+	steps.Start(0)
+	current := 0
+	selectChoice := func(ctx context.Context, kind string, choices []service.Choice) (string, error) {
+		steps.Pause()
+		defer steps.Resume()
+		return prompter.Select(ctx, kind, choices)
+	}
+	confirm := func(ctx context.Context, plan service.InitPlan) (bool, error) {
+		steps.Done(0, plan.Name+" on "+plan.Instance)
+		current = -1
+		if !yes {
+			steps.Pause()
+			accepted, err := prompter.ConfirmInit(ctx, plan)
+			if err != nil || !accepted {
+				return accepted, err
+			}
+			steps.Resume()
+		}
+		steps.Start(1)
+		current = 1
+		return true, nil
+	}
+	deploying := false
+	forward := func(event service.Event) error {
+		if !deploying {
+			deploying = true
+			steps.Done(1, "")
+			steps.Done(2, "")
+			steps.Close()
+		}
+		return emit(event)
+	}
+	result, err := app.Init(ctx, options, selectChoice, confirm, forward)
+	switch {
+	case err == nil && result.DeployKey != nil && result.Target.ApplicationUUID == "":
+		steps.Done(1, "deploy key "+result.DeployKey.Name)
+		steps.Skip(2, "after the key is registered")
+	case err == nil && !deploying:
+		steps.Done(1, result.Plan.Name)
+		steps.Done(2, "")
+	case errors.Is(err, service.ErrCancelled) && current == -1:
+		steps.Skip(1, "cancelled")
+		steps.Skip(2, "cancelled")
+	case err != nil && current >= 0 && !deploying:
+		steps.Fail(current, err)
+	}
+	return result, err
 }
