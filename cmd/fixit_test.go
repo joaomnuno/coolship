@@ -37,6 +37,9 @@ func executeWithFix(t *testing.T, configPath, dir, in string, args ...string) fi
 		NewBackend: func(credentials auth.Credentials) (service.Backend, error) {
 			return coolify.NewClient(credentials.URL, credentials.Token)
 		},
+		CheckHealth: func(ctx context.Context, url string) error {
+			return coolify.CheckHealth(ctx, url)
+		},
 		PollInterval: time.Millisecond,
 	})
 	var run fixRun
@@ -65,7 +68,7 @@ func TestFixLoginRunsLoginThenTheCommandAgain(t *testing.T) {
 	if run.result != nil {
 		t.Fatalf("status after login: %v\nstderr: %s", run.result, run.err)
 	}
-	for _, want := range []string{"Error [no_credentials]:", "Coolship can run coolship login here", "Set it up now? [Y/n]", "Coolify URL:"} {
+	for _, want := range []string{"Error [no_credentials]:", "Coolship can run coolship login here", "Set it up now? [Y/n]", "Coolify URL ("} {
 		if !strings.Contains(run.err, want) {
 			t.Errorf("stderr lacks %q: %s", want, run.err)
 		}
@@ -91,7 +94,7 @@ func TestFixReLoginReplacesTheRejectedToken(t *testing.T) {
 	if !strings.Contains(run.err, "Error [unauthorized]:") || !strings.Contains(run.err, "log in to home again") {
 		t.Fatalf("stderr: %s", run.err)
 	}
-	if strings.Contains(run.err, "Coolify URL:") || strings.Contains(run.err, "Context name") {
+	if strings.Contains(run.err, "Coolify URL") || strings.Contains(run.err, "Context name") {
 		t.Fatalf("login asked for what the context already says: %s", run.err)
 	}
 	data, _ := os.ReadFile(configPath)
