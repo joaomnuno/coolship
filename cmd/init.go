@@ -102,7 +102,7 @@ directory as its root, which becomes the application's base directory.`,
 			// Only a new, undeployed binding has deploy as its next step; a
 			// created deploy key already printed its own instructions.
 			if result.Deployment == nil && result.Target.ApplicationUUID != "" {
-				ui.Hint(streams, options.format, ui.NextDeploy(create.Target))
+				options.hint(streams, ui.NextDeploy(create.Target))
 			}
 			return nil
 		},

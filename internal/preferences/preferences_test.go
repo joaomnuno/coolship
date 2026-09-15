@@ -120,6 +120,13 @@ func TestParseRejectsUnknownKeysByName(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"verbosty"`) || !strings.Contains(err.Error(), `"ui"`) {
 		t.Fatalf("Parse(two unknown keys) = %v; want both named", err)
 	}
+	// The key list in the message is every key Keys describes, not a copy.
+	_, err = Parse([]byte("verbosty = \"normal\"\n"))
+	for _, name := range Names() {
+		if !strings.Contains(err.Error(), name) {
+			t.Fatalf("Parse(unknown key) = %v; want the key list to include %q", err, name)
+		}
+	}
 	_, err = Parse([]byte("build_logs = \"yes\"\n"))
 	if err == nil || !strings.Contains(err.Error(), `"build_logs"`) {
 		t.Fatalf("Parse(wrong type) = %v; want the key named", err)

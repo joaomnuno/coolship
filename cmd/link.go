@@ -69,7 +69,7 @@ changing one, or converting between the two forms, requires review.`,
 			if err := ui.NewRenderer(streams, options.format).Link(result); err != nil {
 				return err
 			}
-			ui.Hint(streams, options.format, ui.NextDeploy(link.Target))
+			options.hint(streams, ui.NextDeploy(link.Target))
 			return nil
 		},
 	}

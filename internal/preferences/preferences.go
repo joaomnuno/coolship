@@ -210,8 +210,15 @@ func oneOf(key, value string, allowed []string) error {
 	return &ValueError{Key: key, Value: value, Allowed: allowed}
 }
 
-// keyList names every key the file accepts, for the unknown-key error.
-const keyList = "verbosity, build_logs, color, update_check, and hints"
+// keyList names every key the file accepts, for the unknown-key error. It
+// comes from Keys, so a new key needs no second list here.
+func keyList() string {
+	names := Names()
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + ", and " + names[len(names)-1]
+}
 
 // describeDecodeError turns go-toml's errors into one line that names what
 // is wrong. The parser's source excerpts are left out: the message names the
@@ -224,9 +231,9 @@ func describeDecodeError(err error) error {
 			keys = append(keys, fmt.Sprintf("%q", strings.Join(missing.Key(), ".")))
 		}
 		if len(keys) == 1 {
-			return fmt.Errorf("unknown key %s; the keys are %s", keys[0], keyList)
+			return fmt.Errorf("unknown key %s; the keys are %s", keys[0], keyList())
 		}
-		return fmt.Errorf("unknown keys %s; the keys are %s", strings.Join(keys, ", "), keyList)
+		return fmt.Errorf("unknown keys %s; the keys are %s", strings.Join(keys, ", "), keyList())
 	}
 	var decode *toml.DecodeError
 	if errors.As(err, &decode) {

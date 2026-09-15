@@ -42,7 +42,7 @@ are left out to fit.`,
 				return err
 			}
 			if len(result.Deployments) == 0 {
-				ui.Hint(streams, options.format, "No deployments yet. "+ui.NextDeploy(options.Target))
+				options.hint(streams, "No deployments yet. "+ui.NextDeploy(options.Target))
 			}
 			return nil
 		},

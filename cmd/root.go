@@ -101,10 +101,10 @@ func NewRootCommand(app Application, streams ui.Streams, version string, opts ..
 			opt(&config)
 		}
 	}
-	options := &commandOptions{format: "human"}
-	var verbosity verbosityFlags
 	// A file that could not be read left the zero value: no preference.
 	prefs := config.preferences.Preferences
+	options := &commandOptions{format: "human", noHints: !prefs.HintsEnabled()}
+	var verbosity verbosityFlags
 	root := &cobra.Command{
 		Use:   "coolship",
 		Short: "Project-local deployment workflows for Coolify",
