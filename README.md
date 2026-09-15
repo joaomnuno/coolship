@@ -324,12 +324,20 @@ coolship restart --yes        # queue a restart, observed like deploy
 
 `stop` shows the application and its environment and asks before stopping — production deserves a clear question — then waits until the status reports `exited` (2 minutes by default) and reports the last status it saw. Coolify stops and removes the containers; the application, its configuration, and its history stay, and `deploy` or `start` brings it back. Only an application that already reports `exited` is left alone, with a warning; every other status is stopped, as Coolify's own Stop button does — a crash-looping application reports `restarting` or `degraded`, never `running`, and is the usual reason to reach for the command.
 
+In a terminal the stop is a checklist drawn like deploy's: `Request stop`, with Coolify's receipt beside it, then `Wait for exited`, with the last status seen. Piped, it prints the receipt and each status as a line:
+
 ```text
 $ coolship stop --yes
-Application stopping request queued.
-Application status: ● exited:unhealthy
+✓ Request stop                  0:00  Application stopping request queued.
+✓ Wait for exited               0:02  exited:unhealthy
 Application: coolship-example
 Status: ● exited:unhealthy
+
+$ coolship stop --yes 2>&1 | cat
+Application stopping request queued.
+Application status: exited:unhealthy
+Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)
+Status: exited:unhealthy
 ```
 
 `start` and `restart` are Coolify's own start and restart actions, and both queue a deployment: Coolify has no container start, so `start` deploys the configured source and branch again, and `restart` queues a restart-only deployment that reuses the image already built for the commit — except for Dockerfile and Docker image applications, which Coolify deploys in full. Both are observed exactly like `deploy` — the stage checklist in a terminal, the status lines and build log on stderr otherwise — with `--no-wait`, `--timeout`, `--logs`, and `--no-logs`; `restart` asks first, or takes `--yes`.
@@ -454,7 +462,7 @@ Three rules keep this safe:
 * **Withheld values are never invented.** A value Coolify hides (shown-once secrets) is noted in the file as a comment rather than written empty, is reported as `?` in a diff, and is overwritten by `push` only with `--force`.
 * **References stay references.** A shared variable such as `{{team.API_KEY}}` is pulled and compared as that reference, never as the value it resolves to, so a push cannot replace the reference with the secret.
 
-`push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Its confirmation lists what it creates, updates, and deletes, and also the withheld keys it skips (`--force` overwrites them) and the remote-only keys it keeps (`--prune` deletes them), so nothing is a surprise afterwards. Changes take effect on the next deployment.
+`push` preserves each variable's literal, multiline, and shown-once flags — the server resets them when an update omits them. Its confirmation lists what it creates, updates, and deletes, and also the withheld keys it skips (`--force` overwrites them) and the remote-only keys it keeps (`--prune` deletes them), so nothing is a surprise afterwards. In a terminal the push is a two-step checklist, `Compare variables` then `Write variables`, drawn like the deploy checklist and naming keys, never values. Changes take effect on the next deployment.
 
 `env diff --exit-code` exits with status 1 when there are added, changed, or removed keys — withheld keys do not count — and prints the diff with no further message, like `git diff --exit-code`, so CI can fail when `.env` drifts. A repeated `pull` leaves one comment per withheld key, not one per run.
 

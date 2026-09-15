@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -31,7 +32,16 @@ stopped, including a crash loop shown as restarting or degraded.`,
 			}
 			stop.Options = options.Options
 			renderer := ui.NewRenderer(streams, options.format)
-			result, err := app.Stop(command.Context(), stop, ui.NewPrompter(streams).ConfirmStop, renderer.DeploymentEvent)
+			prompter := ui.NewPrompter(streams)
+			steps := ui.NewSteps(streams, options.format, []string{"Request stop", "Wait for exited"})
+			var result service.StopResult
+			var err error
+			if steps.Live() {
+				result, err = stopWithSteps(command.Context(), app, stop, prompter, steps)
+			} else {
+				// Piped, JSON, and verbose runs keep their status lines.
+				result, err = app.Stop(command.Context(), stop, prompter.ConfirmStop, renderer.DeploymentEvent)
+			}
 			if err != nil {
 				return err
 			}
@@ -41,6 +51,50 @@ stopped, including a crash loop shown as restarting or degraded.`,
 	command.Flags().BoolVarP(&stop.Yes, "yes", "y", false, "Stop without confirmation")
 	command.Flags().DurationVar(&stop.Timeout, "timeout", 2*time.Minute, "Maximum time to wait for the application to stop")
 	return command
+}
+
+// stopWithSteps runs stop as a checklist: the request, then the wait for
+// exited with the last status seen beside it. The question comes before the
+// checklist is drawn, so the service is always handed the confirmation and
+// --yes answers it here; either way, accepting is where the request starts.
+func stopWithSteps(ctx context.Context, app Application, options service.StopOptions, prompter *ui.Prompter, steps *ui.Steps) (service.StopResult, error) {
+	defer steps.Close()
+	yes := options.Yes
+	options.Yes = false
+	current := -1
+	confirm := func(ctx context.Context, plan service.StopPlan) (bool, error) {
+		if !yes {
+			if accepted, err := prompter.ConfirmStop(ctx, plan); err != nil || !accepted {
+				return accepted, err
+			}
+		}
+		steps.Start(0)
+		current = 0
+		return true, nil
+	}
+	emit := func(event service.Event) error {
+		switch {
+		case event.Type == "warning":
+			return steps.Warn(event.Message)
+		case event.Type == "application" && event.Message != "":
+			// The server's receipt ends the request.
+			steps.Done(0, event.Message)
+			steps.Start(1)
+			current = 1
+			steps.Note(1, event.Status)
+		case event.Type == "application":
+			steps.Note(1, event.Status)
+		}
+		return nil
+	}
+	result, err := app.Stop(ctx, options, confirm, emit)
+	switch {
+	case err != nil && current >= 0:
+		steps.Fail(current, err)
+	case err == nil && current == 1:
+		steps.Done(1, result.Status)
+	}
+	return result, err
 }
 
 func newStartCommand(app Application, options *commandOptions, streams ui.Streams, prefs preferences.Preferences) *cobra.Command {
