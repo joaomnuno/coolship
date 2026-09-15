@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
@@ -84,7 +87,15 @@ deployment.`,
 		RunE: func(command *cobra.Command, _ []string) error {
 			env.Options = options.Options
 			push.EnvOptions = env
-			result, err := app.EnvPush(command.Context(), push, ui.NewPrompter(streams).ConfirmPush)
+			prompter := ui.NewPrompter(streams)
+			steps := ui.NewSteps(streams, options.format, []string{"Compare variables", "Write variables"})
+			var result service.EnvPushResult
+			var err error
+			if steps.Live() {
+				result, err = pushWithSteps(command.Context(), app, push, prompter, steps)
+			} else {
+				result, err = app.EnvPush(command.Context(), push, prompter.ConfirmPush)
+			}
 			if err != nil {
 				return err
 			}
@@ -98,4 +109,71 @@ deployment.`,
 	group.AddCommand(pull, diff, pushCommand)
 	order[group] = []*cobra.Command{pull, diff, pushCommand}
 	return group
+}
+
+// pushWithSteps runs env push as a checklist: the comparison, then the
+// write. The confirmation pauses the checklist, so the finished comparison
+// stays above the plan it asks about; --yes answers it here, since the
+// service's confirmation is where the comparison ends. Details name keys and
+// counts, never values.
+func pushWithSteps(ctx context.Context, app Application, options service.EnvPushOptions, prompter *ui.Prompter, steps *ui.Steps) (service.EnvPushResult, error) {
+	defer steps.Close()
+	yes := options.Yes
+	options.Yes = false
+	steps.Start(0)
+	current := 0
+	confirm := func(ctx context.Context, plan service.EnvPushPlan) (bool, error) {
+		steps.Done(0, pushCounts(plan))
+		current = -1
+		if !yes {
+			steps.Pause()
+			accepted, err := prompter.ConfirmPush(ctx, plan)
+			if err != nil || !accepted {
+				return accepted, err
+			}
+			steps.Resume()
+		}
+		steps.Start(1)
+		current = 1
+		return true, nil
+	}
+	result, err := app.EnvPush(ctx, options, confirm)
+	switch {
+	case err == nil && current == 0:
+		// An empty plan is never confirmed.
+		steps.Done(0, "no changes")
+		steps.Skip(1, "nothing to push")
+	case err == nil && current == 1:
+		steps.Done(1, pushKeys(result.Plan))
+	case errors.Is(err, service.ErrCancelled) && current == -1:
+		steps.Skip(1, "cancelled")
+	case err != nil && current >= 0:
+		steps.Fail(current, err)
+	}
+	return result, err
+}
+
+// pushCounts is what the comparison found, such as "2 to create, 1 to delete".
+func pushCounts(plan service.EnvPushPlan) string {
+	var parts []string
+	for _, count := range []struct {
+		n    int
+		verb string
+	}{{len(plan.Create), "create"}, {len(plan.Update), "update"}, {len(plan.Delete), "delete"}} {
+		if count.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d to %s", count.n, count.verb))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// pushKeys names the variables written, by key only.
+func pushKeys(plan service.EnvPushPlan) string {
+	var keys []string
+	for _, changes := range [][]service.EnvChange{plan.Create, plan.Update, plan.Delete} {
+		for _, change := range changes {
+			keys = append(keys, change.Key)
+		}
+	}
+	return strings.Join(keys, ", ")
 }

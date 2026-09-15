@@ -185,23 +185,38 @@ func (c *Checklist) header(target *service.TargetInfo) error {
 
 func (c *Checklist) start(status string, now time.Time) {
 	model := newChecklistModel(c.style, status, now, c.clock)
-	// The first frame is already cut to the terminal; Bubble Tea's size
-	// message keeps it cut after a resize.
-	if width, _, err := term.GetSize(int(c.terminal.Fd())); err == nil {
-		model.width = width
+	model.width = terminalWidth(c.terminal)
+	c.program, c.done = runView(c.terminal, c.style, model, &c.final)
+}
+
+// terminalWidth is the terminal's columns, or 0 when it does not say. The
+// first frame of a live view is cut to it; Bubble Tea's size message keeps
+// the view cut after a resize.
+func terminalWidth(terminal *os.File) int {
+	if width, _, err := term.GetSize(int(terminal.Fd())); err == nil {
+		return width
 	}
-	c.program = tea.NewProgram(model,
-		tea.WithOutput(quietTerminal{c.terminal}),
+	return 0
+}
+
+// runView starts a live view on the terminal the way every Coolship view
+// runs: no input, no signal handler, an explicit colour profile, and the
+// quietTerminal writer. done is closed once the program has ended, and final
+// then holds its last model.
+func runView(terminal *os.File, style palette, model tea.Model, final *tea.Model) (*tea.Program, chan struct{}) {
+	program := tea.NewProgram(model,
+		tea.WithOutput(quietTerminal{terminal}),
 		tea.WithInput(nil),
 		tea.WithoutSignalHandler(),
-		tea.WithColorProfile(c.style.colorProfile()))
-	c.done = make(chan struct{})
-	go func(program *tea.Program, done chan struct{}) {
+		tea.WithColorProfile(style.colorProfile()))
+	done := make(chan struct{})
+	go func() {
 		defer close(done)
 		// The program only draws; whatever ends it, the last model is what
-		// Close prints, and there is nothing else to report.
-		c.final, _ = program.Run()
-	}(c.program, c.done)
+		// is printed in its place, and there is nothing else to report.
+		*final, _ = program.Run()
+	}()
+	return program, done
 }
 
 // Close ends the view once observation has ended, outcome says how. The
@@ -336,6 +351,7 @@ type stageRow struct {
 	name    string
 	status  string // empty until reached, then started, done, failed, or skipped
 	note    string // why it was skipped, when Coolify said
+	detail  string // what a Steps row adds after its time; deploy's stages have none
 	started time.Time
 	ended   time.Time
 }
@@ -478,30 +494,49 @@ func (m checklistModel) render() string {
 		if parent := service.ParentStage(row.name); parent != "" && m.reached(parent) {
 			indent, width = "    ", labelWidth-4
 		}
-		var line string
-		switch row.status {
-		case service.StageStarted:
-			line = m.glyph() + " " + row.name + pad(row.name, width) + FormatElapsed(m.now.Sub(row.started))
-		case service.StageDone:
-			line = m.style.apply(green, "✓") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
-		case service.StageFailed:
-			line = m.style.apply(red, "✗") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
-		case stageStopped:
-			line = "… " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
-		case service.StageSkipped:
-			text := "– " + row.name + pad(row.name, width) + "skipped"
-			if row.note != "" {
-				text += " (" + singleLine(row.note) + ")"
-			}
-			line = m.style.apply(dim, text)
-		default:
-			line = m.style.apply(dim, "  "+row.name)
-		}
-		lines = append(lines, indent+line)
+		lines = append(lines, indent+drawRow(m.style, m.glyph(), row, width, m.now))
 	}
-	if m.width > 0 {
+	return fitLines(lines, m.width)
+}
+
+// drawRow draws one checklist row, the look deploy's stages and Steps share:
+// spin (the spinner frame) on what is open, ✓ and ✗ on what ended, … on what
+// observation left open, – on what was skipped, and a dim name for what was
+// not reached yet. The name is padded to width, so the times align, and a
+// row's detail, when it has one, follows its time dimmed.
+func drawRow(style palette, spin string, row stageRow, width int, now time.Time) string {
+	var line string
+	switch row.status {
+	case service.StageStarted:
+		line = spin + " " + row.name + pad(row.name, width) + FormatElapsed(now.Sub(row.started))
+	case service.StageDone:
+		line = style.apply(green, "✓") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
+	case service.StageFailed:
+		line = style.apply(red, "✗") + " " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
+	case stageStopped:
+		line = "… " + row.name + pad(row.name, width) + FormatElapsed(row.ended.Sub(row.started))
+	case service.StageSkipped:
+		text := "– " + row.name + pad(row.name, width) + "skipped"
+		if row.note != "" {
+			text += " (" + singleLine(row.note) + ")"
+		}
+		return style.apply(dim, text)
+	default:
+		return style.apply(dim, "  "+row.name)
+	}
+	if row.detail != "" {
+		line += "  " + style.apply(dim, singleLine(row.detail))
+	}
+	return line
+}
+
+// fitLines joins the rows of a live view, each cut to the terminal's width
+// when it is known, so each row is one terminal line and the redraw moves
+// over exactly the rows it drew.
+func fitLines(lines []string, width int) string {
+	if width > 0 {
 		for index, line := range lines {
-			lines[index] = ansi.Truncate(line, m.width, "…")
+			lines[index] = ansi.Truncate(line, width, "…")
 		}
 	}
 	return strings.Join(lines, "\n")
