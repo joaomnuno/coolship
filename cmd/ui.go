@@ -34,7 +34,12 @@ var menuInputs = map[string][]ui.MenuInput{
 	"preview": {{Title: "Pull request number", Flag: "pr", Placeholder: "42", Validate: ui.RequirePositiveNumber}},
 	"domain set": {{Title: "Domains", Description: "Separate several with spaces; a bare host means https.",
 		Placeholder: "app.example.com", Fields: true, Validate: ui.RequireText}},
-	"logout": {{Title: "Context to remove", Placeholder: "home", Validate: ui.RequireText}},
+	"logout":     {{Title: "Context to remove", Placeholder: "home", Validate: ui.RequireText}},
+	"config get": {{Title: "Preference", Placeholder: "verbosity", Validate: ui.RequireText}},
+	"config set": {
+		{Title: "Preference", Placeholder: "verbosity", Validate: ui.RequireText},
+		{Title: "Value", Placeholder: "verbose", Validate: ui.RequireText},
+	},
 }
 
 // menuRunner opens the menu and returns the chosen verb's arguments;
