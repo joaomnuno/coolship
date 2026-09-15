@@ -100,6 +100,91 @@ func TestFixReLoginReplacesTheRejectedToken(t *testing.T) {
 	}
 }
 
+func TestFixReLoginReplacesTheTokenOfTheContextThatAnswered(t *testing.T) {
+	instance := newServer(t, &server{})
+	for _, test := range []struct{ name, committed string }{{"default", ""}, {"committed", "home"}} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := linkedDirectory(t)
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			// Both share the URL and other is listed first.
+			saveContext(t, configPath, "other", instance.URL, "other-token")
+			saveContext(t, configPath, "home", instance.URL, "revoked-token")
+			if test.committed != "" {
+				// other becomes the default; coolship.toml names home.
+				saveContext(t, configPath, "other", instance.URL, "other-token")
+				data, err := config.Marshal(config.Config{Version: 1, Project: config.Binding{Context: test.committed, Project: "Personal", Environment: "production", Application: "fenix-bot", Root: "."}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "coolship.toml"), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run := executeWithFix(t, configPath, dir, "y\n"+testToken+"\n", "status")
+			if run.result != nil {
+				t.Fatalf("status after logging in again: %v\nstderr: %s", run.result, run.err)
+			}
+			if !strings.Contains(run.err, "log in to home again") {
+				t.Fatalf("stderr: %s", run.err)
+			}
+			data, _ := os.ReadFile(configPath)
+			if !strings.Contains(string(data), "other-token") || strings.Contains(string(data), "revoked-token") {
+				t.Fatalf("credentials file: %s", data)
+			}
+		})
+	}
+}
+
+func TestFixAfterInitDeploysAgainWithoutCreatingAgain(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		flags   []string
+		answers string
+		want    []string
+	}{
+		{"deploy now", nil, "y\n1\n\n", []string{"", "home"}},
+		{"--deploy", []string{"--deploy"}, "1\n\n", []string{"home"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inits := 0
+			var deployed []string
+			app := fakeApplication{
+				contexts: func(service.Options) ([]auth.Instance, error) {
+					return []auth.Instance{{Name: "home", URL: "https://coolify.example.com"}}, nil
+				},
+				init: func(_ context.Context, options service.InitOptions, _ service.Selector, _ service.ConfirmInit, _ service.Emitter) (service.InitResult, error) {
+					inits++
+					result := service.InitResult{Target: service.TargetInfo{Target: "web", ApplicationUUID: "a-1"}}
+					if options.Deploy {
+						// Created and linked; the first deployment failed.
+						return result, contextFailure()
+					}
+					return result, nil
+				},
+				state: func(context.Context, service.Options) (service.ProjectState, error) {
+					return service.ProjectState{}, nil
+				},
+				deploy: func(_ context.Context, options service.DeployOptions, _ service.Emitter) (service.DeployResult, error) {
+					deployed = append(deployed, options.Context)
+					if options.Context != "home" {
+						return service.DeployResult{}, contextFailure()
+					}
+					return service.DeployResult{DeploymentUUID: "d-1", Status: "finished"}, nil
+				},
+			}
+			var out, diagnostic bytes.Buffer
+			err := cmd.Execute(context.Background(), app, ui.Streams{In: strings.NewReader(test.answers), Out: &out, Err: &diagnostic, Interactive: true},
+				"test", append([]string{"init", "--yes", "--target", "web"}, test.flags...))
+			if err != nil || inits != 1 || strings.Join(deployed, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("err %v, inits %d, deployed %q\nstderr: %s", err, inits, deployed, diagnostic.String())
+			}
+			if !strings.Contains(diagnostic.String(), "Continue with coolship deploy? [Y/n]") {
+				t.Fatalf("stderr: %s", diagnostic.String())
+			}
+		})
+	}
+}
+
 func TestFixLinkOffersLinkThenRunsTheCommandAgain(t *testing.T) {
 	instance := newServer(t, &server{})
 	dir := projectDirectory(t)
