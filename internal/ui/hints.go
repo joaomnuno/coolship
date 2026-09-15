@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/joaomnuno/coolship/internal/service"
 )
 
 // Hint writes one next-step suggestion on stderr, dimmed, for a person at a
@@ -30,6 +32,80 @@ func NextDeploy(target string) string {
 // up: the list of recent deployments and the application in Coolify.
 func FailedDeployHint(target string) string {
 	return "Next: " + withTarget("coolship deployments", target) + " to compare with earlier runs, or " + withTarget("coolship open --dashboard", target) + " to retry from Coolify"
+}
+
+// NextStep is one suggested command and what it does.
+type NextStep struct {
+	Command string
+	Purpose string
+}
+
+// NextStepOptions shape the choice of next steps: Compose leaves out domain
+// set, which does not apply to a Compose application, and NoDeploy leaves out
+// deploy when a question about deploying follows instead.
+type NextStepOptions struct {
+	Target   string
+	Compose  bool
+	NoDeploy bool
+}
+
+// maxNextSteps keeps the suggestions short enough to be read.
+const maxNextSteps = 3
+
+// NextSteps chooses at most three suggestions from what the application has:
+// variables in a local .env the server lacks, no domain of its own, and
+// then deploy when it was never deployed, or logs and open when it was.
+func NextSteps(state service.ProjectState, options NextStepOptions) []NextStep {
+	var steps []NextStep
+	if state.EnvFile != "" && state.RemoteVariables == 0 {
+		noun := "variables"
+		if state.LocalVariables == 1 {
+			noun = "variable"
+		}
+		steps = append(steps, NextStep{withTarget("coolship env push", options.Target),
+			fmt.Sprintf("send the %d %s in %s to Coolify", state.LocalVariables, noun, singleLine(state.EnvFile))})
+	}
+	if !options.Compose && (len(state.Domains) == 0 || state.Generated) {
+		purpose := "give the application a domain"
+		if state.Generated {
+			purpose = "replace the generated domain with your own"
+		}
+		steps = append(steps, NextStep{withTarget("coolship domain set URL", options.Target), purpose})
+	}
+	switch {
+	case !state.Deployed && !options.NoDeploy:
+		steps = append(steps, NextStep{withTarget("coolship deploy", options.Target), "build and start it"})
+	case state.Deployed:
+		steps = append(steps,
+			NextStep{withTarget("coolship logs", options.Target), "read its logs"},
+			NextStep{withTarget("coolship open", options.Target), "open it in a browser"})
+	}
+	if len(steps) > maxNextSteps {
+		steps = steps[:maxNextSteps]
+	}
+	return steps
+}
+
+// Hints writes next steps as one dimmed block on stderr, with the commands
+// aligned, under the same conditions as Hint.
+func Hints(streams Streams, format string, steps []NextStep) {
+	streams = streams.Normalized()
+	if format != "human" || !streams.Interactive || len(steps) == 0 {
+		return
+	}
+	width := 0
+	for _, step := range steps {
+		width = max(width, len([]rune(singleLine(step.Command))))
+	}
+	lines := []string{"Next:"}
+	for _, step := range steps {
+		command := singleLine(step.Command)
+		lines = append(lines, "  "+command+strings.Repeat(" ", width-len([]rune(command)))+"  "+singleLine(step.Purpose))
+	}
+	style := streams.errPalette()
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(streams.Err, style.apply(dim, line))
+	}
 }
 
 func withTarget(command, target string) string {

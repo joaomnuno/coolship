@@ -44,7 +44,52 @@ Commands that change something show their plan and ask for confirmation on stder
 
 ## Hints
 
-In a terminal, a few commands end with a dimmed next step on stderr: `link` and `init` print `Next: coolship deploy`, and `deployments` with nothing to list prints `No deployments yet. Next: coolship deploy`. A mistyped command, context, or target name gets a `(did you mean …?)` in its error. Hints are never printed with `--format json`, in CI, or when stdin or stderr is not a terminal.
+In a terminal, a few commands end with dimmed next steps on stderr. After `link` and `init`, Coolship reads the application once more and suggests at most three commands from what it finds: `env push` when a local `.env` sets variables the application does not have yet, `domain set` when it has no domain or only the one Coolify generated (not for Compose applications), then `deploy` when it was never deployed, or `logs` and `open` when it was:
+
+```text
+$ coolship link
+…
+Next:
+  coolship env push        send the 3 variables in .env to Coolify
+  coolship domain set URL  give the application a domain
+  coolship deploy          build and start it
+```
+
+`init` asks `Deploy now? [y/N]` instead of suggesting `deploy`. Enter answers no; `y` runs `coolship deploy` for the same target, with its checklist. With `--deploy` there is no question. `deployments` with nothing to list prints `No deployments yet. Next: coolship deploy`, and a mistyped command, context, or target name gets a `(did you mean …?)` in its error.
+
+### Fixing a failed command
+
+When a command fails in a way Coolship can set right, the error is printed as usual and a fix is offered below it:
+
+| Failure | Offer |
+| --- | --- |
+| [`no_credentials`](/docs/platform/errors#no_credentials) | Run `coolship login` here. |
+| [`unauthorized`](/docs/platform/errors#unauthorized) | Log in to the same context again with a new token. |
+| [`not_linked`](/docs/platform/errors#not_linked) | Choose `coolship link`, `coolship init`, or leave. |
+| [`unknown_context`](/docs/platform/errors#unknown_context), [`no_default_context`](/docs/platform/errors#no_default_context) | Pick a saved context for this run, log in, or leave. |
+| `api_disabled`, `ip_not_allowed` | Open Settings, Advanced on the instance in a browser. |
+| `missing_permissions`, `token_exceeds_role` | Open Security, API Tokens on the instance, then log in with the new token. |
+
+```text
+$ coolship status
+Error [no_credentials]: No Coolify credentials at /home/you/.config/coolify/config.json
+Hint: Run coolship login to save a Coolify URL and API token, or set COOLSHIP_URL and COOLSHIP_TOKEN.
+Docs: https://coolship.itrocas.com/docs/platform/errors#no_credentials
+Coolship can run coolship login here, then run coolship status again.
+Set it up now? [Y/n]
+```
+
+Enter accepts. Once the fix is done the command runs again with the same arguments: at once when it only reads, and after `Continue with coolship deploy? [Y/n]` when it changes something (`deploy`, `preview`, `cancel`, `start`, `stop`, `restart`, `env push`, `domain set`), or when a page was opened and a person has to change the setting first. Declining, or leaving the fix, ends with the original error and its exit code. A command that fails again is reported as usual, with no second offer. No fix is offered for `login`, `logout`, `unlink`, `config`, or `alias`, and no login is offered while `COOLSHIP_URL` or `COOLSHIP_TOKEN` is set, since those win over any saved context.
+
+### Turning hints off
+
+Hints, the `Deploy now?` question, and fix offers are never shown with `--format json`, in CI, or when stdin or stderr is not a terminal. To turn all three off in a terminal too, set the `hints` [preference](/docs/commands/config#preferences):
+
+```bash
+coolship config set hints false
+```
+
+`coolship config set hints true` turns them back on. The [update notice](/docs/commands/config#update-notice) has its own `update_check` preference.
 
 ## Exit codes
 

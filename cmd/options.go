@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/joaomnuno/coolship/internal/service"
 	"github.com/joaomnuno/coolship/internal/ui"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type commandOptions struct {
@@ -16,6 +18,33 @@ type commandOptions struct {
 	// noHints is the hints = false preference; every next-step hint goes
 	// through hint so the preference is honored in one place.
 	noHints bool
+	// run executes another command line in a new tree with the same
+	// dependencies, for a follow-up the user asked for.
+	run func(ctx context.Context, args []string) error
+}
+
+// hintsShown reports whether next-step hints and the questions after them
+// reach a person: hints on, human output, and interactive streams.
+func (o *commandOptions) hintsShown(streams ui.Streams) bool {
+	return !o.noHints && o.format == "human" && streams.Interactive
+}
+
+// globalArgs repeats the global flags this run was given, so a follow-up
+// command addresses the same directory, instance, and target. --format is
+// left out: follow-ups only run for human output. A target given as a
+// positional argument is repeated as --target.
+func globalArgs(root *cobra.Command) []string {
+	var args []string
+	root.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+		if flag.Name == "format" {
+			return
+		}
+		if !flag.Changed && (flag.Name != "target" || flag.Value.String() == "") {
+			return
+		}
+		args = append(args, "--"+flag.Name+"="+flag.Value.String())
+	})
+	return args
 }
 
 // hint prints a next-step suggestion unless the hints preference is off;

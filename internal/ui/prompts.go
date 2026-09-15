@@ -104,6 +104,42 @@ func (p *Prompter) Confirm(ctx context.Context, plan service.LinkPlan) (bool, er
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
+// YesNo asks a question whose Enter answer is the default, shown as [Y/n] or
+// [y/N]. An answer that is neither yes nor no asks again. Noninteractive
+// input answers no without asking; end of input cancels.
+func (p *Prompter) YesNo(ctx context.Context, question string, defaultYes bool) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, nil
+	}
+	choices := "[y/N]"
+	if defaultYes {
+		choices = "[Y/n]"
+	}
+	for {
+		if _, err := fmt.Fprint(p.streams.Err, p.question(singleLine(question)+" "+choices)+" "); err != nil {
+			return false, err
+		}
+		answer, err := p.readLine(ctx)
+		if err != nil {
+			return false, err
+		}
+		switch strings.ToLower(answer) {
+		case "":
+			return defaultYes, nil
+		case "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		}
+		if _, err := fmt.Fprintln(p.streams.Err, "Answer y or n."); err != nil {
+			return false, err
+		}
+	}
+}
+
 func (p *Prompter) readLine(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
