@@ -68,8 +68,8 @@ exactly as if it had been typed, with the same global flags, once the menu has
 closed. A verb that needs a value, such as domain set, asks for it first. Esc,
 q, or Ctrl-C leaves without running anything.
 
-The menu needs a terminal on stdin and stdout. It is experimental: its keys
-and layout may change, and it may be removed.`,
+The menu needs a terminal on stdin and stdout, and it does not open in CI. It
+is experimental: its keys and layout may change, and it may be removed.`,
 		Args: noArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			args, err := run(command.Context(), streams, ui.MenuOptions{

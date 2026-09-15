@@ -48,7 +48,7 @@ Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the librar
 - [x] Normal command output shows names only, and `--verbose` adds UUIDs (the rest of #18, tracked in #70; deployment timings above normal already print; the selectors item covers only the `link` and `init` choice).
 - [x] Preferences at `~/.config/coolship/preferences.toml`; credentials stay in Coolify CLI's shared file (the file is read and shown by `config`; verbosity and build logs consume it, color not yet).
 - [x] Help in five Cobra groups (Get started, Ship, Run, Configure, Maintain); every invocation stays flat.
-- [ ] `coolship ui`: a draft menu with the target, status, and last deployment above the verbs in the same groups.
+- [x] `coolship ui`: a draft menu with the target, status, and last deployment above the verbs in the same groups (shipped as an experimental command; its keys and layout may change, and it may be removed).
 
 ## Milestone 4: secure credentials and stack services (v0.5)
 
