@@ -138,7 +138,10 @@ func loginLineByLine(ctx context.Context, app Application, login service.LoginOp
 		login.Name = value
 	}
 	if tokenStdin {
-		token, err := ui.ReadSecretLine(streams.In)
+		// A pipe gives the token as one line. A terminal on stdin would
+		// give it from the keyboard, echoed, so there it is asked for
+		// without echo, as the form asks for it.
+		token, err := prompter.AskSecret(ctx, "API token")
 		if err != nil {
 			return service.LoginResult{}, inputError(err)
 		}

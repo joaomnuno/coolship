@@ -190,7 +190,8 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-if [ -z "$install_dir" ]; then
+# The default directory needs HOME; a preview given its PATH needs neither.
+if [ -z "$install_dir" ] && [ -z "$preview_path" ]; then
 	[ -n "${HOME:-}" ] || fail "HOME is not set; pass --dir or set COOLSHIP_INSTALL_DIR"
 	install_dir=$HOME/.local/bin
 fi

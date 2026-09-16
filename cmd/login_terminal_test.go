@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/joaomnuno/coolship/cmd"
@@ -93,6 +94,72 @@ func TestLoginWithJSONOnATerminalAsksLineByLineAndPrintsOnlyTheResult(t *testing
 	// Stdout is the result alone: one JSON object on one line.
 	var result service.LoginResult
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil || strings.Count(out.String(), "\n") != 1 || result.Name != "lab" || result.Team != "Platform" {
+		t.Fatalf("stdout=%q err=%v", out.String(), err)
+	}
+}
+
+// waitForEchoOff returns once the terminal stops echoing what is typed, which
+// is how a token is read from it, so what the test types next is never
+// echoed. It fails when the terminal keeps echoing.
+func waitForEchoOff(t *testing.T, terminal *os.File) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var settings syscall.Termios
+		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, terminal.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&settings))); errno != 0 {
+			t.Fatalf("read terminal settings: %v", errno)
+		}
+		if settings.Lflag&syscall.ECHO == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the terminal kept echoing: the token was never asked for without echo")
+}
+
+func TestLoginWithJSONAndTokenStdinOnATerminalReadsTheTokenWithoutEcho(t *testing.T) {
+	control, terminal := openTerminal(t)
+	var seen service.LoginOptions
+	app := fakeApplication{login: func(_ context.Context, options service.LoginOptions) (service.LoginResult, error) {
+		seen = options
+		return service.LoginResult{Name: options.Name, URL: options.URL, Team: "Platform", Server: "4.3.18", Path: "/c.json", Default: true}, nil
+	}}
+	var out bytes.Buffer
+	streams := ui.Streams{In: terminal, Out: &out, Err: terminal, Interactive: true, ErrTerminal: true}
+	drawn := make(chan string, 1)
+	go func() {
+		var buffer bytes.Buffer
+		_, _ = io.Copy(&buffer, control)
+		drawn <- buffer.String()
+	}()
+	// The URL and the name are typed while the terminal still echoes, as
+	// it does until the token is asked for; the token only once it stops.
+	if _, err := io.WriteString(control, "https://coolify.example.com\nlab\n"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		root := cmd.NewRootCommand(app, streams, "test")
+		root.SetArgs([]string{"login", "--format", "json", "--token-stdin"})
+		done <- root.ExecuteContext(context.Background())
+	}()
+	waitForEchoOff(t, terminal)
+	if _, err := io.WriteString(control, "typed\n"); err != nil {
+		t.Fatal(err)
+	}
+	err := <-done
+	_ = terminal.Close()
+	stderr := <-drawn
+	if err != nil || seen.URL != "https://coolify.example.com" || seen.Name != "lab" || seen.Token != "typed" {
+		t.Fatalf("seen=%+v err=%v stderr=%q", seen, err, stderr)
+	}
+	// The name was echoed as it was typed; the token was asked for by
+	// name and never echoed.
+	if !strings.Contains(stderr, "lab") || !strings.Contains(stderr, "API token:") || strings.Contains(stderr, "typed") {
+		t.Fatalf("the token was echoed or not asked for: %q", stderr)
+	}
+	var result service.LoginResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || strings.Count(out.String(), "\n") != 1 || result.Name != "lab" {
 		t.Fatalf("stdout=%q err=%v", out.String(), err)
 	}
 }

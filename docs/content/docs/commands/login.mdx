@@ -55,7 +55,7 @@ A check that fails says exactly what happened, with the same code, hint, and lin
 
 When the URL is already saved, `login` asks whether to replace that context's token, save under a new name, or leave. A new name may not be one already saved.
 
-With `--token-stdin` and a terminal on stdin, the form asks for the token without echoing it. At `--verbose` or `--debug`, with `--format json`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command. With `--format json` only the result goes to stdout; the prompts stay on stderr.
+At `--verbose` or `--debug`, with `--format json`, or when input is interactive but not a terminal, `login` asks the same questions one line at a time, and the first failed check ends the command. With `--format json` only the result goes to stdout; the prompts stay on stderr. With `--token-stdin` and a terminal on stdin, the form and the line-by-line questions both ask for the token without echoing it.
 
 ## Without a terminal
 
