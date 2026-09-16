@@ -1957,9 +1957,11 @@ func TestDomainShowsGeneratedAndSetsWithConfirmation(t *testing.T) {
 	}
 	// A host no proxy could route is refused before any request rather than
 	// sent for the server to refuse: symbols, a port out of range, a
-	// non-ASCII host. An IP address and an underscore in a label pass.
+	// non-ASCII host, and a wildcard, which Coolify refuses for an
+	// application (its only wildcard is the server setting that generates
+	// <uuid>.<wildcard>). An IP address and an underscore in a label pass.
 	sent = f.calls["domains"]
-	for _, bad := range [][]string{{"="}, {"https://a.example.com=b"}, {"https://a.example.com:70000"}, {"https://a.example.com:0"}, {"https://bücher.example"}, {"https://a.example.com:8080:1"}} {
+	for _, bad := range [][]string{{"="}, {"https://a.example.com=b"}, {"https://a.example.com:70000"}, {"https://a.example.com:0"}, {"https://bücher.example"}, {"https://a.example.com:8080:1"}, {"https://*.example.com"}} {
 		if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: bad, Yes: true}, nil); !errors.Is(err, ErrInput) || f.calls["domains"] != sent {
 			t.Errorf("%v accepted: %v", bad, err)
 		}
