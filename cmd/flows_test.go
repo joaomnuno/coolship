@@ -153,7 +153,9 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 			t.Errorf("patch body: %v", err)
 		}
 		if domains, ok := body["domains"].(string); ok {
-			application["fqdn"] = domains
+			// The server keeps a URL's port apart from the domain; the
+			// fake knows port 3000 as the one the tests send.
+			application["fqdn"] = strings.ReplaceAll(domains, ":3000", "")
 		}
 		write(w, map[string]any{"uuid": "app-1"})
 	})
@@ -187,7 +189,8 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		}
 		var stored []string
 		for _, service := range body.Services {
-			entry := `"` + service.Name + `":{"domain":"` + strings.ReplaceAll(service.Domain, "/", `\/`) + `"`
+			domain := strings.ReplaceAll(service.Domain, ":3000", "") // the port is kept apart from the domain
+			entry := `"` + service.Name + `":{"domain":"` + strings.ReplaceAll(domain, "/", `\/`) + `"`
 			if service.Redirect != nil {
 				entry += `,"redirect":"` + *service.Redirect + `"`
 			}
@@ -1111,6 +1114,20 @@ func TestDomainRoundTripAgainstTheServer(t *testing.T) {
 	if _, _, err := run(t, instance.URL, dir, "", "domain", "set", "web=other.example.com", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "Compose") {
 		t.Fatalf("pairs on a plain application: %v", err)
 	}
+	// A URL with a port is applied; the server keeps the port apart from
+	// the domain, which is read back without it.
+	out, _, err = run(t, instance.URL, dir, "", "domain", "set", "https://ported.example.com:3000", "--yes")
+	if err != nil || !strings.Contains(out, "Domains of fenix-bot: https://ported.example.com:3000\n") {
+		t.Fatalf("set with port: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "domain")
+	if err != nil || strings.TrimSpace(out) != "https://ported.example.com" {
+		t.Fatalf("domain after port: out=%q err=%v", out, err)
+	}
+	// A host of symbols is invalid input, not a request for the server to refuse.
+	if _, _, err := run(t, instance.URL, dir, "", "domain", "set", "=", "--yes"); !errors.Is(err, service.ErrInput) || s.counts()["PATCH /api/v1/applications/app-1"] != 2 {
+		t.Fatalf("= as a domain: err=%v counts=%v", err, s.counts())
+	}
 }
 
 func TestComposeDomainsRoundTripAgainstTheServer(t *testing.T) {
@@ -1175,6 +1192,19 @@ func TestComposeDomainsRoundTripAgainstTheServer(t *testing.T) {
 		t.Fatalf("domain after set without redirect: out=%q err=%v", out, err)
 	}
 	if compose := s.counts()["PATCH /api/v1/applications/app-3"]; compose != 2 {
+		t.Fatalf("patches = %d", compose)
+	}
+	// A service URL with a port is applied and read back as the domain
+	// without it, which the server keeps apart.
+	out, _, err = run(t, instance.URL, dir, "", "domain", "set", "bot=https://third.example.com:3000", "api=https://api-c.example.com", "--yes")
+	if err != nil || !strings.Contains(out, "Domains of fenix-compose: bot=https://third.example.com:3000, api=https://api-c.example.com\n") {
+		t.Fatalf("set with port: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "domain")
+	if err != nil || out != "bot  https://third.example.com\napi  https://api-c.example.com\n" {
+		t.Fatalf("domain after port: out=%q err=%v", out, err)
+	}
+	if compose := s.counts()["PATCH /api/v1/applications/app-3"]; compose != 3 {
 		t.Fatalf("patches = %d", compose)
 	}
 }
