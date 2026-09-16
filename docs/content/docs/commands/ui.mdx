@@ -49,7 +49,7 @@ Enter closes the menu and restores the terminal first. The verb then runs in the
 A verb that cannot run without a value ends in `…` and asks for it before running:
 
 - `preview` asks for the pull request number (`--pr`).
-- `domain set` asks for one or more domains, separated by spaces.
+- `domain set` asks for one or more domains, separated by spaces; a bare host means `https`, and a Compose application takes `SERVICE=URL` pairs.
 - `logout` asks for the context to remove.
 - `config get` asks for the preference key, and `config set` for the key and its value.
 

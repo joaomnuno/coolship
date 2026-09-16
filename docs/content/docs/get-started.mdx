@@ -33,16 +33,17 @@ In a terminal the script ends with the Coolship banner: the tile in orange besid
    Shortcut      coolship alias → cs
 ```
 
-`NO_COLOR` or `TERM=dumb` drops the colour and keeps the banner. Piped output, such as a CI log, and `--quiet` print a single `Installed` line instead. [`coolship alias`](/docs/commands/alias) adds `cs` as a short name for `coolship`.
+`NO_COLOR` or `TERM=dumb` drops the colour and keeps the banner. Piped output, such as a CI log, and `--quiet` print a single `Installed` line instead. `--preview [VERSION] [PATH]` prints that ending for a given version and path, the banner in a terminal, without downloading or installing anything. [`coolship alias`](/docs/commands/alias) adds `cs` as a short name for `coolship`.
 
 Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 
-| Variable               | Flag            | Default            | Meaning                                                              |
-| ---------------------- | --------------- | ------------------ | -------------------------------------------------------------------- |
-| `COOLSHIP_VERSION`     | `--version`     | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
-| `COOLSHIP_INSTALL_DIR` | `--dir`         | `$HOME/.local/bin` | Directory to install into, created if missing                        |
-|                        | `--dry-run`     |                    | Resolve the version and print what would happen                      |
-|                        | `-q`, `--quiet` |                    | Print only the installed path and version, a PATH hint, and errors   |
+| Variable               | Flag                         | Default            | Meaning                                                              |
+| ---------------------- | ---------------------------- | ------------------ | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version`                  | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`                      | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run`                  |                    | Resolve the version and print what would happen                      |
+|                        | `--preview [VERSION] [PATH]` |                    | Print the banner for VERSION at PATH without downloading anything    |
+|                        | `-q`, `--quiet`              |                    | Print only the installed path and version, a PATH hint, and errors   |
 
 ### Build from source
 

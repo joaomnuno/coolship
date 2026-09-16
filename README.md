@@ -62,12 +62,13 @@ The script downloads the release archive from GitHub Releases, checks its SHA-25
 
 Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 
-| Variable               | Flag              | Default            | Meaning                                                              |
-| ---------------------- | ----------------- | ------------------ | -------------------------------------------------------------------- |
-| `COOLSHIP_VERSION`     | `--version`       | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
-| `COOLSHIP_INSTALL_DIR` | `--dir`           | `$HOME/.local/bin` | Directory to install into, created if missing                        |
-|                        | `--dry-run`       |                    | Resolve the version and print what would happen                      |
-|                        | `-q`, `--quiet`   |                    | Print only the installed path and version, a PATH hint, and errors   |
+| Variable               | Flag                         | Default            | Meaning                                                              |
+| ---------------------- | ---------------------------- | ------------------ | -------------------------------------------------------------------- |
+| `COOLSHIP_VERSION`     | `--version`                  | latest             | Release to install; a pre-release such as `0.3.0-rc.1` must be named |
+| `COOLSHIP_INSTALL_DIR` | `--dir`                      | `$HOME/.local/bin` | Directory to install into, created if missing                        |
+|                        | `--dry-run`                  |                    | Resolve the version and print what would happen                      |
+|                        | `--preview [VERSION] [PATH]` |                    | Print the banner for VERSION at PATH without downloading anything    |
+|                        | `-q`, `--quiet`              |                    | Print only the installed path and version, a PATH hint, and errors   |
 
 Binaries are published by the release workflow; until that has run for a tag (v0.1.0 was tagged before it existed), the script reports the archive as unpublished and building from source is the way to get that version.
 

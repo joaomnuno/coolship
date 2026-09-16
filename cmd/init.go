@@ -39,8 +39,9 @@ with --build-pack, or picked by naming --dockerfile or --compose-file (or
                  docker-compose.yml, compose.yaml, or compose.yml, or the
                  one --compose-file names). Each service that should be
                  reachable takes a domain with --compose-domain SERVICE=URL;
-                 without one, set the domains in Coolify afterwards. Ports
-                 come from the compose file, so --port does not apply.
+                 without one, set them afterwards with
+                 coolship domain set SERVICE=URL. Ports come from the
+                 compose file, so --port does not apply.
 
 --port is what the application listens on: 3000 for a Railpack or Nixpacks
 build, 80 for a Dockerfile or a static site unless you say otherwise. Check

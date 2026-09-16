@@ -20,6 +20,11 @@ func TestComposeDomainsDecodeFromEveryShapeTheServerSends(t *testing.T) {
 		{"bare object", `{"fenix-bot":{"domain":"https://fenix-bot.itrocas.com","redirect":"non-www"},"api":{"domain":"https://api.example.com,https://www.api.example.com"}}`, ComposeDomains{bot, api}},
 		{"older values are the domains themselves", `"{\"api\":\"https://api.example.com,https://www.api.example.com\"}"`, ComposeDomains{api}},
 		{"null fields", `{"web":{"domain":null,"redirect":null}}`, ComposeDomains{{Name: "web"}}},
+		// A service whose value is null, a number, or an empty array (PHP's
+		// json_encode of an empty map) has no domain; the others keep theirs.
+		{"null value", `{"web":null,"api":"https://api.example.com,https://www.api.example.com"}`, ComposeDomains{{Name: "web"}, api}},
+		{"number value", `"{\"web\":42,\"api\":{\"domain\":\"https://api.example.com,https://www.api.example.com\"}}"`, ComposeDomains{{Name: "web"}, api}},
+		{"empty array value", `{"fenix-bot":{"domain":"https://fenix-bot.itrocas.com","redirect":"non-www"},"web":[]}`, ComposeDomains{bot, {Name: "web"}}},
 		{"request array", `[{"name":"api","domain":"https://api.example.com,https://www.api.example.com"}]`, ComposeDomains{api}},
 		{"empty array as a string", `"[]"`, nil},
 		{"empty object as a string", `"{}"`, nil},
@@ -58,7 +63,7 @@ func TestComposeDomainsDecodeFromEveryShapeTheServerSends(t *testing.T) {
 }
 
 func TestComposeDomainsRefuseWhatIsNotAMap(t *testing.T) {
-	for _, document := range []string{`"not json"`, `"{\"web\":42}"`, `42`, `{"web":{"domain":42}}`, `"{\"web\":{\"domain\":\"x\"}"`} {
+	for _, document := range []string{`"not json"`, `42`, `{"web":{"domain":42}}`, `"{\"web\":{\"domain\":\"x\"}"`} {
 		var domains ComposeDomains
 		err := json.Unmarshal([]byte(document), &domains)
 		if err == nil || !strings.Contains(err.Error(), "docker_compose_domains") {

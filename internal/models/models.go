@@ -53,7 +53,9 @@ func (a Application) IsCompose() bool {
 // encoded inside a JSON string, in the order the services were given. It
 // decodes from that, from the same object sent bare, from an older shape
 // whose values are the domain strings themselves, and from null, an empty
-// string, or an empty array, which all mean no domains.
+// string, or an empty array, which all mean no domains. A service whose
+// value is null, or of any kind other than a string or an object, has no
+// domain.
 type ComposeDomains []ComposeDomain
 
 func (d *ComposeDomains) UnmarshalJSON(data []byte) error {
@@ -139,7 +141,9 @@ func parseComposeDomains(data []byte) (ComposeDomains, error) {
 				entry.Redirect = *fields.Redirect
 			}
 		default:
-			return nil, fmt.Errorf("service %q has a domain that is neither a string nor an object", name)
+			// A value of another kind, such as a number or the empty
+			// array PHP encodes an empty map as, is a service without a
+			// domain, not a reason to lose the whole application.
 		}
 		result = append(result, entry)
 	}
