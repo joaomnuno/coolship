@@ -93,7 +93,7 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 	}
 	warnings := origin.warnings
 	if build.BuildPack == BuildPackCompose && len(build.ComposeDomains) == 0 {
-		warnings = append(warnings, "No service has a domain yet; set them per service in Coolify (domain set does not apply to Compose applications).")
+		warnings = append(warnings, "No service has a domain yet; give each one a domain afterwards with coolship domain set SERVICE=URL.")
 	}
 	projects, err := backend.ListProjects(ctx)
 	if err != nil {

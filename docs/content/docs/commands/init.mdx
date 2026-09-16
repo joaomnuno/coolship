@@ -37,7 +37,7 @@ The application root decides the build pack, in the order Coolify's own form che
 | `nixpacks`      | The same through Nixpacks, Railpack's predecessor.                                                         | The same flags.                                                                                                        |
 | `static`        | Serves the files as they are with nginx, no build, on `--port` (default 80).                               | `--publish-dir` serves a subdirectory instead of the root.                                                             |
 | `dockerfile`    | Builds the Dockerfile and runs the image on `--port` (default 80).                                         | `--dockerfile PATH` names another file, relative to the application root.                                              |
-| `dockercompose` | Runs the compose file; each service publishes the ports the file gives it, so `--port` is refused.         | `--compose-file PATH` names another file. `--compose-domain SERVICE=URL`, repeatable, gives a service its domain; without one, the plan warns and you set the domains in Coolify afterwards. |
+| `dockercompose` | Runs the compose file; each service publishes the ports the file gives it, so `--port` is refused.         | `--compose-file PATH` names another file. `--compose-domain SERVICE=URL`, repeatable, gives a service its domain; without one, the plan warns and you set them afterwards with `domain set SERVICE=URL`. |
 
 Paths are relative to the application root (the monorepo target's directory with `--target`) and are stored with a leading slash, as Coolify does. A named Dockerfile or compose file must exist. For a Dockerfile application, Coolify's own health check is switched off at creation, as Coolify's form does, because the check it would generate needs `curl` or `wget` inside the image; a `HEALTHCHECK` in the Dockerfile is still used.
 
@@ -86,7 +86,7 @@ The project and server are asked for only when there is a choice. Noninteractive
 ## Behavior and limits
 
 - **A private repository** is created through a GitHub App or a deploy key registered in Coolify; `--source`, `--github-app`, `--deploy-key`, and `--create-deploy-key` choose which (see the README for the full flow).
-- **A Compose application's domains are per service.** `init` sets them with `--compose-domain`; afterwards they are managed in Coolify, since [`domain set`](/docs/commands/domain) does not apply to Compose applications. Variables work as for any application.
+- **A Compose application's domains are per service.** `init` sets them with `--compose-domain`; afterwards [`domain`](/docs/commands/domain) lists them per service and `domain set SERVICE=URL` replaces them. Variables work as for any application.
 - **A refinement that does not belong to the pack is refused** before any request, so the plan never carries a setting Coolify would ignore: `--static` and the three commands need `railpack` or `nixpacks`, `--dockerfile` needs `dockerfile`, and `--compose-file`, `--compose-domain` need `dockercompose`.
 - **A directory that is already linked is refused** rather than re-pointed; use `link` to change a binding.
 - **Warnings arrive before the confirmation**, not after the application exists, so a Compose application with no `--compose-domain` can still be answered with no.

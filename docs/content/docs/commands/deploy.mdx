@@ -115,7 +115,7 @@ coolship deploy api              # named target in a monorepo
 }
 ```
 
-`url` is the last line of the human output and `url_kind` says what it is: `application` for the application's URL, `deployment` for its page in Coolify (`<instance>/project/<project>/environment/<environment>/application/<application>/deployment/<uuid>`). With `--no-wait`, `status` is `queued` and the URL is the deployment page. A failed or cancelled deployment is reported with its state, the deployment page, and a nonzero exit. In JSON mode no progress reaches stdout.
+`url` is the last line of the human output and `url_kind` says what it is: `application` for the application's URL (the first service's, for a Docker Compose application), `deployment` for its page in Coolify (`<instance>/project/<project>/environment/<environment>/application/<application>/deployment/<uuid>`). With `--no-wait`, `status` is `queued` and the URL is the deployment page. A failed or cancelled deployment is reported with its state, the deployment page, and a nonzero exit. In JSON mode no progress reaches stdout.
 
 ## Exit codes
 

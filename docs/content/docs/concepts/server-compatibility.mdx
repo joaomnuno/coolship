@@ -19,7 +19,7 @@ Coolship talks to the API under `/api/v1` with a `coolship/<version>` user agent
 | `deploy`, `preview`        | `POST /deploy`; `GET /deployments/{deployment_uuid}` while waiting                                                              |
 | `logs`                     | `GET /applications/{uuid}/logs?lines=…&show_timestamps=true`                                                                   |
 | `doctor`                   | `GET /version`, then resolution                                                                                                 |
-| `domain`, `domain set`     | resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`                                    |
+| `domain`, `domain set`     | resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`, or `docker_compose_domains` for a Compose application |
 | `login`                    | `GET /version`, `GET /teams/current`                                                                                            |
 | `dev`, `env pull\|diff\|push` | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`     |
 

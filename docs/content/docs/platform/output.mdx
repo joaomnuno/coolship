@@ -44,7 +44,7 @@ Commands that change something show their plan and ask for confirmation on stder
 
 ## Hints
 
-In a terminal, a few commands end with dimmed next steps on stderr. After `link` and `init`, Coolship reads the application once more and suggests at most three commands from what it finds: `env push` when a local `.env` sets variables the application does not have yet, `domain set` when it has no domain or only the one Coolify generated (not for Compose applications), then `deploy` when it was never deployed, or `logs` and `open` when it was:
+In a terminal, a few commands end with dimmed next steps on stderr. After `link` and `init`, Coolship reads the application once more and suggests at most three commands from what it finds: `env push` when a local `.env` sets variables the application does not have yet, `domain set` when it has no domain or only the one Coolify generated (`domain set SERVICE=URL` for a Compose application), then `deploy` when it was never deployed, or `logs` and `open` when it was:
 
 ```text
 $ coolship link

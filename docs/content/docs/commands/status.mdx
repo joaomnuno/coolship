@@ -50,7 +50,7 @@ coolship status --format json | jq -r .status
 }
 ```
 
-`url` is omitted when the application has no domain.
+`url` is omitted when the application has no domain. A Docker Compose application's domains belong to its services, so `url` is the first service's URL, the same one [`open`](/docs/commands/open) uses; [`domain`](/docs/commands/domain) lists them all.
 
 ## Exit codes
 

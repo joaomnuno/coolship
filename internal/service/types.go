@@ -185,12 +185,26 @@ func (e *ExitError) Error() string {
 }
 func (e *ExitError) Unwrap() error { return e.Err }
 
+// ServiceDomain is one web URL Coolify routes to the application, with the
+// Compose service it belongs to. Service is empty for an application that
+// is not built from a Compose file, whose domains belong to it as a whole.
+type ServiceDomain struct {
+	Service  string `json:"service,omitempty"`
+	URL      string `json:"url"`
+	Redirect string `json:"redirect,omitempty"`
+}
+
+// DomainResult lists the application's domains. Domains is every web URL
+// in the order Coolify stores them: for a Compose application, each
+// service's in turn, and Services then names the service of each; it is
+// left out for any other application.
 type DomainResult struct {
 	Target  TargetInfo `json:"target"`
 	Domains []string   `json:"domains"`
 	// Generated reports Coolify's automatic <uuid>.<wildcard> domain.
-	Generated bool     `json:"generated"`
-	Warnings  []string `json:"warnings,omitempty"`
+	Generated bool            `json:"generated"`
+	Services  []ServiceDomain `json:"services,omitempty"`
+	Warnings  []string        `json:"warnings,omitempty"`
 }
 
 type DomainSetOptions struct {
@@ -201,11 +215,16 @@ type DomainSetOptions struct {
 	Yes      bool
 }
 
+// DomainPlan is the replacement domain set shows before asking. For a
+// Compose application, CurrentServices and Services name the service of
+// each URL in Current and Domains; both are left out otherwise.
 type DomainPlan struct {
-	Target   TargetInfo `json:"target"`
-	Current  []string   `json:"current"`
-	Domains  []string   `json:"domains"`
-	Redirect string     `json:"redirect,omitempty"`
+	Target          TargetInfo      `json:"target"`
+	Current         []string        `json:"current"`
+	Domains         []string        `json:"domains"`
+	Redirect        string          `json:"redirect,omitempty"`
+	CurrentServices []ServiceDomain `json:"current_services,omitempty"`
+	Services        []ServiceDomain `json:"services,omitempty"`
 }
 
 type ConfirmDomain func(context.Context, DomainPlan) (bool, error)

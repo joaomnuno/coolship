@@ -1,11 +1,12 @@
 ---
 title: domain
-description: Show the linked application's domains, or replace them with domain set.
+description: Show the linked application's domains, or replace them with domain set, per service for a Docker Compose application.
 ---
 
 ```text
 coolship domain [target] [flags]
 coolship domain set DOMAIN [DOMAIN...] [flags]
+coolship domain set SERVICE=URL [SERVICE=URL...] [flags]   # Docker Compose application
 ```
 
 Coolify generates a domain from the application UUID until you set your own. `domain` shows the current list, one per line; `domain set` replaces it.
@@ -15,17 +16,25 @@ $ coolship domain
 https://coolship.example.com
 ```
 
+A Docker Compose application has no domain of its own: each service has one, set in Coolify per service. `domain` lists them one line per service URL, the service first, in the order Coolify stores them.
+
+```text
+$ coolship domain
+web  https://app.example.com
+api  https://api.example.com
+```
+
 ## domain set
 
 A bare host such as `app.example.com` means `https://app.example.com`. The change is shown and confirmed first, or requires `--yes` when noninteractive. Coolship refuses a domain Coolify sees in use elsewhere on the server unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment.
 
+For a Docker Compose application, give each service its URL as `SERVICE=URL`, the same form as `init --compose-domain`; a service named twice gets both URLs. The whole per-service set is replaced, so name every service that should keep a domain. A plain URL is refused with the services that have a domain now and the form to use, and `SERVICE=URL` on any other application is refused the same way, before anything is sent. Coolify keeps only the services its copy of the compose file defines and drops the rest silently, which the read back reports.
+
 | Flag                | Purpose                                                              |
 | ------------------- | -------------------------------------------------------------------- |
-| `--redirect POLICY` | Redirect policy: `www`, `non-www`, or `both`.                        |
+| `--redirect POLICY` | Redirect policy: `www`, `non-www`, or `both`; for every service given on a Compose application. |
 | `--force`           | Bypass Coolify's check that a domain is unused on the server.        |
 | `-y`, `--yes`       | Change without confirmation.                                         |
-
-Docker Compose applications take per-service domains, which this command does not set; the server's refusal explains it.
 
 ## Examples
 
@@ -35,6 +44,7 @@ coolship domain api                                          # named target in a
 coolship domain set app.example.com                          # bare host means https://
 coolship domain set https://app.example.com https://www.example.com --redirect non-www
 coolship domain set app.example.com --yes
+coolship domain set web=app.example.com api=https://api.example.com   # Docker Compose: one pair per service
 ```
 
 ## JSON
@@ -51,6 +61,22 @@ coolship domain set app.example.com --yes
 
 `generated` is `true` while the application still uses Coolify's automatic `<uuid>.<wildcard>` domain.
 
+For a Docker Compose application, `domains` holds every service's URLs in service order, so `.domains[0]` is the same URL `open` and `status` use for any application, and `services` names the service of each:
+
+```json
+{
+  "target": { "…": "the resolved target" },
+  "domains": ["https://app.example.com", "https://api.example.com"],
+  "generated": false,
+  "services": [
+    { "service": "web", "url": "https://app.example.com", "redirect": "non-www" },
+    { "service": "api", "url": "https://api.example.com" }
+  ]
+}
+```
+
+`services` is left out for any other application, and `redirect` when the service has no policy set.
+
 `domain set`:
 
 ```json
@@ -65,6 +91,8 @@ coolship domain set app.example.com --yes
 }
 ```
 
+For a Docker Compose application the plan also carries `current_services` and `services`, the per-service form of `current` and `domains`, with the same fields as `domain`'s `services`.
+
 ## Exit codes
 
-`0` on success; `1` when Coolify refuses the change (including a domain in use elsewhere without `--force`) or the server cannot be reached; `2` when the directory is not linked, a domain is malformed, or `--yes` is missing noninteractively; `130` when the confirmation is cancelled.
+`0` on success; `1` when Coolify refuses the change (including a domain in use elsewhere without `--force`) or the server cannot be reached; `2` when the directory is not linked, a domain is malformed, a Compose application is given a plain URL or any other application a `SERVICE=URL` pair, or `--yes` is missing noninteractively; `130` when the confirmation is cancelled.
