@@ -11,7 +11,9 @@ func newDomainCommand(app Application, options *commandOptions, streams ui.Strea
 		Use:   "domain [target]",
 		Short: "Show or change the linked application's domains",
 		Long: `Show the linked application's domains. Coolify generates one from the
-application UUID until you set your own; domain set replaces the list.`,
+application UUID until you set your own; domain set replaces the list. A
+Docker Compose application has a domain per service and lists one line per
+service.`,
 		Args: targetArg(options),
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := app.Domain(command.Context(), options.Options)
@@ -26,9 +28,11 @@ application UUID until you set your own; domain set replaces the list.`,
 		Use:   "set DOMAIN [DOMAIN...]",
 		Short: "Replace the application's domains",
 		Long: `Replace the application's domains with the given ones. A bare host such as
-app.example.com means https://app.example.com. The change is confirmed first,
-or requires --yes when noninteractive, and reaches the proxy on the next
-deployment.`,
+app.example.com means https://app.example.com. A Docker Compose application
+takes SERVICE=URL pairs instead, one per service, such as
+web=https://app.example.com, and the whole set is replaced. The change is
+confirmed first, or requires --yes when noninteractive, and reaches the proxy
+on the next deployment.`,
 		Args: func(command *cobra.Command, args []string) error {
 			if err := cobra.MinimumNArgs(1)(command, args); err != nil {
 				return inputError(err)

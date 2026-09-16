@@ -68,7 +68,7 @@ https://coolship.example.com
 
 By default `deploy` waits for the deployment to finish, bounded by `--timeout` (10 minutes unless changed). `--no-wait` returns the queued deployment UUID immediately. `--force` asks Coolify to rebuild without cache.
 
-The last line is where to look: the application's URL when the deployment finished and the application has a domain, otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log it gathered, then names its page on stderr, where the retry lives. `start`, `restart`, and [`preview`](/docs/commands/preview) show the same checklist, take the same `--logs` and `--no-logs`, and end the same way.
+The last line is where to look: the application's URL when the deployment finished and the application has a domain (its first service's, for a Docker Compose application), otherwise the deployment's page in Coolify — with `--no-wait`, when `--timeout` elapses, and for a preview, whose application URL is the production one. A failed deployment prints the build log it gathered, then names its page on stderr, where the retry lives. `start`, `restart`, and [`preview`](/docs/commands/preview) show the same checklist, take the same `--logs` and `--no-logs`, and end the same way.
 
 Interrupting the command stops local waiting only; the remote deployment continues, and the UUID is reported so you can pick it back up in Coolify. The checklist ends with `✗ Observation stopped` rather than `Deployment failed`, because the server gave no verdict. Coolship does not cancel the remote deployment automatically.
 

@@ -30,7 +30,7 @@ coolship open --print | pbcopy
 coolship open api --dashboard
 ```
 
-The dashboard URL is `<instance>/project/<project uuid>/environment/<environment uuid>/application/<application uuid>`. Only web URLs are ever handed to the browser opener. Preview deployment URLs are not readable through the API, so `open` does not offer them.
+The dashboard URL is `<instance>/project/<project uuid>/environment/<environment uuid>/application/<application uuid>`. Only web URLs are ever handed to the browser opener. An application with several domains opens the first and names the others in a warning; for a Docker Compose application that is the first service's URL, in the order [`domain`](/docs/commands/domain) lists them. Preview deployment URLs are not readable through the API, so `open` does not offer them.
 
 ## JSON
 

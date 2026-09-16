@@ -24,7 +24,9 @@ type ProjectState struct {
 	Domains         []string `json:"domains,omitempty"`
 	// Generated reports that the only domain is the one Coolify generated.
 	Generated bool `json:"generated,omitempty"`
-	Deployed  bool `json:"deployed"`
+	// Compose reports a Compose application, whose domains are per service.
+	Compose  bool `json:"compose,omitempty"`
+	Deployed bool `json:"deployed"`
 }
 
 // ProjectState reads the linked application's state for the next-step hints.
@@ -36,8 +38,8 @@ func (a *App) ProjectState(ctx context.Context, options Options) (ProjectState, 
 		return ProjectState{}, err
 	}
 	application := s.project.Application
-	domains := applicationURLs(application.FQDN)
-	state := ProjectState{Target: targetInfo(s.project), Domains: domains, Generated: isGenerated(domains, application.UUID)}
+	domains := applicationURLs(application)
+	state := ProjectState{Target: targetInfo(s.project), Domains: domains, Generated: isGenerated(domains, application.UUID), Compose: application.IsCompose()}
 	type history struct {
 		last *DeploymentSummary
 		err  error

@@ -439,13 +439,13 @@ func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (
 	if !p.streams.Interactive {
 		return false, &service.InputError{Err: errors.New("changing domains requires --yes when input is noninteractive")}
 	}
-	current := strings.Join(plan.Current, ", ")
+	current := domainList(plan.Current, plan.CurrentServices)
 	if current == "" {
 		current = "(none)"
 	}
 	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  from: %s\n  to:   %s\n%s ",
 		p.question("Change domains of "+singleLine(plan.Target.Application)+"?"),
-		singleLine(current), singleLine(strings.Join(plan.Domains, ", ")), p.question("Confirm [y/N]:")); err != nil {
+		singleLine(current), singleLine(domainList(plan.Domains, plan.Services)), p.question("Confirm [y/N]:")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)

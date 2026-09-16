@@ -26,7 +26,7 @@ Coolship is verified against Coolify 4.3.18 (see [Server compatibility](/docs/co
 ## Creating applications
 
 - **A private repository needs a source Coolify already holds.** `init` creates it through a GitHub App registered in Coolify or a deploy key (which `--create-deploy-key` can generate); it cannot install a GitHub App for you.
-- **Compose domains are per service.** `init` sets them once with `--compose-domain`; `domain set` does not apply to a Compose application, so later changes are made in Coolify.
+- **Compose domains are per service.** `init` sets them with `--compose-domain` and `domain set SERVICE=URL` replaces the whole set; Coolify keeps only the services its copy of the compose file defines, which it reloads from the repository on a deployment or in its UI, and the API cannot clear the set.
 - **`init` cannot create an application from a Docker image**, only from a repository.
 
 ## Variables

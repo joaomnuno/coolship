@@ -159,7 +159,7 @@ func (a *App) Status(ctx context.Context, options Options) (StatusResult, error)
 		return StatusResult{}, err
 	}
 	result := StatusResult{Target: targetInfo(s.project), Status: s.project.Application.Status,
-		URL: s.project.Application.FQDN, Warnings: s.warnings}
+		URL: statusURL(s.project.Application), Warnings: s.warnings}
 	var found history
 	if read != nil {
 		found = <-read

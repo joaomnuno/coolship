@@ -275,8 +275,30 @@ func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, upd
 		return errors.New("wrong application")
 	}
 	f.domainUpdate = update
+	if update.Services != nil {
+		// The server replaces the map whole and keeps only the services it
+		// knows; the fake knows the ones named "unknown" are not in the file.
+		f.application.ComposeDomains = nil
+		for _, service := range update.Services {
+			if service.Name != "unknown" {
+				f.application.ComposeDomains = append(f.application.ComposeDomains, service)
+			}
+		}
+		return nil
+	}
 	f.application.FQDN = strings.Join(update.Domains, ",")
 	return nil
+}
+
+// composeBackend is a fake whose application runs a Compose file: no FQDN,
+// and a domain per service as Coolify stores them.
+func composeBackend(domains ...models.ComposeDomain) *fakeBackend {
+	f := newBackend()
+	f.application.FQDN = ""
+	f.application.BuildPack = models.BuildPackCompose
+	f.application.ComposeDomains = domains
+	f.environments[0].Applications[0] = f.application
+	return f
 }
 
 func (f *fakeBackend) Team(context.Context) (models.Team, error) {
@@ -1910,6 +1932,121 @@ func TestDomainShowsGeneratedAndSetsWithConfirmation(t *testing.T) {
 	// Force and redirect are passed through.
 	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"other.example.com"}, Redirect: "non-www", Force: true, Yes: true}, nil); err != nil || !f.domainUpdate.Force || f.domainUpdate.Redirect != "non-www" {
 		t.Fatalf("update=%+v err=%v", f.domainUpdate, err)
+	}
+}
+
+func TestComposeDomainsAreListedAndSetPerService(t *testing.T) {
+	bot := models.ComposeDomain{Name: "bot", Domain: "https://bot.example.com", Redirect: "non-www"}
+	api := models.ComposeDomain{Name: "api", Domain: "https://api.example.com, ftp://files.example.com,https://www.api.example.com"}
+	f := composeBackend(bot, api)
+	app, _, _ := testApp(f)
+	options := linkedOptions(t)
+
+	// domain lists every web URL in service order and names the services.
+	result, err := app.Domain(context.Background(), options)
+	wantServices := []ServiceDomain{{Service: "bot", URL: "https://bot.example.com", Redirect: "non-www"}, {Service: "api", URL: "https://api.example.com"}, {Service: "api", URL: "https://www.api.example.com"}}
+	wantURLs := []string{"https://bot.example.com", "https://api.example.com", "https://www.api.example.com"}
+	if err != nil || result.Generated || !reflect.DeepEqual(result.Domains, wantURLs) || !reflect.DeepEqual(result.Services, wantServices) {
+		t.Fatalf("domain: result=%+v err=%v", result, err)
+	}
+	// status, open, and a finished deployment use the first web URL.
+	status, err := app.Status(context.Background(), options)
+	if err != nil || status.URL != "https://bot.example.com" {
+		t.Fatalf("status: url=%q err=%v", status.URL, err)
+	}
+	opened, err := app.Open(context.Background(), OpenOptions{Options: options})
+	if err != nil || opened.Kind != "application" || opened.URL != "https://bot.example.com" || len(opened.Warnings) != 1 {
+		t.Fatalf("open: result=%+v err=%v", opened, err)
+	}
+	deployed, err := app.Deploy(context.Background(), DeployOptions{Options: options}, nil)
+	if err != nil || deployed.URL != "https://bot.example.com" || deployed.URLKind != "application" {
+		t.Fatalf("deploy: result=%+v err=%v", deployed, err)
+	}
+	state, err := app.ProjectState(context.Background(), options)
+	if err != nil || !state.Compose || !reflect.DeepEqual(state.Domains, wantURLs) {
+		t.Fatalf("state: %+v err=%v", state, err)
+	}
+
+	// A bare URL is refused with the syntax and the services, before any request.
+	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot.example.com"}, Yes: true}, nil)
+	if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "SERVICE=URL") || !strings.Contains(err.Error(), "bot, api") || f.calls["domains"] != 0 {
+		t.Fatalf("bare URL: err=%v calls=%d", err, f.calls["domains"])
+	}
+	// Mixed forms and a bad URL in a pair are refused before the application is read.
+	for _, bad := range [][]string{{"bot=bot.example.com", "api.example.com"}, {"bot=ftp://x.example.com"}, {"bot="}, {}} {
+		if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: bad, Yes: true}, nil); !errors.Is(err, ErrInput) {
+			t.Errorf("%v accepted: %v", bad, err)
+		}
+	}
+	// The same map again is a no-op.
+	same := []string{"bot=https://bot.example.com", "api=https://api.example.com", "api=https://www.api.example.com"}
+	changed, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: same, Yes: true}, nil)
+	if err != nil || f.calls["domains"] != 0 || len(changed.Warnings) != 1 {
+		t.Fatalf("no-op: err=%v calls=%d warnings=%v", err, f.calls["domains"], changed.Warnings)
+	}
+	// A replacement is confirmed with the services on both sides, sent as
+	// the per-service map, and read back.
+	var plan DomainPlan
+	accepted := func(_ context.Context, p DomainPlan) (bool, error) { plan = p; return true, nil }
+	changed, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"Bot=New.Example.com", "bot=https://www.new.example.com/"}, Redirect: "www"}, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.CurrentServices, wantServices) || !reflect.DeepEqual(plan.Current, wantURLs) ||
+		!reflect.DeepEqual(plan.Services, []ServiceDomain{{Service: "Bot", URL: "https://new.example.com", Redirect: "www"}, {Service: "bot", URL: "https://www.new.example.com", Redirect: "www"}}) ||
+		!reflect.DeepEqual(plan.Domains, []string{"https://new.example.com", "https://www.new.example.com"}) {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if want := []models.ComposeDomain{{Name: "Bot", Domain: "https://new.example.com", Redirect: "www"}, {Name: "bot", Domain: "https://www.new.example.com", Redirect: "www"}}; !reflect.DeepEqual(f.domainUpdate.Services, want) || f.domainUpdate.Domains != nil || f.domainUpdate.Redirect != "" {
+		t.Fatalf("update = %+v", f.domainUpdate)
+	}
+	if len(changed.Warnings) != 1 || !strings.Contains(changed.Warnings[0], "next deployment") {
+		t.Fatalf("warnings = %v", changed.Warnings)
+	}
+	after, _ := app.Domain(context.Background(), options)
+	if !reflect.DeepEqual(after.Domains, []string{"https://new.example.com", "https://www.new.example.com"}) || after.Services[1].Service != "bot" {
+		t.Fatalf("after = %+v", after)
+	}
+	// A service named twice gets both URLs in one entry.
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=a.example.com", "bot=b.example.com", "bot=a.example.com"}, Yes: true}, nil); err != nil || !reflect.DeepEqual(f.domainUpdate.Services, []models.ComposeDomain{{Name: "bot", Domain: "https://a.example.com,https://b.example.com"}}) {
+		t.Fatalf("twice: update=%+v err=%v", f.domainUpdate, err)
+	}
+	// A service the server does not know is dropped by it, which the read back reports.
+	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"unknown=x.example.com"}, Yes: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "server kept no domain") || !strings.Contains(err.Error(), "compose file") {
+		t.Fatalf("unknown service: %v", err)
+	}
+	// Pairs on an application that is not Compose are refused.
+	plain := newBackend()
+	app, _, _ = testApp(plain)
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"web=app.example.com"}, Yes: true}, nil); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "Compose") || plain.calls["domains"] != 0 {
+		t.Fatalf("pairs on a plain application: %v", err)
+	}
+	// A URL with a query is a bad domain, not a pair.
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"https://app.example.com/?a=b"}, Yes: true}, nil); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "plain http or https URL") {
+		t.Fatalf("query: %v", err)
+	}
+
+	// A Compose application with no domain yet says so in every place.
+	f = composeBackend()
+	app, _, _ = testApp(f)
+	result, err = app.Domain(context.Background(), options)
+	if err != nil || result.Domains != nil || result.Services != nil {
+		t.Fatalf("none: result=%+v err=%v", result, err)
+	}
+	status, err = app.Status(context.Background(), options)
+	if err != nil || status.URL != "" {
+		t.Fatalf("none status: url=%q err=%v", status.URL, err)
+	}
+	if _, err := app.Open(context.Background(), OpenOptions{Options: options}); !errors.Is(err, ErrInput) {
+		t.Fatalf("none open: %v", err)
+	}
+	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot.example.com"}, Yes: true}, nil)
+	if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "web=https://app.example.com") {
+		t.Fatalf("none bare URL: %v", err)
+	}
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=bot.example.com"}, Yes: true}, nil); err != nil || len(f.application.ComposeDomains) != 1 {
+		t.Fatalf("none set: err=%v domains=%+v", err, f.application.ComposeDomains)
 	}
 }
 

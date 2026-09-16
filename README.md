@@ -189,7 +189,7 @@ coolship init --project Personal --server "Master Ubuntu" --port 8080 --yes
 * `railpack` and `nixpacks` build an image and run it on `--port` (default 3000). `--install-command`, `--build-command`, and `--start-command` override what they detect. `--static` serves the build output with nginx on port 80 from `--publish-dir` (default `/dist`).
 * `static` serves the files as they are, with no build, on `--port` (default 80); `--publish-dir` serves a subdirectory.
 * `dockerfile` builds the `Dockerfile` in the root, or the one `--dockerfile PATH` names, and runs it on `--port` (default 80). Coolify's own health check is switched off at creation, as its form does, because the check it would generate needs `curl` or `wget` in the image; a `HEALTHCHECK` in the Dockerfile is still used.
-* `dockercompose` runs the compose file found, or the one `--compose-file PATH` names. Each service publishes the ports the file gives it, so `--port` is refused. `--compose-domain SERVICE=URL`, repeated per service, gives the services their domains; without one the plan warns, and the domains are set in Coolify afterwards, since `domain set` does not apply to Compose applications.
+* `dockercompose` runs the compose file found, or the one `--compose-file PATH` names. Each service publishes the ports the file gives it, so `--port` is refused. `--compose-domain SERVICE=URL`, repeated per service, gives the services their domains; without one the plan warns, and `coolship domain set SERVICE=URL` sets them afterwards.
 
 **Check the port**: Coolify routes traffic to the one in the plan.
 
@@ -425,9 +425,10 @@ Show the linked application's domains — Coolify generates one from the applica
 coolship domain
 coolship domain set app.example.com                       # bare host means https://
 coolship domain set https://app.example.com https://www.example.com --redirect non-www
+coolship domain set web=app.example.com api=https://api.example.com   # Docker Compose: one pair per service
 ```
 
-`set` shows the change and asks first (`--yes` when noninteractive), refuses a domain Coolify sees in use elsewhere unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment. Docker Compose applications take per-service domains, which this command does not set.
+`set` shows the change and asks first (`--yes` when noninteractive), refuses a domain Coolify sees in use elsewhere unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment. A Docker Compose application's domains belong to its services: `domain` lists them one line per service (`web  https://app.example.com`), `status`, `open`, and a finished `deploy` use the first, and `set` takes `SERVICE=URL` pairs, as `init --compose-domain` does, replacing the whole set; a plain URL is refused with the services to name.
 
 ### `coolship dev`
 

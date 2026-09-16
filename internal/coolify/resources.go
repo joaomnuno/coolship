@@ -235,11 +235,20 @@ func (c *Client) DeleteEnvironmentVariable(ctx context.Context, uuid, variableUU
 }
 
 // UpdateApplicationDomains sends the full domain list; the server treats it as
-// a replacement. A PATCH is never retried here.
+// a replacement. A Compose application takes its per-service map as
+// docker_compose_domains, since the server refuses domains for it; the
+// map replaces the stored one whole, and a service the server's copy of the
+// compose file does not define is dropped without a word. A PATCH is never
+// retried here.
 func (c *Client) UpdateApplicationDomains(ctx context.Context, uuid string, update models.DomainUpdate) error {
-	body := map[string]any{"domains": strings.Join(update.Domains, ",")}
-	if update.Redirect != "" {
-		body["redirect"] = update.Redirect
+	body := map[string]any{}
+	if update.Services != nil {
+		body["docker_compose_domains"] = update.Services
+	} else {
+		body["domains"] = strings.Join(update.Domains, ",")
+		if update.Redirect != "" {
+			body["redirect"] = update.Redirect
+		}
 	}
 	if update.Force {
 		body["force_domain_override"] = true

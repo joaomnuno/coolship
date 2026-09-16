@@ -87,6 +87,10 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 		application["status"] = s.status
 	}
 	second := map[string]any{"uuid": "app-2", "name": "fenix-api", "status": "running:healthy", "fqdn": "https://api.example.com"}
+	// A Compose application as Coolify 4.3.x sends it: fqdn null and the
+	// per-service map json_encoded inside a string, slashes escaped.
+	compose := map[string]any{"uuid": "app-3", "name": "fenix-compose", "status": "running:healthy", "fqdn": nil, "build_pack": "dockercompose",
+		"docker_compose_domains": `{"bot":{"domain":"https:\/\/bot.example.com","redirect":"non-www"},"api":{"domain":"https:\/\/api-c.example.com"}}`}
 	mux := http.NewServeMux()
 	write := func(w http.ResponseWriter, value any) {
 		w.Header().Set("Content-Type", "application/json")
@@ -132,7 +136,7 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	handle("GET /api/v1/projects/project-1/environments", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{{"uuid": "env-1", "name": "production"}})
 	})
-	environment := map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application, second}}
+	environment := map[string]any{"uuid": "env-1", "name": "production", "applications": []map[string]any{application, second, compose}}
 	handle("GET /api/v1/projects/project-1/env-1", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -155,6 +159,44 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 	})
 	handle("GET /api/v1/applications/app-2", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, second)
+	})
+	handle("GET /api/v1/applications/app-3", func(w http.ResponseWriter, _ *http.Request, _ int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		write(w, compose)
+	})
+	// The server refuses domains for a Compose application and takes the
+	// map as an array under docker_compose_domains, which replaces the
+	// stored map whole; it is stored json_encoded, as read back.
+	handle("PATCH /api/v1/applications/app-3", func(w http.ResponseWriter, r *http.Request, _ int) {
+		var body struct {
+			Domains  *string `json:"domains"`
+			Services []struct {
+				Name     string  `json:"name"`
+				Domain   string  `json:"domain"`
+				Redirect *string `json:"redirect"`
+			} `json:"docker_compose_domains"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("patch body: %v", err)
+		}
+		if body.Domains != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			write(w, map[string]any{"message": "Validation failed.", "errors": map[string]any{"domains": "The domains field cannot be used for dockercompose applications. Use docker_compose_domains instead to set domains for individual services."}})
+			return
+		}
+		var stored []string
+		for _, service := range body.Services {
+			entry := `"` + service.Name + `":{"domain":"` + strings.ReplaceAll(service.Domain, "/", `\/`) + `"`
+			if service.Redirect != nil {
+				entry += `,"redirect":"` + *service.Redirect + `"`
+			}
+			stored = append(stored, entry+"}")
+		}
+		s.mu.Lock()
+		compose["docker_compose_domains"] = "{" + strings.Join(stored, ",") + "}"
+		s.mu.Unlock()
+		write(w, map[string]any{"uuid": "app-3"})
 	})
 	handle("GET /api/v1/servers", func(w http.ResponseWriter, _ *http.Request, _ int) {
 		write(w, []map[string]any{
@@ -1060,6 +1102,63 @@ func TestDomainRoundTripAgainstTheServer(t *testing.T) {
 	}
 	if _, _, err := run(t, instance.URL, dir, "", "domain", "set", "new.example.com", "--yes"); err != nil {
 		t.Fatalf("set: %v", err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
+	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {
+		t.Fatalf("status after set: out=%q err=%v", out, err)
+	}
+	// Pairs are for a Compose application; this one takes URLs.
+	if _, _, err := run(t, instance.URL, dir, "", "domain", "set", "web=other.example.com", "--yes"); !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "Compose") {
+		t.Fatalf("pairs on a plain application: %v", err)
+	}
+}
+
+func TestComposeDomainsRoundTripAgainstTheServer(t *testing.T) {
+	s := &server{}
+	instance := newServer(t, s)
+	dir := projectDirectory(t)
+	if _, _, err := run(t, instance.URL, dir, "", "link", "--project", "Personal", "--application", "fenix-compose"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	// One line per service URL, the services in one column.
+	out, _, err := run(t, instance.URL, dir, "", "domain")
+	if err != nil || out != "bot  https://bot.example.com\napi  https://api-c.example.com\n" {
+		t.Fatalf("domain: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "domain", "--format", "json")
+	if err != nil || !strings.Contains(out, `"domains":["https://bot.example.com","https://api-c.example.com"],"generated":false,"services":[{"service":"bot","url":"https://bot.example.com","redirect":"non-www"},{"service":"api","url":"https://api-c.example.com"}]`) {
+		t.Fatalf("domain json: out=%q err=%v", out, err)
+	}
+	// status and open name the first service's URL.
+	out, _, err = run(t, instance.URL, dir, "", "status")
+	if err != nil || !strings.Contains(out, "Status: running:healthy\nURL: https://bot.example.com\n") {
+		t.Fatalf("status: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
+	if err != nil || !strings.Contains(out, `"status":"running:healthy","url":"https://bot.example.com"`) {
+		t.Fatalf("status json: out=%q err=%v", out, err)
+	}
+	out, diagnostic, err := run(t, instance.URL, dir, "", "open", "--print")
+	if err != nil || out != "https://bot.example.com\n" || !strings.Contains(diagnostic, "Others: https://api-c.example.com") {
+		t.Fatalf("open: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	// A bare URL is refused with the services and the syntax; nothing is sent.
+	_, _, err = run(t, instance.URL, dir, "", "domain", "set", "bot.example.com", "--yes")
+	if !errors.Is(err, service.ErrInput) || !strings.Contains(err.Error(), "bot=https://bot.example.com api=https://api.example.com") || s.counts()["PATCH /api/v1/applications/app-3"] != 0 {
+		t.Fatalf("bare URL: err=%v counts=%v", err, s.counts())
+	}
+	// The confirmation names the services on both sides, and the result too.
+	out, diagnostic, err = run(t, instance.URL, dir, "y\n", "domain", "set", "bot=new.example.com", "api=https://api-c.example.com", "--redirect", "www")
+	if err != nil || !strings.Contains(diagnostic, "from: bot=https://bot.example.com, api=https://api-c.example.com\n  to:   bot=https://new.example.com, api=https://api-c.example.com\n") ||
+		!strings.Contains(out, "Domains of fenix-compose: bot=https://new.example.com, api=https://api-c.example.com\n") {
+		t.Fatalf("set: out=%q stderr=%q err=%v", out, diagnostic, err)
+	}
+	if compose := s.counts()["PATCH /api/v1/applications/app-3"]; compose != 1 {
+		t.Fatalf("patches = %d", compose)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "domain", "--format", "json")
+	if err != nil || !strings.Contains(out, `"services":[{"service":"bot","url":"https://new.example.com","redirect":"www"},{"service":"api","url":"https://api-c.example.com","redirect":"www"}]`) {
+		t.Fatalf("domain after set: out=%q err=%v", out, err)
 	}
 	out, _, err = run(t, instance.URL, dir, "", "status", "--format", "json")
 	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {

@@ -2,6 +2,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -25,7 +26,127 @@ type Application struct {
 	UUID   string `json:"uuid"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
-	FQDN   string `json:"fqdn,omitempty"`
+	// FQDN is Coolify's comma-separated domain list. A Docker Compose
+	// application has none: its domains belong to its services and arrive
+	// in ComposeDomains.
+	FQDN string `json:"fqdn,omitempty"`
+	// BuildPack is how Coolify builds the application; BuildPackCompose
+	// marks a Docker Compose application.
+	BuildPack string `json:"build_pack,omitempty"`
+	// ComposeDomains are a Compose application's domains, one entry per
+	// service, in the order Coolify stores them.
+	ComposeDomains ComposeDomains `json:"docker_compose_domains,omitempty"`
+}
+
+// BuildPackCompose is the build pack of a Docker Compose application.
+const BuildPackCompose = "dockercompose"
+
+// IsCompose reports whether the application runs a Compose file, so its
+// domains are per service. A listing that leaves out the build pack still
+// tells by the per-service domains it carries, which no other kind has.
+func (a Application) IsCompose() bool {
+	return a.BuildPack == BuildPackCompose || (a.FQDN == "" && len(a.ComposeDomains) > 0)
+}
+
+// ComposeDomains is the per-service domain map of a Compose application as
+// GET /applications/{uuid} sends it: a JSON object keyed by service name,
+// encoded inside a JSON string, in the order the services were given. It
+// decodes from that, from the same object sent bare, from an older shape
+// whose values are the domain strings themselves, and from null, an empty
+// string, or an empty array, which all mean no domains.
+type ComposeDomains []ComposeDomain
+
+func (d *ComposeDomains) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*d = nil
+		return nil
+	}
+	if data[0] == '"' {
+		var document string
+		if err := json.Unmarshal(data, &document); err != nil {
+			return fmt.Errorf("docker_compose_domains: %w", err)
+		}
+		if strings.TrimSpace(document) == "" {
+			*d = nil
+			return nil
+		}
+		data = []byte(document)
+	}
+	parsed, err := parseComposeDomains(data)
+	if err != nil {
+		return fmt.Errorf("docker_compose_domains: %w", err)
+	}
+	*d = parsed
+	return nil
+}
+
+// parseComposeDomains decodes the map itself. The object is read token by
+// token so the services keep the order the document lists them in.
+func parseComposeDomains(data []byte) (ComposeDomains, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	switch token {
+	case json.Delim('['):
+		// Coolify's own default for a missing map, "[]", and the array the
+		// update request takes.
+		var entries []ComposeDomain
+		if err := json.Unmarshal(data, &entries); err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			return nil, nil
+		}
+		return ComposeDomains(entries), nil
+	case json.Delim('{'):
+	default:
+		return nil, fmt.Errorf("expected an object keyed by service, got %v", token)
+	}
+	var result ComposeDomains
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		name, _ := key.(string)
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		entry := ComposeDomain{Name: name}
+		value = bytes.TrimSpace(value)
+		switch {
+		case len(value) == 0 || bytes.Equal(value, []byte("null")):
+		case value[0] == '"':
+			if err := json.Unmarshal(value, &entry.Domain); err != nil {
+				return nil, err
+			}
+		case value[0] == '{':
+			var fields struct {
+				Domain   *string `json:"domain"`
+				Redirect *string `json:"redirect"`
+			}
+			if err := json.Unmarshal(value, &fields); err != nil {
+				return nil, fmt.Errorf("service %q: %w", name, err)
+			}
+			if fields.Domain != nil {
+				entry.Domain = *fields.Domain
+			}
+			if fields.Redirect != nil {
+				entry.Redirect = *fields.Redirect
+			}
+		default:
+			return nil, fmt.Errorf("service %q has a domain that is neither a string nor an object", name)
+		}
+		result = append(result, entry)
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 type Deployment struct {
@@ -165,11 +286,14 @@ type EnvironmentVariableInput struct {
 }
 
 // DomainUpdate replaces an application's domains. Redirect is "www",
-// "non-www", or "both"; Force bypasses the server's in-use check.
+// "non-www", or "both"; Force bypasses the server's in-use check. Services,
+// when set, replaces a Compose application's per-service map instead of
+// Domains, each entry carrying its own redirect; Redirect is then unused.
 type DomainUpdate struct {
 	Domains  []string
 	Redirect string
 	Force    bool
+	Services []ComposeDomain
 }
 
 // Server is a host Coolify can deploy to. IsUsable is the server's own
@@ -220,9 +344,13 @@ type ApplicationSpec struct {
 }
 
 // ComposeDomain assigns a domain to one service of a Compose application.
+// Name is the service name in the compose file, Domain is Coolify's
+// comma-separated URL list for it, and Redirect is "www", "non-www",
+// "both", or empty, which keeps the service's current policy on an update.
 type ComposeDomain struct {
-	Name   string `json:"name"`
-	Domain string `json:"domain"`
+	Name     string `json:"name"`
+	Domain   string `json:"domain"`
+	Redirect string `json:"redirect,omitempty"`
 }
 
 // GitHubApp is a GitHub App registered in Coolify. ID addresses the branch

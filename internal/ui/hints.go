@@ -40,9 +40,10 @@ type NextStep struct {
 	Purpose string
 }
 
-// NextStepOptions shape the choice of next steps: Compose leaves out domain
-// set, which does not apply to a Compose application, and NoDeploy leaves out
-// deploy when a question about deploying follows instead.
+// NextStepOptions shape the choice of next steps: Compose names the
+// SERVICE=URL form of domain set that a Compose application takes, which
+// the state reports too once the application was read, and NoDeploy leaves
+// out deploy when a question about deploying follows instead.
 type NextStepOptions struct {
 	Target   string
 	Compose  bool
@@ -65,12 +66,15 @@ func NextSteps(state service.ProjectState, options NextStepOptions) []NextStep {
 		steps = append(steps, NextStep{withTarget("coolship env push", options.Target),
 			fmt.Sprintf("send the %d %s in %s to Coolify", state.LocalVariables, noun, singleLine(state.EnvFile))})
 	}
-	if !options.Compose && (len(state.Domains) == 0 || state.Generated) {
-		purpose := "give the application a domain"
-		if state.Generated {
+	if len(state.Domains) == 0 || state.Generated {
+		command, purpose := "coolship domain set URL", "give the application a domain"
+		switch {
+		case options.Compose || state.Compose:
+			command, purpose = "coolship domain set SERVICE=URL", "give each service a domain"
+		case state.Generated:
 			purpose = "replace the generated domain with your own"
 		}
-		steps = append(steps, NextStep{withTarget("coolship domain set URL", options.Target), purpose})
+		steps = append(steps, NextStep{withTarget(command, options.Target), purpose})
 	}
 	switch {
 	case !state.Deployed && !options.NoDeploy:

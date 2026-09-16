@@ -32,7 +32,7 @@ const menuRefresh = 5 * time.Second
 // nothing else supplies it.
 var menuInputs = map[string][]ui.MenuInput{
 	"preview": {{Title: "Pull request number", Flag: "pr", Placeholder: "42", Validate: ui.RequirePositiveNumber}},
-	"domain set": {{Title: "Domains", Description: "Separate several with spaces; a bare host means https.",
+	"domain set": {{Title: "Domains", Description: "Separate several with spaces; a bare host means https; a Compose application takes SERVICE=URL.",
 		Placeholder: "app.example.com", Fields: true, Validate: ui.RequireText}},
 	"logout":     {{Title: "Context to remove", Placeholder: "home", Validate: ui.RequireText}},
 	"config get": {{Title: "Preference", Placeholder: "verbosity", Validate: ui.RequireText}},

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/joaomnuno/coolship/internal/models"
 	"github.com/joaomnuno/coolship/internal/project"
 )
 
@@ -22,7 +23,7 @@ func (a *App) Open(ctx context.Context, options OpenOptions) (OpenResult, error)
 		result.URL = applicationPage(s.project)
 		return result, nil
 	}
-	urls := applicationURLs(s.project.Application.FQDN)
+	urls := applicationURLs(s.project.Application)
 	if len(urls) == 0 {
 		return result, input(errors.New("application has no domain configured; use --dashboard to open it in Coolify"))
 	}
@@ -56,18 +57,63 @@ func deploymentPage(p project.Context, deploymentUUID string) string {
 // the page too, since the application's FQDN is the production one.
 func resultURL(p project.Context, result DeployResult) (string, string) {
 	if result.Status == "finished" && result.PullRequest == 0 {
-		if urls := applicationURLs(p.Application.FQDN); len(urls) > 0 {
+		if urls := applicationURLs(p.Application); len(urls) > 0 {
 			return urls[0], "application"
 		}
 	}
 	return deploymentPage(p, result.DeploymentUUID), "deployment"
 }
 
-// applicationURLs keeps only web URLs from Coolify's comma-separated domain
-// list, so a malformed domain can never reach a browser.
-func applicationURLs(fqdn string) []string {
+// applicationDomains lists the web URLs Coolify routes to the application
+// in the order it stores them: a Compose application's service by service,
+// each entry naming its service, or the application's own list otherwise.
+// Only web URLs are kept, so a malformed domain can never reach a browser.
+func applicationDomains(application models.Application) []ServiceDomain {
+	var result []ServiceDomain
+	if len(application.ComposeDomains) > 0 {
+		for _, entry := range application.ComposeDomains {
+			for _, url := range webURLs(entry.Domain) {
+				result = append(result, ServiceDomain{Service: entry.Name, URL: url, Redirect: entry.Redirect})
+			}
+		}
+		return result
+	}
+	for _, url := range webURLs(application.FQDN) {
+		result = append(result, ServiceDomain{URL: url})
+	}
+	return result
+}
+
+// applicationURLs is applicationDomains without the services: the first
+// entry is the one open, status, and a finished deployment name.
+func applicationURLs(application models.Application) []string {
+	return urlsOf(applicationDomains(application))
+}
+
+func urlsOf(domains []ServiceDomain) []string {
 	var result []string
-	for _, item := range strings.Split(fqdn, ",") {
+	for _, domain := range domains {
+		result = append(result, domain.URL)
+	}
+	return result
+}
+
+// statusURL is the URL line of status: Coolify's own domain list as it
+// stores it, or a Compose application's first web URL.
+func statusURL(application models.Application) string {
+	if application.FQDN != "" {
+		return application.FQDN
+	}
+	if urls := applicationURLs(application); len(urls) > 0 {
+		return urls[0]
+	}
+	return ""
+}
+
+// webURLs keeps only web URLs from Coolify's comma-separated domain list.
+func webURLs(list string) []string {
+	var result []string
+	for _, item := range strings.Split(list, ",") {
 		item = strings.TrimSpace(item)
 		parsed, err := url.Parse(item)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {

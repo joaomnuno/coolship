@@ -5,26 +5,37 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/models"
 )
 
-// Domain reports the linked application's domains.
+// Domain reports the linked application's domains: a Compose application's
+// service by service, any other application's as one list.
 func (a *App) Domain(ctx context.Context, options Options) (DomainResult, error) {
 	s, err := a.prepare(ctx, options)
 	if err != nil {
 		return DomainResult{}, err
 	}
-	domains := applicationURLs(s.project.Application.FQDN)
-	return DomainResult{Target: targetInfo(s.project), Domains: domains, Generated: isGenerated(domains, s.project.Application.UUID), Warnings: s.warnings}, nil
+	application := s.project.Application
+	domains := applicationDomains(application)
+	urls := urlsOf(domains)
+	result := DomainResult{Target: targetInfo(s.project), Domains: urls, Generated: isGenerated(urls, application.UUID), Warnings: s.warnings}
+	if application.IsCompose() && len(application.ComposeDomains) > 0 {
+		result.Services = domains
+	}
+	return result, nil
 }
 
 // DomainSet replaces the application's domains after confirmation, then reads
-// the application back so the result reflects what the server kept.
+// the application back so the result reflects what the server kept. A
+// Compose application takes SERVICE=URL pairs and has its whole per-service
+// map replaced; any other application takes URLs. The arguments are checked
+// before any request, and which form the application takes once it is read.
 func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm ConfirmDomain) (DomainSetResult, error) {
-	domains, err := normalizeDomains(options.Domains)
+	services, domains, err := parseDomainArguments(options.Domains)
 	if err != nil {
 		return DomainSetResult{}, input(err)
 	}
@@ -35,9 +46,30 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	if err != nil {
 		return DomainSetResult{}, err
 	}
-	plan := DomainPlan{Target: targetInfo(s.project), Current: applicationURLs(s.project.Application.FQDN), Domains: domains, Redirect: options.Redirect}
+	application := s.project.Application
+	current := applicationDomains(application)
+	plan := DomainPlan{Target: targetInfo(s.project), Current: urlsOf(current), Redirect: options.Redirect}
+	update := models.DomainUpdate{Force: options.Force}
+	compose := application.IsCompose()
+	switch {
+	case compose && services == nil:
+		return DomainSetResult{}, input(fmt.Errorf("%s is a Compose application, whose domains are set per service: give each one as SERVICE=URL, such as domain set %s", application.Name, composeExample(application)))
+	case !compose && services != nil:
+		return DomainSetResult{}, input(fmt.Errorf("SERVICE=URL pairs set the domains of a Compose application; %s takes domains such as https://app.example.com", application.Name))
+	case compose:
+		for i := range services {
+			services[i].Redirect = options.Redirect
+		}
+		plan.CurrentServices = current
+		plan.Services = serviceDomains(services)
+		plan.Domains = urlsOf(plan.Services)
+		update.Services = services
+	default:
+		plan.Domains = domains
+		update.Domains, update.Redirect = domains, options.Redirect
+	}
 	result := DomainSetResult{Plan: plan, Warnings: s.warnings}
-	if slices.Equal(plan.Current, domains) && options.Redirect == "" {
+	if sameDomains(current, plan) && options.Redirect == "" {
 		result.Warnings = append(result.Warnings, "Domains are already set as requested; nothing changed.")
 		return result, nil
 	}
@@ -56,19 +88,133 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	update := models.DomainUpdate{Domains: domains, Redirect: options.Redirect, Force: options.Force}
-	if err := s.backend.UpdateApplicationDomains(ctx, s.project.Application.UUID, update); err != nil {
-		return result, fmt.Errorf("update domains: %w (Coolify rejects a domain in use elsewhere unless --force, and Docker Compose applications take per-service domains, which this command does not set)", err)
+	if err := s.backend.UpdateApplicationDomains(ctx, application.UUID, update); err != nil {
+		if compose {
+			return result, fmt.Errorf("update domains: %w (Coolify rejects a domain in use elsewhere unless --force, and needs its copy of the compose file, reloaded from the repository in its UI, to know the services)", err)
+		}
+		return result, fmt.Errorf("update domains: %w (Coolify rejects a domain in use elsewhere unless --force)", err)
 	}
-	application, err := s.backend.GetApplication(ctx, s.project.Application.UUID)
+	updated, err := s.backend.GetApplication(ctx, application.UUID)
 	if err != nil {
 		return result, fmt.Errorf("domains were sent but could not be read back: %w", err)
 	}
-	if kept := applicationURLs(application.FQDN); !slices.Equal(kept, domains) {
-		return result, fmt.Errorf("server kept %s instead of the requested domains; inspect Coolify", strings.Join(kept, ", "))
+	if kept := applicationDomains(updated); !sameDomains(kept, plan) {
+		if compose {
+			return result, fmt.Errorf("server kept %s instead of the requested domains; Coolify drops a service its copy of the compose file does not define, so check the service names against the file, then inspect Coolify", describeDomains(kept))
+		}
+		return result, fmt.Errorf("server kept %s instead of the requested domains; inspect Coolify", describeDomains(kept))
 	}
 	result.Warnings = append(result.Warnings, "The proxy learns the new domain on the next deployment; run coolship deploy to apply it.")
 	return result, nil
+}
+
+// serviceName is what a compose file may call a service, which is also
+// what tells a SERVICE=URL pair from a URL with a query.
+var serviceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// parseDomainArguments reads domain set's arguments as SERVICE=URL pairs, or
+// as URLs, and normalizes the URLs either way. Mixing the two forms is
+// refused; which one the application takes is decided once it is read. A
+// service named twice gets both URLs.
+func parseDomainArguments(args []string) (services []models.ComposeDomain, domains []string, err error) {
+	if len(args) == 0 {
+		return nil, nil, errors.New("at least one domain is required")
+	}
+	paired := 0
+	for _, arg := range args {
+		if service, _, ok := strings.Cut(arg, "="); ok && serviceName.MatchString(strings.TrimSpace(service)) {
+			paired++
+		}
+	}
+	switch {
+	case paired == 0:
+		domains, err = normalizeDomains(args)
+		return nil, domains, err
+	case paired < len(args):
+		return nil, nil, errors.New("SERVICE=URL pairs and plain domains cannot be mixed: a Compose application takes pairs, any other application domains")
+	}
+	for _, arg := range args {
+		service, value, _ := strings.Cut(arg, "=")
+		service = strings.TrimSpace(service)
+		urls, err := normalizeDomains([]string{value})
+		if err != nil {
+			return nil, nil, fmt.Errorf("service %s: %w", service, err)
+		}
+		index := slices.IndexFunc(services, func(entry models.ComposeDomain) bool { return entry.Name == service })
+		if index < 0 {
+			services = append(services, models.ComposeDomain{Name: service, Domain: strings.Join(urls, ",")})
+			continue
+		}
+		merged := strings.Split(services[index].Domain, ",")
+		for _, url := range urls {
+			if !slices.Contains(merged, url) {
+				merged = append(merged, url)
+			}
+		}
+		services[index].Domain = strings.Join(merged, ",")
+	}
+	return services, nil, nil
+}
+
+// serviceDomains lists the URLs a per-service map names, one entry per URL,
+// as the plan and the result show them.
+func serviceDomains(services []models.ComposeDomain) []ServiceDomain {
+	var result []ServiceDomain
+	for _, service := range services {
+		for _, url := range strings.Split(service.Domain, ",") {
+			result = append(result, ServiceDomain{Service: service.Name, URL: url, Redirect: service.Redirect})
+		}
+	}
+	return result
+}
+
+// sameDomains reports whether the domains an application has are the ones a
+// plan asks for: the same URLs in the same order, under the same services
+// for a Compose application. Redirects are not compared, since a plan
+// without one keeps whatever is set.
+func sameDomains(domains []ServiceDomain, plan DomainPlan) bool {
+	if plan.Services == nil {
+		return slices.Equal(urlsOf(domains), plan.Domains)
+	}
+	return slices.EqualFunc(domains, plan.Services, func(have, want ServiceDomain) bool {
+		return have.Service == want.Service && have.URL == want.URL
+	})
+}
+
+// describeDomains names domains in an error, as the user would type them.
+func describeDomains(domains []ServiceDomain) string {
+	if len(domains) == 0 {
+		return "no domain"
+	}
+	var parts []string
+	for _, domain := range domains {
+		if domain.Service != "" {
+			parts = append(parts, domain.Service+"="+domain.URL)
+			continue
+		}
+		parts = append(parts, domain.URL)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// composeExample shows the SERVICE=URL form with the application's own
+// services when it has any with a domain, so the message names what to
+// type; a service is otherwise named as the compose file would.
+func composeExample(application models.Application) string {
+	var names []string
+	for _, entry := range application.ComposeDomains {
+		if entry.Name != "" && !slices.Contains(names, entry.Name) {
+			names = append(names, entry.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "web=https://app.example.com, naming each service as the compose file does"
+	}
+	var pairs []string
+	for _, name := range names {
+		pairs = append(pairs, name+"=https://"+name+".example.com")
+	}
+	return strings.Join(pairs, " ") + " (its services with a domain now: " + strings.Join(names, ", ") + ")"
 }
 
 // normalizeDomains accepts full web URLs, or bare hosts as https, and rejects
