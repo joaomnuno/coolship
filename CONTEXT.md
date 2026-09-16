@@ -37,7 +37,7 @@ How much a run shows: normal (names only), verbose (UUIDs, timings, one line per
 _Avoid_: Advanced mode, log level, developer mode
 
 **Stage**:
-One step of a deployment that Coolify names in its build log: image build, rolling update, container start, health check.
+One step of a deployment that Coolify names in its build log: image build, rolling update, container start, health check. A Compose deployment, a preview, and an application with ports mapped to the host have no rolling update; that stage is not used, which is not the same as skipped (Coolify said it would not run) or not reached (no marker yet).
 _Avoid_: Phase, step, progress
 
 **Menu**:

@@ -2,8 +2,14 @@ package ui
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -300,8 +306,9 @@ func TestChecklistShowsTimingsAboveNormal(t *testing.T) {
 // TestChecklistViewShowsSkippedStages checks a build Coolify skipped for a
 // cached image and the summary line a finished deployment ends with. Only
 // the skip marker marks a stage skipped; a stage with no marker stays
-// unmarked. A compose deployment has no rolling update, so its container is
-// not drawn as a child of one.
+// unmarked. A compose deployment has no rolling update: its container is
+// not drawn as a child of one, and the rolling update row reads not used
+// rather than staying dim as if still to come.
 func TestChecklistViewShowsSkippedStages(t *testing.T) {
 	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
 	at := func(seconds int) time.Time { return start.Add(time.Duration(seconds) * time.Second) }
@@ -331,12 +338,25 @@ func TestChecklistViewShowsSkippedStages(t *testing.T) {
 	want = strings.Join([]string{
 		"✓ Deployed                      0:10",
 		"  ✓ build                       0:00",
-		"    rolling update",
+		"  – rolling update              not used",
 		"  ✓ container                   0:00",
 		"    cleanup",
 	}, "\n")
 	if got := compose.(checklistModel).render(); got != want {
 		t.Fatalf("compose view\n got %q\nwant %q", got, want)
+	}
+	// An application with ports mapped to the host removes the old
+	// containers before the new one starts; that cleanup says the same.
+	var mapped tea.Model = newChecklistModel(newPalette(false), "in_progress", start, time.Now)
+	mapped, _ = mapped.Update(stageMsg{stage: service.StageCleanup, status: service.StageStarted, at: at(9)})
+	if got := mapped.(checklistModel).render(); !strings.Contains(got, "\n  – rolling update              not used\n") {
+		t.Fatalf("mapped ports view\n got %q", got)
+	}
+	// A rolling update whose marker does come later still runs, and its
+	// children move back under it.
+	mapped, _ = mapped.Update(stageMsg{stage: service.StageRollingUpdate, status: service.StageStarted, at: at(10)})
+	if got := mapped.(checklistModel).render(); !strings.Contains(got, "rolling update              0:0") || !strings.Contains(got, "\n    ") {
+		t.Fatalf("late rolling update view\n got %q", got)
 	}
 
 	// A build log the token may not read carries no markers: the stages
@@ -378,13 +398,42 @@ func TestChecklistViewFitsTheTerminalWidth(t *testing.T) {
 	}
 }
 
-// liveChecklist is a Checklist drawing on a file, as it would on a
-// terminal, so the Bubble Tea program really runs and Close and Finish are
-// exercised against it.
-func liveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, string) {
+// terminalRecorder records everything written to it: the escape stream a
+// terminal would receive, from the header, the live view's frames, the
+// erase, and the final checklist, in the order they were written.
+type terminalRecorder struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (r *terminalRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.Write(p)
+}
+
+func (r *terminalRecorder) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.String()
+}
+
+// stageEvent is one stage transition of deployment d-1.
+func stageEvent(stage, status string) service.Event {
+	return service.Event{Type: "stage", DeploymentUUID: "d-1", Stage: stage, Status: status}
+}
+
+// newLiveChecklist is a Checklist drawing on a recorder as it would on a 90
+// by 40 terminal, so the Bubble Tea program really draws its frames and
+// Close and Finish are exercised against them. The recorder holds the
+// whole stream: the header, the frames, the erase, and what replaces the
+// view. Nothing is drawn until the first event.
+func newLiveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, *terminalRecorder) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "stderr")
-	file, err := os.Create(path)
+	if runtime.GOOS == "windows" {
+		t.Skip("Bubble Tea maps newlines only off Windows; the recorded stream is replayed that way")
+	}
+	file, err := os.Create(filepath.Join(t.TempDir(), "terminal"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,8 +441,11 @@ func liveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, string) {
 	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
 	now := start
 	var clock sync.Mutex
-	checklist := NewChecklist(Streams{Out: out, Err: file, Interactive: true}, "human", false)
+	recorder := &terminalRecorder{}
+	checklist := NewChecklist(Streams{Out: out, Err: recorder, Interactive: true}, "human", false)
+	// The file stands for the terminal; the recorder is where it draws.
 	checklist.terminal = file
+	checklist.display = display{output: recorder, width: 90, height: 40}
 	// Events and the program's spinner ticks both read the clock.
 	checklist.clock = func() time.Time {
 		clock.Lock()
@@ -401,19 +453,272 @@ func liveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, string) {
 		now = now.Add(time.Second)
 		return now
 	}
+	return checklist, recorder
+}
+
+// liveChecklist is newLiveChecklist after the events of a deployment whose
+// build was skipped and whose rolling update is open.
+func liveChecklist(t *testing.T, out *bytes.Buffer) (*Checklist, *terminalRecorder) {
+	t.Helper()
+	checklist, recorder := newLiveChecklist(t, out)
 	target := service.TargetInfo{Application: "web", ApplicationUUID: "app-1", Environment: "production"}
 	for _, event := range []service.Event{
 		{Type: "deployment", DeploymentUUID: "d-1", Status: "queued", Target: &target},
 		{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"},
 		{Type: "build", DeploymentUUID: "d-1", Logs: "Build step skipped.\n"},
 		{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageBuild, Status: service.StageSkipped, Message: "cached image"},
-		{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageRollingUpdate, Status: service.StageStarted},
+		stageEvent(service.StageRollingUpdate, service.StageStarted),
 	} {
 		if err := checklist.Event(event); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return checklist, path
+	return checklist, recorder
+}
+
+// screen replays an escape stream the way a terminal would, as far as the
+// live views need: text overwrites cells, or inserts them in insert mode;
+// \r and \n move as on a terminal that maps newlines, which Bubble Tea
+// assumes when it reads no input; the cursor moves up, down, left, right,
+// and to a column; lines are erased to their end, the screen to its end;
+// lines and cells are inserted and deleted. Colours, modes, and the
+// queries a terminal would answer are dropped, and any other sequence is
+// an error, so a new one is noticed. What is left is what a person sees.
+type screen struct {
+	lines    [][]rune
+	row, col int
+	insert   bool
+	last     rune
+}
+
+func (s *screen) replay(stream string) error {
+	runes := []rune(stream)
+	for i := 0; i < len(runes); i++ {
+		switch r := runes[i]; r {
+		case '\x1b':
+			n, err := s.escape(runes[i+1:])
+			if err != nil {
+				return err
+			}
+			i += n
+		case '\r':
+			s.col = 0
+		case '\n':
+			s.row, s.col = s.row+1, 0
+		case '\b':
+			s.col = max(s.col-1, 0)
+		case '\a':
+		default:
+			s.put(r)
+		}
+	}
+	return nil
+}
+
+// escape handles what follows an ESC and returns how many runes it took.
+func (s *screen) escape(rest []rune) (int, error) {
+	if len(rest) == 0 {
+		return 0, errors.New("escape at the end of the stream")
+	}
+	switch rest[0] {
+	case '[':
+		end := 1
+		for end < len(rest) && (rest[end] < 0x40 || rest[end] > 0x7e) {
+			end++
+		}
+		if end == len(rest) {
+			return 0, errors.New("unterminated control sequence")
+		}
+		return end + 1, s.control(string(rest[1:end]), rest[end])
+	case ']', 'P', 'X', '^', '_': // a string, up to BEL or ST
+		for i := 1; i < len(rest); i++ {
+			if rest[i] == '\a' {
+				return i + 1, nil
+			}
+			if rest[i] == '\x1b' && i+1 < len(rest) && rest[i+1] == '\\' {
+				return i + 2, nil
+			}
+		}
+		return 0, errors.New("unterminated string")
+	case 'M': // reverse index
+		s.row = max(s.row-1, 0)
+		return 1, nil
+	case '7', '8', '=', '>': // save and restore the cursor, keypad modes
+		return 1, nil
+	}
+	return 0, fmt.Errorf("unsupported escape %q", string(rest[0]))
+}
+
+// control applies one control sequence, given what came between the
+// bracket and the final byte.
+func (s *screen) control(params string, final rune) error {
+	if params != "" && !strings.ContainsRune("0123456789;", rune(params[0])) || strings.ContainsAny(params, " $\"") {
+		return nil // private modes, queries, cursor styles, mode reports
+	}
+	fields := strings.Split(params, ";")
+	arg := func(index, missing int) int {
+		if index < len(fields) && fields[index] != "" {
+			n, _ := strconv.Atoi(fields[index])
+			return n
+		}
+		return missing
+	}
+	switch final {
+	case 'A':
+		s.row = max(s.row-arg(0, 1), 0)
+	case 'B':
+		s.row += arg(0, 1)
+	case 'C':
+		s.col += arg(0, 1)
+	case 'D':
+		s.col = max(s.col-arg(0, 1), 0)
+	case 'G', '`':
+		s.col = arg(0, 1) - 1
+	case 'd':
+		s.row = arg(0, 1) - 1
+	case 'H', 'f':
+		s.row, s.col = arg(0, 1)-1, arg(1, 1)-1
+	case 'J':
+		if arg(0, 0) != 0 {
+			return fmt.Errorf("unsupported erase %q", "\x1b["+params+"J")
+		}
+		s.eraseLine()
+		if s.row+1 < len(s.lines) {
+			s.lines = s.lines[:s.row+1]
+		}
+	case 'K':
+		if arg(0, 0) != 0 {
+			return fmt.Errorf("unsupported erase %q", "\x1b["+params+"K")
+		}
+		s.eraseLine()
+	case 'L':
+		s.reach(s.row)
+		s.lines = slices.Insert(s.lines, s.row, make([][]rune, arg(0, 1))...)
+	case 'M':
+		s.reach(s.row)
+		s.lines = slices.Delete(s.lines, s.row, min(s.row+arg(0, 1), len(s.lines)))
+	case '@':
+		s.reach(s.row)
+		if line := s.lines[s.row]; s.col < len(line) {
+			s.lines[s.row] = slices.Insert(line, s.col, []rune(strings.Repeat(" ", arg(0, 1)))...)
+		}
+	case 'P':
+		s.reach(s.row)
+		if line := s.lines[s.row]; s.col < len(line) {
+			s.lines[s.row] = slices.Delete(line, s.col, min(s.col+arg(0, 1), len(line)))
+		}
+	case 'X':
+		s.reach(s.row)
+		for i, line := 0, s.lines[s.row]; i < arg(0, 1) && s.col+i < len(line); i++ {
+			line[s.col+i] = ' '
+		}
+	case 'b':
+		for i := 0; i < arg(0, 1); i++ {
+			s.put(s.last)
+		}
+	case 'h', 'l':
+		if params == "4" {
+			s.insert = final == 'h'
+		}
+	case 'm', 'n', 'c', 'q', 's', 'u', 't', 'p', 'r':
+	default:
+		return fmt.Errorf("unsupported control sequence %q", "\x1b["+params+string(final))
+	}
+	return nil
+}
+
+// reach makes sure the screen has a line at row.
+func (s *screen) reach(row int) {
+	for len(s.lines) <= row {
+		s.lines = append(s.lines, nil)
+	}
+}
+
+func (s *screen) put(r rune) {
+	s.reach(s.row)
+	line := s.lines[s.row]
+	for len(line) < s.col {
+		line = append(line, ' ')
+	}
+	switch {
+	case s.insert && s.col < len(line):
+		line = slices.Insert(line, s.col, r)
+	case s.col < len(line):
+		line[s.col] = r
+	default:
+		line = append(line, r)
+	}
+	s.lines[s.row], s.col, s.last = line, s.col+1, r
+}
+
+// eraseLine erases the line from the cursor to its end.
+func (s *screen) eraseLine() {
+	if s.row < len(s.lines) && s.col < len(s.lines[s.row]) {
+		s.lines[s.row] = s.lines[s.row][:s.col]
+	}
+}
+
+// text is what the screen shows, without trailing spaces or blank lines.
+func (s *screen) text() string {
+	lines := make([]string, len(s.lines))
+	for i, line := range s.lines {
+		lines[i] = strings.TrimRight(string(line), " ")
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// lastErase splits a stream at the erase Close writes over the live view:
+// the last erase to the end of the screen, right after a carriage return
+// and the move up. It returns the stream before that move, how many rows
+// the move went up, and what was written after the erase.
+func lastErase(t *testing.T, stream string) (before string, up int, after string) {
+	t.Helper()
+	index := strings.LastIndex(stream, "\x1b[J")
+	if index < 0 {
+		t.Fatalf("no erase in %q", stream)
+	}
+	before, after = stream[:index], stream[index+len("\x1b[J"):]
+	match := regexp.MustCompile(`\r(?:\x1b\[(\d+)A)?$`).FindStringSubmatch(before)
+	if match == nil {
+		t.Fatalf("the last erase does not follow a move up: %q", before)
+	}
+	if match[1] != "" {
+		up, _ = strconv.Atoi(match[1])
+	}
+	return before[:len(before)-len(match[0])], up, after
+}
+
+// headerRows is what the header of a live checklist takes: the application,
+// the environment, and a blank line, so the frame begins on the fourth row.
+const headerRows = 3
+
+// checkOneChecklist replays the stream of a live checklist and checks what
+// it leaves on screen: the header, then the final checklist once, with the
+// erase before it having moved up over exactly the rows the last frame
+// drew. Bubble Tea leaves the cursor on the frame's last row, so the frame's
+// height is read from there. Elapsed times depend on how often the spinner
+// ticked, so they are compared as m:ss.
+func checkOneChecklist(t *testing.T, stream string, want ...string) {
+	t.Helper()
+	before, up, _ := lastErase(t, stream)
+	var live screen
+	if err := live.replay(before); err != nil {
+		t.Fatal(err)
+	}
+	if drawn := live.row - headerRows + 1; up != drawn-1 {
+		t.Fatalf("the erase moved up %d rows over a frame of %d rows: %q", up, drawn, before)
+	}
+	var whole screen
+	if err := whole.replay(stream); err != nil {
+		t.Fatal(err)
+	}
+	got := regexp.MustCompile(`\d+:\d\d`).ReplaceAllString(whole.text(), "m:ss")
+	if got != strings.Join(want, "\n") {
+		t.Fatalf("screen\n got %q\nwant %q\nstream %q", got, strings.Join(want, "\n"), stream)
+	}
 }
 
 // within fails the test when fn does not return in time: a view that does
@@ -433,12 +738,13 @@ func within(t *testing.T, fn func() error) {
 }
 
 // TestChecklistFinishPrintsOneSummaryAndTheURL checks the end of a finished
-// deployment in a terminal: the live view is replaced by the final
-// checklist with one summary line, the URL is the only thing on stdout, and
-// the result block the plain renderer prints is not repeated.
+// deployment in a terminal: the live view is erased and replaced by the
+// final checklist with one summary line, which the screen then shows once,
+// the URL is the only thing on stdout, and the result block the plain
+// renderer prints is not repeated.
 func TestChecklistFinishPrintsOneSummaryAndTheURL(t *testing.T) {
 	var out bytes.Buffer
-	checklist, path := liveChecklist(t, &out)
+	checklist, recorder := liveChecklist(t, &out)
 	result := service.DeployResult{
 		Target:         service.TargetInfo{Application: "web", ApplicationUUID: "app-1", Environment: "production"},
 		DeploymentUUID: "d-1", Status: "finished", URL: "https://web.example.com", URLKind: "application",
@@ -447,21 +753,20 @@ func TestChecklistFinishPrintsOneSummaryAndTheURL(t *testing.T) {
 	if out.String() != "https://web.example.com\n" {
 		t.Fatalf("stdout = %q, want only the URL", out.String())
 	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	stderr := recorder.String()
+	if !strings.HasPrefix(stderr, "→ web\n→ production\n\n") {
+		t.Fatalf("stderr lacks the header: %q", stderr)
 	}
-	stderr := string(content)
-	summary := "✓ Deployed web to production in 0:0"
-	if !strings.HasPrefix(stderr, "→ web\n→ production\n\n") || strings.Count(stderr, summary) != 1 {
-		t.Fatalf("stderr lacks the header or one summary line: %q", stderr)
-	}
-	tail := stderr[strings.LastIndex(stderr, summary):]
-	for _, line := range []string{"– build                       skipped (cached image)", "✓ rolling update"} {
-		if !strings.Contains(tail, line) {
-			t.Fatalf("final checklist lacks %q: %q", line, tail)
-		}
-	}
+	checkOneChecklist(t, stderr,
+		"→ web",
+		"→ production",
+		"",
+		"✓ Deployed web to production in m:ss",
+		"  – build                       skipped (cached image)",
+		"  ✓ rolling update              m:ss",
+		"      container",
+		"      cleanup",
+	)
 	for _, repeated := range []string{"Deployment:", "Application:", "Status:", "app-1"} {
 		if strings.Contains(stderr+out.String(), repeated) {
 			t.Fatalf("output repeats %q: stderr %q stdout %q", repeated, stderr, out.String())
@@ -473,32 +778,153 @@ func TestChecklistFinishPrintsOneSummaryAndTheURL(t *testing.T) {
 	}
 }
 
+// TestChecklistErasesExactlyTheLastFrame checks the erase that ends the
+// live view against the frames Bubble Tea drew: it moves up over as many
+// rows as the last frame had, no more and no fewer, so what stays on screen
+// is the final checklist once. A row that the first frame did not have (a
+// stage the checklist did not list, added when its marker came) makes the
+// last frame taller than the first; a compose deployment ends with its
+// rolling update row reading not used rather than dim.
+func TestChecklistErasesExactlyTheLastFrame(t *testing.T) {
+	target := service.TargetInfo{Application: "web", ApplicationUUID: "app-1", Environment: "production"}
+	opening := []service.Event{
+		{Type: "deployment", DeploymentUUID: "d-1", Status: "queued", Target: &target},
+		{Type: "deployment", DeploymentUUID: "d-1", Status: "in_progress"},
+	}
+	for _, test := range []struct {
+		name   string
+		events []service.Event
+		want   []string
+	}{
+		{"late row", []service.Event{
+			{Type: "build", DeploymentUUID: "d-1", Logs: "Build step skipped.\n"},
+			{Type: "stage", DeploymentUUID: "d-1", Stage: service.StageBuild, Status: service.StageSkipped, Message: "cached image"},
+			stageEvent(service.StageRollingUpdate, service.StageStarted),
+			stageEvent(service.StageContainer, service.StageStarted),
+			stageEvent(service.StageContainer, service.StageDone),
+			stageEvent(service.StageCleanup, service.StageStarted),
+			stageEvent(service.StageCleanup, service.StageDone),
+			stageEvent(service.StageRollingUpdate, service.StageDone),
+			stageEvent("migrate", service.StageStarted),
+		}, []string{
+			"✓ Deployed web to production in m:ss",
+			"  – build                       skipped (cached image)",
+			"  ✓ rolling update              m:ss",
+			"    ✓ container                 m:ss",
+			"    ✓ cleanup                   m:ss",
+			"  ✓ migrate                     m:ss",
+		}},
+		{"compose", []service.Event{
+			{Type: "build", DeploymentUUID: "d-1", Logs: "Pulling & building required images.\n"},
+			stageEvent(service.StageBuild, service.StageStarted),
+			{Type: "build", DeploymentUUID: "d-1", Logs: "New container started.\n"},
+			stageEvent(service.StageBuild, service.StageDone),
+			stageEvent(service.StageContainer, service.StageStarted),
+			stageEvent(service.StageContainer, service.StageDone),
+			stageEvent(service.StageCleanup, service.StageStarted),
+			stageEvent(service.StageCleanup, service.StageDone),
+		}, []string{
+			"✓ Deployed web to production in m:ss",
+			"  ✓ build                       m:ss",
+			"  – rolling update              not used",
+			"  ✓ container                   m:ss",
+			"  ✓ cleanup                     m:ss",
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var out bytes.Buffer
+			checklist, recorder := newLiveChecklist(t, &out)
+			for _, event := range slices.Concat(opening, test.events) {
+				if err := checklist.Event(event); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Frames are flushed on a timer; let the last one be drawn
+			// before the end, as a deployment's last poll leaves time for.
+			time.Sleep(100 * time.Millisecond)
+			result := service.DeployResult{Target: target, DeploymentUUID: "d-1", Status: "finished", URL: "https://web.example.com", URLKind: "application"}
+			within(t, func() error { return checklist.Finish(result) })
+			checkOneChecklist(t, recorder.String(), slices.Concat([]string{"→ web", "→ production", ""}, test.want)...)
+			if out.String() != "https://web.example.com\n" {
+				t.Fatalf("stdout = %q, want only the URL", out.String())
+			}
+		})
+	}
+}
+
+// TestChecklistCloseAfterAFailurePrintsTheChecklistOnceThenTheLog checks
+// the failure shape on a terminal: the live view is erased, the final
+// checklist is printed once, and the build log follows it, so its tail is
+// right before the deployment page the command names next.
+func TestChecklistCloseAfterAFailurePrintsTheChecklistOnceThenTheLog(t *testing.T) {
+	var out bytes.Buffer
+	checklist, recorder := liveChecklist(t, &out)
+	if err := checklist.Event(service.Event{Type: "deployment", DeploymentUUID: "d-1", Status: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	within(t, func() error { return checklist.Close(OutcomeFailed) })
+	checkOneChecklist(t, recorder.String(),
+		"→ web",
+		"→ production",
+		"",
+		"✗ Deployment failed             m:ss",
+		"  – build                       skipped (cached image)",
+		"  ✗ rolling update              m:ss",
+		"      container",
+		"      cleanup",
+		"",
+		"Build step skipped.",
+	)
+}
+
 // TestChecklistCloseAfterAnInterruptRestoresTheTerminal checks what Ctrl-C
 // leaves behind: Close returns promptly, the program is gone, the final
-// checklist says observation stopped with the open stage marked …, the build
-// log stays collapsed, and the cursor Bubble Tea hid is shown again.
+// checklist says observation stopped with the open stage marked …, once,
+// the build log stays collapsed, and the cursor Bubble Tea hid is shown
+// again.
 func TestChecklistCloseAfterAnInterruptRestoresTheTerminal(t *testing.T) {
 	var out bytes.Buffer
-	checklist, path := liveChecklist(t, &out)
+	checklist, recorder := liveChecklist(t, &out)
 	within(t, func() error { return checklist.Close(OutcomeStopped) })
 	if checklist.program != nil || out.Len() != 0 {
 		t.Fatalf("program %v left running or stdout written %q", checklist.program, out.String())
 	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stderr := string(content)
-	final := stderr[strings.LastIndex(stderr, "✗ Observation stopped"):]
-	for _, line := range []string{"  – build", "  … rolling update", "      container"} {
-		if !strings.Contains(final, line) {
-			t.Fatalf("stopped checklist lacks %q: %q", line, final)
-		}
-	}
-	if strings.Contains(final, "Build step skipped.") {
-		t.Fatalf("an interrupt printed the build log: %q", final)
-	}
+	stderr := recorder.String()
+	checkOneChecklist(t, stderr,
+		"→ web",
+		"→ production",
+		"",
+		"✗ Observation stopped           m:ss",
+		"  – build                       skipped (cached image)",
+		"  … rolling update              m:ss",
+		"      container",
+		"      cleanup",
+	)
 	if hide, show := strings.LastIndex(stderr, "\x1b[?25l"), strings.LastIndex(stderr, "\x1b[?25h"); hide >= 0 && show < hide {
 		t.Fatalf("the cursor was left hidden: %q", stderr)
+	}
+}
+
+// TestChecklistFrameKeepsTheLastRowsOfAShortTerminal checks the frame a
+// terminal with fewer rows than the checklist gets: the last rows that fit,
+// which is what Bubble Tea keeps of a taller frame, so the erase that ends
+// the view moves over the rows that were drawn. The final checklist printed
+// in its place is still complete.
+func TestChecklistFrameKeepsTheLastRowsOfAShortTerminal(t *testing.T) {
+	start := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	var model tea.Model = newChecklistModel(newPalette(false), "queued", start, time.Now)
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 3})
+	frame := model.(checklistModel).frame()
+	if want := []string{"    rolling update", "    container", "    cleanup"}; !slices.Equal(frame, want) {
+		t.Fatalf("frame = %q, want %q", frame, want)
+	}
+	if got := model.(checklistModel).render(); strings.Count(got, "\n") != 4 {
+		t.Fatalf("render lost rows: %q", got)
+	}
+	if got := eraseView(len(frame)); got != "\r\x1b[2A\x1b[J" {
+		t.Fatalf("eraseView(3) = %q", got)
+	}
+	if got := eraseView(1); got != "\r\x1b[J" {
+		t.Fatalf("eraseView(1) = %q", got)
 	}
 }

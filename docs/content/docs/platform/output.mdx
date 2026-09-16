@@ -19,6 +19,10 @@ Human output is colored only when the stream it goes to is a terminal, and each 
 
 Set [`NO_COLOR`](https://no-color.org) or pass `--no-color` to turn styling off everywhere; `TERM=dumb` and `CI` do the same. JSON output and the server's logs are never styled.
 
+## Checklists
+
+In a terminal at normal verbosity, `deploy`, `start`, `restart`, and `preview` draw a deployment's stages as a checklist, and `login`, `link`, `init`, `stop`, and `env push` draw their steps the same way, redrawn in place on stderr as things happen. Every row reads the same: a spinner and elapsed time on what is open, `✓` and a duration on what finished, `✗` on what failed, `–` on what did not run, with why after the name (`skipped (cached image)` for a build Coolify reused an image for, `not used` for the rolling update a Compose deployment, a preview, or an application with mapped ports does not have), `…` on what was still open when observation stopped, and a dim name on what was not reached. Warnings, and the build log with `--logs`, print above the checklist and stay. When a checklist ends, the rows it drew are erased and the final checklist is printed once in their place, where it stays; a finished deployment's URL follows on stdout, and a failed deployment's build log and deployment page follow on stderr. Off a terminal, with `--format json`, or above normal verbosity nothing is drawn: each transition is one plain line on stderr.
+
 ## Verbosity
 
 A run shows one of three levels. **Normal** is the default; for now, results name applications and deployments with their UUIDs at every level. **Verbose** adds one line on stderr for every request Coolship sends to Coolify: the method, the URL, the status (or `no response`), the time taken, and `(retry N)` for a retried read. **Debug** adds each request's and response's headers and bodies under that line, curl-style, with the token masked to its last four characters, secret values in bodies redacted, and control characters removed.

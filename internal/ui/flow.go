@@ -571,15 +571,9 @@ func runFlow(ctx context.Context, streams Streams, steps *Steps, stages []flowSt
 		model.cancel()
 	}
 	// Bubble Tea leaves the last frame on screen with the cursor on its last
-	// row, as Steps.stop describes; every frame is one terminal line per
-	// line, so moving up by the height and erasing below removes it all.
-	if model.height > 0 {
-		erase := "\r"
-		if up := model.height - 1; up > 0 {
-			erase += fmt.Sprintf("\x1b[%dA", up)
-		}
-		_, _ = fmt.Fprint(errTerminal, erase+"\x1b[J")
-	}
+	// row, as eraseView describes; every frame is one terminal line per
+	// line, so the height says how many rows to erase.
+	_, _ = fmt.Fprint(errTerminal, eraseView(model.height))
 	steps.Close()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
