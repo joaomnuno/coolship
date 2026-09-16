@@ -97,6 +97,14 @@ check llms-full         /llms-full.txt                   200 text/markdown '^# d
 check poster            /showcase-poster.svg             200 image/svg     '<svg'
 check robots            /robots.txt                      200 text/plain    'User-agent'
 check not-found         /docs/no-such-page               404 text/html     'Page not found'
+check root-not-found    /no-such-page                    404 text/html     'Page not found'
+# vinext renders a top-level 404 inside the home route group's layout; the
+# page must still carry exactly one navigation bar.
+navs=$(grep -o 'aria-label="Primary"' "$tmp" | wc -l | tr -d ' ')
+if [ "$navs" = 1 ]; then echo "ok   root-not-found: one navigation bar"
+else echo "FAIL root-not-found: $navs navigation bars, want 1"; failed=1; fi
+check install-script    /install.sh                      302 ''            ''
+header install-script   Location                         https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh
 
 if [ "$failed" -ne 0 ]; then exit 1; fi
 echo "smoke: all routes at $base answered as expected"
