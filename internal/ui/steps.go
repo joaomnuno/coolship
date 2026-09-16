@@ -216,18 +216,14 @@ func (s *Steps) draw() {
 	if !slices.ContainsFunc(rows, func(row stageRow) bool { return row.status != "" }) {
 		return
 	}
-	model := stepsModel{spinner: spinner.New(spinner.WithSpinner(spinner.Dot)), style: s.style, clock: s.clock, now: now, rows: rows, width: terminalWidth(s.terminal)}
-	s.program, s.done = runView(s.terminal, s.style, model, &s.final)
+	d := terminalDisplay(s.terminal)
+	model := stepsModel{spinner: spinner.New(spinner.WithSpinner(spinner.Dot)), style: s.style, clock: s.clock, now: now, rows: rows, width: d.width}
+	s.program, s.done = runView(d, s.style, model, &s.final)
 }
 
-// stop ends the running view, waits for it, and erases it. Bubble Tea
-// leaves its last frame on screen when a program quits: it moves to the
-// frame's last row and clears only that row, so every row above it would
-// stay and what Pause and Close print would repeat them. The frame is one
-// terminal line per row, since rows are cut to the width, so the cursor is
-// moved up to the first row and everything below is erased. Hiding the view
-// before quitting does not work: a frame that shrinks loses track of the
-// cursor and is cleared from the wrong row.
+// stop ends the running view, waits for it, and erases the frame Bubble Tea
+// leaves on screen, one row per step drawn, so what Pause and Close print
+// does not repeat them.
 func (s *Steps) stop() {
 	if s.program == nil {
 		return
@@ -235,11 +231,7 @@ func (s *Steps) stop() {
 	s.program.Quit()
 	<-s.done
 	s.program, s.done = nil, nil
-	erase := "\r"
-	if up := len(s.rows) - s.printed - 1; up > 0 {
-		erase += fmt.Sprintf("\x1b[%dA", up)
-	}
-	_, _ = fmt.Fprint(s.streams.Err, erase+"\x1b[J")
+	_, _ = fmt.Fprint(s.streams.Err, eraseView(len(s.rows)-s.printed))
 }
 
 // print writes rows plainly on stderr, cut to the terminal's width.

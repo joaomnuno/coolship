@@ -32,8 +32,11 @@ type Checklist struct {
 	streams  Streams
 	renderer *Renderer
 	terminal *os.File // nil when the plain path is in use
-	style    palette
-	logs     bool
+	// display is where the live view draws: the terminal, sized when the
+	// view starts, unless a test set a recorder first.
+	display display
+	style   palette
+	logs    bool
 	// hold keeps build log chunks back on the plain path: an interactive
 	// run above normal verbosity draws no checklist, yet --no-logs or a
 	// false build_logs still collapse the log until a failure prints it.
@@ -184,28 +187,48 @@ func (c *Checklist) header(target *service.TargetInfo) error {
 }
 
 func (c *Checklist) start(status string, now time.Time) {
-	model := newChecklistModel(c.style, status, now, c.clock)
-	model.width = terminalWidth(c.terminal)
-	c.program, c.done = runView(c.terminal, c.style, model, &c.final)
-}
-
-// terminalWidth is the terminal's columns, or 0 when it does not say. The
-// first frame of a live view is cut to it; Bubble Tea's size message keeps
-// the view cut after a resize.
-func terminalWidth(terminal *os.File) int {
-	if width, _, err := term.GetSize(int(terminal.Fd())); err == nil {
-		return width
+	if c.display.output == nil {
+		c.display = terminalDisplay(c.terminal)
 	}
-	return 0
+	model := newChecklistModel(c.style, status, now, c.clock)
+	model.width, model.height = c.display.width, c.display.height
+	c.program, c.done = runView(c.display, c.style, model, &c.final)
 }
 
-// runView starts a live view on the terminal the way every Coolship view
-// runs: no input, no signal handler, an explicit colour profile, and the
-// quietTerminal writer. done is closed once the program has ended, and final
-// then holds its last model.
-func runView(terminal *os.File, style palette, model tea.Model, final *tea.Model) (*tea.Program, chan struct{}) {
+// display is the terminal a live view draws on: the writer Bubble Tea draws
+// through and the terminal's size, which the first frame is cut to. A
+// command's display is the stderr terminal behind quietTerminal, sized by
+// the terminal; a test's is a recorder with a fixed size, so the frames and
+// the erase that ends them can be read back.
+type display struct {
+	output        io.Writer
+	width, height int
+}
+
+// terminalDisplay is the display of the terminal a live view may draw on,
+// sized by it, 0 by 0 when it does not say. Bubble Tea's size message keeps
+// the view fitted after a resize.
+func terminalDisplay(terminal *os.File) display {
+	width, height, err := term.GetSize(int(terminal.Fd()))
+	if err != nil {
+		width, height = 0, 0
+	}
+	return display{output: quietTerminal{terminal}, width: width, height: height}
+}
+
+// terminalWidth is the terminal's columns, or 0 when it does not say.
+func terminalWidth(terminal *os.File) int {
+	return terminalDisplay(terminal).width
+}
+
+// runView starts a live view on the display the way every Coolship view
+// runs: no input, no signal handler, and an explicit colour profile. done is
+// closed once the program has ended, and final then holds its last model.
+// The view stays on screen when the program quits; eraseView removes it.
+func runView(d display, style palette, model tea.Model, final *tea.Model) (*tea.Program, chan struct{}) {
 	program := tea.NewProgram(model,
-		tea.WithOutput(quietTerminal{terminal}),
+		tea.WithOutput(d.output),
+		tea.WithWindowSize(d.width, d.height),
 		tea.WithInput(nil),
 		tea.WithoutSignalHandler(),
 		tea.WithColorProfile(style.colorProfile()))
@@ -219,9 +242,28 @@ func runView(terminal *os.File, style palette, model tea.Model, final *tea.Model
 	return program, done
 }
 
+// eraseView is what erases a live view of rows once its program has quit,
+// written where Bubble Tea left the cursor. Bubble Tea leaves the last
+// frame on screen: it moves to the frame's last row and clears only that
+// row, so every row above it would stay, and what is printed next would
+// repeat them. A frame is one terminal line per row, since rows are cut to
+// the width, so the cursor is moved up to the first row and everything from
+// there is erased. Hiding the view before quitting does not work: a frame
+// that shrinks loses track of the cursor and is cleared from the wrong row.
+func eraseView(rows int) string {
+	if rows <= 0 {
+		return ""
+	}
+	erase := "\r"
+	if up := rows - 1; up > 0 {
+		erase += fmt.Sprintf("\x1b[%dA", up)
+	}
+	return erase + "\x1b[J"
+}
+
 // Close ends the view once observation has ended, outcome says how. The
-// live view is cleared by Bubble Tea, so the final checklist is printed
-// plainly in its place and stays on screen. It is safe to call when nothing
+// live view is erased and the final checklist is printed plainly in its
+// place, once, where it stays on screen. It is safe to call when nothing
 // was drawn.
 func (c *Checklist) Close(outcome Outcome) error {
 	if c.program == nil {
@@ -260,14 +302,23 @@ func (c *Checklist) Finish(result service.DeployResult) error {
 	return err
 }
 
-// close stops the running program and prints what replaces it; subject,
-// when set, names what was deployed on the summary line of a success.
+// close stops the running program, erases its last frame, and prints what
+// replaces it; subject, when set, names what was deployed on the summary
+// line of a success. The last frame is the final model's: a program that
+// quits draws the view of its last update before it ends, and the end
+// message changes no row count anyway, so its frame says how many rows
+// the erase moves over.
 func (c *Checklist) close(outcome Outcome, subject string) error {
 	c.program.Send(endMsg{outcome: outcome, subject: subject, at: c.clock()})
 	c.program.Quit()
 	<-c.done
 	c.program, c.done = nil, nil
-	_, err := io.WriteString(c.streams.Err, c.closing(outcome))
+	var out strings.Builder
+	if model, ok := c.final.(checklistModel); ok {
+		out.WriteString(eraseView(len(model.frame())))
+	}
+	out.WriteString(c.closing(outcome))
+	_, err := io.WriteString(c.streams.Err, out.String())
 	return err
 }
 
@@ -344,6 +395,7 @@ type checklistModel struct {
 	stopped bool   // ended without the server's verdict
 	subject string // what the summary line of a success names
 	width   int    // the terminal's columns; 0 when unknown
+	height  int    // the terminal's rows; 0 when unknown
 	stages  []stageRow
 }
 
@@ -375,7 +427,7 @@ func (m checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
+		m.width, m.height = msg.Width, msg.Height
 	case printMsg:
 		return m, tea.Println(string(msg))
 	case deploymentMsg:
@@ -393,13 +445,22 @@ func (m checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // stage records a transition. A stage that ends without having started is
-// shown as lasting no time rather than dropped.
+// shown as lasting no time rather than dropped. A child stage reached while
+// its parent has no marker of its own says the parent is not used: Coolify
+// writes "Rolling update started." before it starts the new container, so a
+// container, or a cleanup, that comes first belongs to a deployment with no
+// rolling update, and the row would otherwise stay dim as if still to come.
 func (m *checklistModel) stage(msg stageMsg) {
 	m.stages = slices.Clone(m.stages)
 	index := slices.IndexFunc(m.stages, func(row stageRow) bool { return row.name == msg.stage })
 	if index < 0 {
 		m.stages = append(m.stages, stageRow{name: msg.stage})
 		index = len(m.stages) - 1
+	}
+	if parent := service.ParentStage(msg.stage); parent != "" {
+		if p := slices.IndexFunc(m.stages, func(row stageRow) bool { return row.name == parent }); p >= 0 && m.stages[p].status == "" {
+			m.stages[p].status = stageNotUsed
+		}
 	}
 	row := &m.stages[index]
 	switch msg.status {
@@ -418,6 +479,13 @@ func (m *checklistModel) stage(msg stageMsg) {
 // stageStopped is a stage that was open when observation stopped before the
 // server's verdict; it neither succeeded nor failed.
 const stageStopped = "stopped"
+
+// stageNotUsed is a stage the deployment had no use for, known from the
+// markers of the stages that run inside it: a compose deployment, an
+// application with ports mapped to the host, and a preview start the new
+// container without a rolling update. It is drawn like a skipped stage,
+// since it did not run either, with "not used" in place of the reason.
+const stageNotUsed = "not used"
 
 // end freezes the view: an open stage ends with the deployment, the way the
 // deployment did, since no marker will arrive for it any more. Observation
@@ -448,12 +516,25 @@ func (m *checklistModel) end(outcome Outcome, at time.Time) {
 	}
 }
 
-// View has no trailing newline, so the renderer erases exactly it when the
-// program stops. There is no input, so the terminal mode is left alone.
+// View is the frame, with no trailing newline, so the renderer draws and
+// moves over exactly its rows. There is no input, so the terminal mode is
+// left alone.
 func (m checklistModel) View() tea.View {
-	view := tea.NewView(m.render())
+	view := tea.NewView(strings.Join(m.frame(), "\n"))
 	view.DisableBracketedPasteMode = true
 	return view
+}
+
+// frame is the rows the live view draws: the checklist's rows, cut to the
+// terminal's width, and no more of them than the terminal has rows, the
+// last ones, which is what Bubble Tea keeps of a taller frame. Each is one
+// terminal line, so the erase that ends the view moves over exactly them.
+func (m checklistModel) frame() []string {
+	rows := strings.Split(m.render(), "\n")
+	if m.height > 0 && len(rows) > m.height {
+		rows = rows[len(rows)-m.height:]
+	}
+	return rows
 }
 
 // labelWidth is the column the elapsed times align on, counted from the
@@ -502,9 +583,10 @@ func (m checklistModel) render() string {
 
 // drawRow draws one checklist row, the look deploy's stages and Steps share:
 // spin (the spinner frame) on what is open, ✓ and ✗ on what ended, … on what
-// observation left open, – on what was skipped, and a dim name for what was
-// not reached yet. The name is padded to width, so the times align, and a
-// row's detail, when it has one, follows its time dimmed.
+// observation left open, – on what did not run (skipped, or not used), and
+// a dim name for what was not reached yet. The name is padded to width, so
+// the times align, and a row's detail, when it has one, follows its time
+// dimmed.
 func drawRow(style palette, spin string, row stageRow, width int, now time.Time) string {
 	var line string
 	switch row.status {
@@ -526,6 +608,8 @@ func drawRow(style palette, spin string, row stageRow, width int, now time.Time)
 			text += " (" + singleLine(row.note) + ")"
 		}
 		return style.apply(dim, text)
+	case stageNotUsed:
+		return style.apply(dim, "– "+row.name+pad(row.name, width)+stageNotUsed)
 	default:
 		return style.apply(dim, "  "+row.name)
 	}
@@ -548,14 +632,15 @@ func fitLines(lines []string, width int) string {
 }
 
 // reached reports whether the named stage has run or is running, which is
-// when its children are drawn under it.
+// when its children are drawn under it; a stage skipped or not used has
+// nothing running inside it.
 func (m checklistModel) reached(name string) bool {
 	index := slices.IndexFunc(m.stages, func(row stageRow) bool { return row.name == name })
 	if index < 0 {
 		return false
 	}
 	status := m.stages[index].status
-	return status != "" && status != service.StageSkipped
+	return status != "" && status != service.StageSkipped && status != stageNotUsed
 }
 
 // glyph is the current spinner frame, one cell wide.

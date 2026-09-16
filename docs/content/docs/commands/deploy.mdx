@@ -35,7 +35,18 @@ When Coolify already holds an image for the same commit and nothing that affects
 https://coolship.example.com
 ```
 
-Rows are cut to the terminal's width, so a narrow terminal never wraps one.
+A Compose application, an application with ports mapped to the host, and a preview start the new container without a rolling update. Coolify writes `Rolling update started.` before it starts a container, so a container that starts, or old containers removed, with no rolling update before it settles that row: it reads `not used`, drawn like a skipped stage, and the container and cleanup rows stand on their own rather than under it:
+
+```text
+✓ Deployed api to production in 0:31
+  ✓ build                       0:12
+  – rolling update              not used
+  ✓ container                   0:15
+  ✓ cleanup                     0:00
+https://api.example.com
+```
+
+Rows are cut to the terminal's width, so a narrow terminal never wraps one. When the checklist ends, the rows it drew are erased and the final checklist is printed once in their place, where it stays.
 
 Piped, in CI, or with `--format json`, the same run prints status lines, the build log, and one line per stage transition on stderr as they arrive:
 
