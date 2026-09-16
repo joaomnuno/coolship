@@ -32,7 +32,8 @@ func (a *App) Domain(ctx context.Context, options Options) (DomainResult, error)
 // DomainSet replaces the application's domains after confirmation, then reads
 // the application back so the result reflects what the server kept. A
 // Compose application takes SERVICE=URL pairs and has its whole per-service
-// map replaced; any other application takes URLs. The arguments are checked
+// map replaced, each service keeping the redirect it has unless one is
+// asked for; any other application takes URLs. The arguments are checked
 // before any request, and which form the application takes once it is read.
 func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm ConfirmDomain) (DomainSetResult, error) {
 	services, domains, err := parseDomainArguments(options.Domains)
@@ -57,8 +58,15 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	case !compose && services != nil:
 		return DomainSetResult{}, input(fmt.Errorf("SERVICE=URL pairs set the domains of a Compose application; %s takes domains such as https://app.example.com", application.Name))
 	case compose:
+		// Coolify stores the map as sent, so a service sent without a
+		// redirect loses the one it has. The current one is carried over
+		// when none is asked for, as the server itself keeps a plain
+		// application's redirect when the request leaves it out.
 		for i := range services {
 			services[i].Redirect = options.Redirect
+			if options.Redirect == "" {
+				services[i].Redirect = currentRedirect(application.ComposeDomains, services[i].Name)
+			}
 		}
 		plan.CurrentServices = current
 		plan.Services = serviceDomains(services)
@@ -69,7 +77,9 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 		update.Domains, update.Redirect = domains, options.Redirect
 	}
 	result := DomainSetResult{Plan: plan, Warnings: s.warnings}
-	if sameDomains(current, plan) && options.Redirect == "" {
+	// A plain application does not report its redirect, so a request with
+	// one is always sent; a Compose plan names every redirect it sends.
+	if sameDomains(current, plan) && (options.Redirect == "" || compose) {
 		result.Warnings = append(result.Warnings, "Domains are already set as requested; nothing changed.")
 		return result, nil
 	}
@@ -100,7 +110,7 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	}
 	if kept := applicationDomains(updated); !sameDomains(kept, plan) {
 		if compose {
-			return result, fmt.Errorf("server kept %s instead of the requested domains; Coolify drops a service its copy of the compose file does not define, so check the service names against the file, then inspect Coolify", describeDomains(kept))
+			return result, fmt.Errorf("server kept %s instead of %s; Coolify drops a service its copy of the compose file does not define, so check the service names against the file, then inspect Coolify", describeDomains(kept), describeDomains(plan.Services))
 		}
 		return result, fmt.Errorf("server kept %s instead of the requested domains; inspect Coolify", describeDomains(kept))
 	}
@@ -169,30 +179,48 @@ func serviceDomains(services []models.ComposeDomain) []ServiceDomain {
 }
 
 // sameDomains reports whether the domains an application has are the ones a
-// plan asks for: the same URLs in the same order, under the same services
-// for a Compose application. Redirects are not compared, since a plan
-// without one keeps whatever is set.
+// plan asks for: the same URLs in the same order, and for a Compose
+// application under the same services with the same redirects, since the
+// plan names the redirect each service is sent, the current one when none
+// was asked for. A plain application's redirect is not compared: the plan
+// leaves it out to keep whatever is set, and the application does not
+// report it.
 func sameDomains(domains []ServiceDomain, plan DomainPlan) bool {
 	if plan.Services == nil {
 		return slices.Equal(urlsOf(domains), plan.Domains)
 	}
 	return slices.EqualFunc(domains, plan.Services, func(have, want ServiceDomain) bool {
-		return have.Service == want.Service && have.URL == want.URL
+		return have.Service == want.Service && have.URL == want.URL && have.Redirect == want.Redirect
 	})
 }
 
-// describeDomains names domains in an error, as the user would type them.
+// currentRedirect is the redirect a Compose application's service has now,
+// or empty for a service without one or without a domain.
+func currentRedirect(domains models.ComposeDomains, service string) string {
+	for _, entry := range domains {
+		if entry.Name == service {
+			return entry.Redirect
+		}
+	}
+	return ""
+}
+
+// describeDomains names domains in an error, as the user would type them,
+// with the redirect a Compose service has beside it.
 func describeDomains(domains []ServiceDomain) string {
 	if len(domains) == 0 {
 		return "no domain"
 	}
 	var parts []string
 	for _, domain := range domains {
+		part := domain.URL
 		if domain.Service != "" {
-			parts = append(parts, domain.Service+"="+domain.URL)
-			continue
+			part = domain.Service + "=" + domain.URL
 		}
-		parts = append(parts, domain.URL)
+		if domain.Redirect != "" {
+			part += " (redirect " + domain.Redirect + ")"
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")
 }
