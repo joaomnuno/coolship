@@ -40,6 +40,8 @@ Every command from the brief is implemented and verified against a live Coolify 
 
 Settled on 2026-09-11; `CONTEXT.md` holds the vocabulary and ADR 0001 the library choice. v0.3 ships with the plain output it has; this milestone is what a developer sees when a terminal is attached. Piped output and JSON do not change.
 
+This milestone shipped in v0.4.0 on 2026-09-16.
+
 - [x] Adopt the Charm stack inside `internal/ui` only (ADR 0001).
 - [x] `deploy`, `start`, `restart`, `preview`: a stage checklist keyed on Coolify's log markers, a spinner with elapsed time, the build log collapsed by default and printed in full on failure, and the application URL (or the Coolify deployment page) as the last line.
 - [x] `--logs` and `--no-logs` for one run; then the preference; then the verbosity default (collapsed at normal, streamed at verbose and debug; the resolution lives in one place in `cmd`).

@@ -107,7 +107,7 @@ The `Preferences` line of `config show` shows the path, then `(absent)` when the
 Once a day, a released build of Coolship asks GitHub for the latest release, ignoring pre-releases, while the command runs. The check gives up after two seconds and never holds up the command: if the command finishes first, the check is abandoned and tried again next time. When a newer release exists, one line is printed on stderr after the command's own output, at most once a day for each release:
 
 ```
-A new Coolship release is available: v0.4.0 (you have v0.3.0). Upgrade: curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
+A new Coolship release is available: v0.5.0 (you have v0.4.0). Upgrade: curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/install.sh | sh
 ```
 
 The notice only appears when stderr is a terminal. It never appears in CI (when `CI` is set), with `--format json`, or for a development build. Set `COOLSHIP_NO_UPDATE_NOTIFIER=1` or `update_check = false` in the preferences file to turn it off. The time of the last check and the release it found are kept in `state.json`, next to `preferences.toml`. Coolship writes that file itself, and it can be deleted at any time.
