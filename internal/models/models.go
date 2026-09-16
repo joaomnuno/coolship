@@ -346,7 +346,9 @@ type ApplicationSpec struct {
 // ComposeDomain assigns a domain to one service of a Compose application.
 // Name is the service name in the compose file, Domain is Coolify's
 // comma-separated URL list for it, and Redirect is "www", "non-www",
-// "both", or empty, which keeps the service's current policy on an update.
+// "both", or empty, which an update stores as no policy: the server keeps
+// the map as sent, so a service's current redirect must be sent again to
+// survive.
 type ComposeDomain struct {
 	Name     string `json:"name"`
 	Domain   string `json:"domain"`

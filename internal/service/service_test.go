@@ -46,12 +46,15 @@ type fakeBackend struct {
 	processes    []ProcessSpec
 	exitCode     int
 	domainUpdate models.DomainUpdate
-	teamError    error
-	servers      []models.Server
-	created      []models.ApplicationSpec
-	createError  error
-	deployError  error
-	logsErrors   []error // per Logs call; nil entries answer normally
+	// dropRedirects makes the server keep a Compose application's domains
+	// but not their redirects, as one without per-service redirects would.
+	dropRedirects bool
+	teamError     error
+	servers       []models.Server
+	created       []models.ApplicationSpec
+	createError   error
+	deployError   error
+	logsErrors    []error // per Logs call; nil entries answer normally
 	// stopAfter is how many Logs calls are answered before the container goes
 	// away: later calls refuse, and the application reads exited:unhealthy.
 	stopAfter int
@@ -280,9 +283,13 @@ func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, upd
 		// knows; the fake knows the ones named "unknown" are not in the file.
 		f.application.ComposeDomains = nil
 		for _, service := range update.Services {
-			if service.Name != "unknown" {
-				f.application.ComposeDomains = append(f.application.ComposeDomains, service)
+			if service.Name == "unknown" {
+				continue
 			}
+			if f.dropRedirects {
+				service.Redirect = ""
+			}
+			f.application.ComposeDomains = append(f.application.ComposeDomains, service)
 		}
 		return nil
 	}
@@ -2007,15 +2014,36 @@ func TestComposeDomainsAreListedAndSetPerService(t *testing.T) {
 	if !reflect.DeepEqual(after.Domains, []string{"https://new.example.com", "https://www.new.example.com"}) || after.Services[1].Service != "bot" {
 		t.Fatalf("after = %+v", after)
 	}
-	// A service named twice gets both URLs in one entry.
-	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=a.example.com", "bot=b.example.com", "bot=a.example.com"}, Yes: true}, nil); err != nil || !reflect.DeepEqual(f.domainUpdate.Services, []models.ComposeDomain{{Name: "bot", Domain: "https://a.example.com,https://b.example.com"}}) {
+	// The same map with the same redirect again is a no-op too, since a
+	// Compose application reports its redirects.
+	sent := f.calls["domains"]
+	changed, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"Bot=new.example.com", "bot=www.new.example.com"}, Redirect: "www", Yes: true}, nil)
+	if err != nil || f.calls["domains"] != sent || len(changed.Warnings) != 1 || !strings.Contains(changed.Warnings[0], "nothing changed") {
+		t.Fatalf("redirect no-op: err=%v calls=%d warnings=%v", err, f.calls["domains"]-sent, changed.Warnings)
+	}
+	// A service named twice gets both URLs in one entry. Without --redirect,
+	// a service keeps the redirect it has, sent again since the server
+	// stores the map as sent; a service without one is sent none.
+	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=a.example.com", "bot=b.example.com", "bot=a.example.com", "api=api.example.com"}}, accepted)
+	if want := []models.ComposeDomain{{Name: "bot", Domain: "https://a.example.com,https://b.example.com", Redirect: "www"}, {Name: "api", Domain: "https://api.example.com"}}; err != nil || !reflect.DeepEqual(f.domainUpdate.Services, want) {
 		t.Fatalf("twice: update=%+v err=%v", f.domainUpdate, err)
+	}
+	if want := []ServiceDomain{{Service: "bot", URL: "https://a.example.com", Redirect: "www"}, {Service: "bot", URL: "https://b.example.com", Redirect: "www"}, {Service: "api", URL: "https://api.example.com"}}; !reflect.DeepEqual(plan.Services, want) {
+		t.Fatalf("plan = %+v", plan.Services)
 	}
 	// A service the server does not know is dropped by it, which the read back reports.
 	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"unknown=x.example.com"}, Yes: true}, nil)
-	if err == nil || !strings.Contains(err.Error(), "server kept no domain") || !strings.Contains(err.Error(), "compose file") {
+	if err == nil || !strings.Contains(err.Error(), "server kept no domain instead of unknown=https://x.example.com") || !strings.Contains(err.Error(), "compose file") {
 		t.Fatalf("unknown service: %v", err)
 	}
+	// A server that keeps the domains but not the redirect is reported too,
+	// with both sides, since the read back compares the redirects.
+	f.dropRedirects = true
+	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=a.example.com"}, Redirect: "non-www", Yes: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "server kept bot=https://a.example.com instead of bot=https://a.example.com (redirect non-www)") {
+		t.Fatalf("dropped redirect: %v", err)
+	}
+	f.dropRedirects = false
 	// Pairs on an application that is not Compose are refused.
 	plain := newBackend()
 	app, _, _ = testApp(plain)

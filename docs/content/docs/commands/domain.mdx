@@ -28,11 +28,11 @@ api  https://api.example.com
 
 A bare host such as `app.example.com` means `https://app.example.com`. The change is shown and confirmed first, or requires `--yes` when noninteractive. Coolship refuses a domain Coolify sees in use elsewhere on the server unless `--force`, reads the application back to confirm what the server kept, and reminds you that the proxy learns the new domain on the next deployment.
 
-For a Docker Compose application, give each service its URL as `SERVICE=URL`, the same form as `init --compose-domain`; a service named twice gets both URLs. The whole per-service set is replaced, so name every service that should keep a domain. A plain URL is refused with the services that have a domain now and the form to use, and `SERVICE=URL` on any other application is refused the same way, before anything is sent. Coolify keeps only the services its copy of the compose file defines and drops the rest silently, which the read back reports.
+For a Docker Compose application, give each service its URL as `SERVICE=URL`, the same form as `init --compose-domain`; a service named twice gets both URLs. The whole per-service set is replaced, so name every service that should keep a domain. A plain URL is refused with the services that have a domain now and the form to use, and `SERVICE=URL` on any other application is refused the same way, before anything is sent. Coolify keeps only the services its copy of the compose file defines and drops the rest silently, which the read back reports, as it does a redirect the server did not keep.
 
 | Flag                | Purpose                                                              |
 | ------------------- | -------------------------------------------------------------------- |
-| `--redirect POLICY` | Redirect policy: `www`, `non-www`, or `both`; for every service given on a Compose application. |
+| `--redirect POLICY` | Redirect policy: `www`, `non-www`, or `both`; for every service given on a Compose application, each of which keeps its current policy when the flag is left out. |
 | `--force`           | Bypass Coolify's check that a domain is unused on the server.        |
 | `-y`, `--yes`       | Change without confirmation.                                         |
 

@@ -1164,6 +1164,19 @@ func TestComposeDomainsRoundTripAgainstTheServer(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"url":"https://new.example.com"`) {
 		t.Fatalf("status after set: out=%q err=%v", out, err)
 	}
+	// Without --redirect, each service keeps the redirect it has: the server
+	// stores the map as sent, so Coolship sends the current one again.
+	out, _, err = run(t, instance.URL, dir, "", "domain", "set", "bot=third.example.com", "api=https://api-c.example.com", "--yes")
+	if err != nil || !strings.Contains(out, "Domains of fenix-compose: bot=https://third.example.com, api=https://api-c.example.com\n") {
+		t.Fatalf("set without redirect: out=%q err=%v", out, err)
+	}
+	out, _, err = run(t, instance.URL, dir, "", "domain", "--format", "json")
+	if err != nil || !strings.Contains(out, `"services":[{"service":"bot","url":"https://third.example.com","redirect":"www"},{"service":"api","url":"https://api-c.example.com","redirect":"www"}]`) {
+		t.Fatalf("domain after set without redirect: out=%q err=%v", out, err)
+	}
+	if compose := s.counts()["PATCH /api/v1/applications/app-3"]; compose != 2 {
+		t.Fatalf("patches = %d", compose)
+	}
 }
 
 func TestLifecycleAgainstTheServer(t *testing.T) {
