@@ -21,6 +21,7 @@ version=${COOLSHIP_VERSION:-latest}
 install_dir=${COOLSHIP_INSTALL_DIR:-}
 dry_run=0
 quiet=0
+banner_shown=0
 tmp=
 staged=
 
@@ -50,8 +51,8 @@ Environment:
 The archive's SHA-256 is checked against the release's checksums.txt before
 anything is installed. The script never runs sudo and never asks a question;
 if DIR needs root it prints the command to run instead. When stdout is a
-terminal it ends with the Coolship wordmark and the next steps (NO_COLOR
-turns the colour off).
+terminal it ends with the Coolship banner and the next steps (NO_COLOR or
+TERM=dumb turns the colour off).
 USAGE
 }
 
@@ -59,37 +60,52 @@ log() { printf '%s\n' "$*"; }
 # progress: a line --quiet leaves out.
 progress() { if [ "$quiet" = 0 ]; then log "$@"; fi; }
 
-# welcome VERSION PATH: the wordmark and next steps, for a person at a
+# welcome VERSION PATH: the banner and next steps, for a person at a
 # terminal. A pipe, a CI log, and --quiet get one plain line instead.
 welcome() {
 	if [ "$quiet" = 1 ] || [ ! -t 1 ]; then
 		log "Installed $2 ($1)"
 		return
 	fi
-	accent= reset= faint=
-	if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
-		# The site's ember accent in the 256-colour palette.
-		accent=$(printf '\033[1;38;5;208m')
-		faint=$(printf '\033[2m')
-		reset=$(printf '\033[0m')
-	fi
-	printf '\n%s' "$accent"
-	cat <<'WORDMARK'
-   ████   ████    ████   ██      █████ ██  ██ ██ █████
-  ██     ██  ██  ██  ██  ██     ██     ██  ██ ██ ██  ██
-  ██     ██  ██  ██  ██  ██      ████  ██████ ██ ██  ██
-  ██     ██  ██  ██  ██  ██         ██ ██  ██ ██ █████
-  ██     ██  ██  ██  ██  ██         ██ ██  ██ ██ ██
-   ████   ████    ████   ██████ █████  ██  ██ ██ ██
-WORDMARK
-	printf '%s\n' "$reset"
-	printf '  %s\n' "$1"
-	printf '  %s%s%s\n\n' "$faint" "$2" "$reset"
-	printf '  Next:      %scoolship login%s\n' "$accent" "$reset"
-	if [ ! -e "$(dirname "$2")/cs" ]; then
-		printf '  Optional:  coolship alias  (adds cs)\n'
-	fi
+	banner "$version" "$2"
+	banner_shown=1
 }
+
+# banner VERSION PATH: the Coolship tile beside the release just installed,
+# then the path and the next steps. Colour needs a terminal and stays off
+# when NO_COLOR is set, even empty, or TERM is dumb or unset. Runs in a
+# subshell so its names never touch the script's.
+banner() (
+	version=${1#v}
+	destination=$2
+
+	orange='' tile='' bold='' muted='' green='' reset=''
+	if [ -t 1 ] &&
+		[ "${TERM:-dumb}" != dumb ] &&
+		[ "${NO_COLOR+x}" != x ]; then
+		orange="$(printf '\033[38;2;224;100;28m')"
+		tile="$(printf '\033[48;2;224;100;28m\033[97m')"
+		bold="$(printf '\033[1m')"
+		muted="$(printf '\033[90m')"
+		green="$(printf '\033[32m')"
+		reset="$(printf '\033[0m')"
+	fi
+
+	cat <<EOF
+
+   ${orange}▄██████████▄${reset}    ${bold}coolship${reset}  ${muted}v${version}${reset}
+   ${tile}  ▀█▄       ${reset}
+   ${tile}    ██      ${reset}    Ship from your terminal.
+   ${tile}  ▄█▀  ▄▄▄  ${reset}
+   ${orange}▀██████████▀${reset}    ${green}Installation complete.${reset}
+
+   ${muted}${destination}${reset}
+
+   Get started   ${orange}${bold}coolship login${reset}
+   Shortcut      coolship alias ${muted}→ cs${reset}
+
+EOF
+)
 fail() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
@@ -344,7 +360,8 @@ case ":$PATH:" in
 		;;
 	*) hint="export PATH=\"$shown:\$PATH\"" ;;
 	esac
-	log ""
+	# The banner already ends with a blank line.
+	[ "$banner_shown" = 1 ] || log ""
 	log "$install_dir is not on your PATH. Add it with:"
 	log ""
 	log "    $hint"
