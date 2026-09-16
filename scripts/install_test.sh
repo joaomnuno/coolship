@@ -305,6 +305,23 @@ assert_status 0 "preview with VERSION and PATH"
 assert_contains "$out" "Installed /opt/bin/coolship (coolship v0.4.0)" "preview takes VERSION and PATH"
 run "$work/bin-nofetch" "http://127.0.0.1:9" "$SH" "$install" --version 0.8.0 --preview --quiet
 assert_contains "$out" "(coolship v0.8.0)" "preview takes the version from --version"
+# Without HOME: a preview given its PATH needs no install directory, so it
+# runs; one without a PATH still needs the directory, so it fails as an
+# install would.
+n=$((n + 1))
+out=$work/out.$n
+err=$work/err.$n
+status=0
+env -i PATH="$work/bin-nofetch" TMPDIR="$work" SHELL=/bin/bash COOLSHIP_BASE_URL=http://127.0.0.1:9 "$SH" "$install" --preview 0.4.0 /opt/bin/coolship >"$out" 2>"$err" || status=$?
+assert_status 0 "preview with PATH and no HOME"
+assert_contains "$out" "Installed /opt/bin/coolship (coolship v0.4.0)" "preview with a PATH needs no HOME"
+n=$((n + 1))
+out=$work/out.$n
+err=$work/err.$n
+status=0
+env -i PATH="$work/bin-nofetch" TMPDIR="$work" SHELL=/bin/bash COOLSHIP_BASE_URL=http://127.0.0.1:9 "$SH" "$install" --preview 0.4.0 >"$out" 2>"$err" || status=$?
+assert_status 1 "preview without PATH and no HOME"
+assert_contains "$err" "HOME is not set" "preview without a PATH still needs HOME for the directory"
 
 echo "== piped output and --quiet print no banner"
 run "$work/bin-all" "$base" COOLSHIP_INSTALL_DIR="$work/piped" "$SH" "$install"
