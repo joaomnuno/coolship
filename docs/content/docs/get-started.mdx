@@ -18,17 +18,22 @@ curl -fsSL https://raw.githubusercontent.com/joaomnuno/coolship/main/scripts/ins
 
 The script downloads the release archive from GitHub Releases, checks its SHA-256 against the release's `checksums.txt`, installs `coolship` into `$HOME/.local/bin`, and prints the installed version plus a one-liner for your shell if that directory is not on `PATH`. It needs `curl` or `wget`, `tar`, and `sha256sum` or `shasum`; it never asks a question and never runs `sudo` (if you point it at a system directory it prints the command to run instead). Windows is not supported by the script; build from source or use WSL.
 
-In a terminal the script ends with the Coolship wordmark, the installed version and path, and what to run next:
+In a terminal the script ends with the Coolship banner: the tile in orange beside the installed version, the path, and what to run next:
 
 ```text
-  coolship v0.4.0
-  /home/you/.local/bin/coolship
+   ▄██████████▄    coolship  v0.4.0
+     ▀█▄
+       ██          Ship from your terminal.
+     ▄█▀  ▄▄▄
+   ▀██████████▀    Installation complete.
 
-  Next:      coolship login
-  Optional:  coolship alias  (adds cs)
+   /home/you/.local/bin/coolship
+
+   Get started   coolship login
+   Shortcut      coolship alias → cs
 ```
 
-`NO_COLOR` drops the colour. Piped output, such as a CI log, and `--quiet` print a single `Installed` line instead. [`coolship alias`](/docs/commands/alias) adds `cs` as a short name for `coolship`.
+`NO_COLOR` or `TERM=dumb` drops the colour and keeps the banner. Piped output, such as a CI log, and `--quiet` print a single `Installed` line instead. [`coolship alias`](/docs/commands/alias) adds `cs` as a short name for `coolship`.
 
 Overrides, as environment variables or flags (`sh -s -- --version 0.3.0 --dir /opt/bin`):
 

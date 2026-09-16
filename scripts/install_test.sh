@@ -289,11 +289,11 @@ assert_status 0 "dry run"
 assert_contains "$out" "Would download $base/releases/download/v0.9.0/coolship_0.9.0_${os}_${arch}.tar.gz" "dry run prints the URL"
 assert_no_file "$work/dry" "dry run creates nothing"
 
-echo "== piped output and --quiet print no wordmark"
+echo "== piped output and --quiet print no banner"
 run "$work/bin-all" "$base" COOLSHIP_INSTALL_DIR="$work/piped" "$SH" "$install"
 assert_status 0 "piped install"
 assert_contains "$out" "Installed $work/piped/coolship (coolship version v0.9.0)" "piped install keeps the plain line"
-if grep -q "Next:" "$out"; then ko "piped install printed the welcome block"; else ok; fi
+if grep -q "Installation complete." "$out"; then ko "piped install printed the banner"; else ok; fi
 run "$work/bin-all" "$base" COOLSHIP_INSTALL_DIR="$work/quiet" "$SH" "$install" --quiet
 assert_status 0 "quiet install"
 assert_file "$work/quiet/coolship" "quiet install"
@@ -302,36 +302,54 @@ assert_contains "$out" "Installed $work/quiet/coolship" "--quiet keeps the insta
 
 # A terminal on stdout needs a pseudo-terminal; util-linux script provides one.
 if script -qec true /dev/null >/dev/null 2>&1; then
-	echo "== terminal output shows the wordmark and next steps"
+	echo "== terminal output shows the banner and next steps"
 	n=$((n + 1))
 	out=$work/out.$n
 	err=$work/err.$n
 	status=0
 	script -qec "env -i PATH=$work/bin-all HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm COOLSHIP_BASE_URL=$base COOLSHIP_INSTALL_DIR=$work/tty $SH $install" /dev/null >"$out" 2>"$err" </dev/null || status=$?
 	assert_status 0 "terminal install"
-	assert_contains "$out" "████" "terminal install draws the wordmark"
-	assert_contains "$out" "Next:" "terminal install names the next step"
+	assert_contains "$out" "Installation complete." "terminal install draws the banner"
+	assert_contains "$out" "Ship from your terminal." "terminal install draws the tagline"
 	assert_contains "$out" "coolship login" "terminal install suggests login"
-	assert_contains "$out" "Optional:  coolship alias  (adds cs)" "terminal install suggests the alias"
-	assert_contains "$out" "$(printf '\033[1;38;5;208m')" "terminal install uses the accent colour"
-	# Counted in characters: each block is one column but three bytes.
-	widest=$(sed -n "/cat <<'WORDMARK'/,/^WORDMARK/p" "$install" | sed '1d;$d;s/█/#/g' | awk '{ if (length($0) > max) max = length($0) } END { print max }')
-	if [ "$widest" -le 60 ]; then ok; else ko "wordmark is $widest columns wide, want at most 60"; fi
+	assert_contains "$out" "coolship alias" "terminal install suggests the alias"
+	assert_contains "$out" "$work/tty/coolship" "terminal install names the installed path"
+	assert_contains "$out" "v0.9.0" "terminal install shows the version"
+	if grep -q "vv0.9.0" "$out"; then ko "terminal install doubled the v of the version"; else ok; fi
+	assert_contains "$out" "$(printf '\033[38;2;224;100;28m')" "terminal install uses the orange accent"
+	assert_contains "$out" "is not on your PATH" "terminal install keeps the PATH hint after the banner"
+	# Visible columns of the banner: colour sequences stripped, each block
+	# glyph and the arrow counted as one column. The path line depends on
+	# where the test runs, so it is left out.
+	esc=$(printf '\033')
+	widest=$(tr -d '\r' <"$out" | sed -n '/▄██████████▄/,/Shortcut/p' | grep -vF "$work/tty/coolship" |
+		sed "s/$esc\[[0-9;]*m//g; s/▄/#/g; s/█/#/g; s/▀/#/g; s/→/#/g" |
+		awk '{ if (length($0) > max) max = length($0) } END { print max + 0 }')
+	if [ "$widest" -gt 0 ] && [ "$widest" -le 60 ]; then ok; else ko "banner is $widest columns wide, want 1 to 60"; fi
 
 	n=$((n + 1))
 	out=$work/out.$n
 	status=0
-	script -qec "env -i PATH=$work/bin-all HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm NO_COLOR=1 COOLSHIP_BASE_URL=$base COOLSHIP_INSTALL_DIR=$work/tty $SH $install" /dev/null >"$out" 2>"$err" </dev/null || status=$?
+	script -qec "env -i PATH=$work/bin-all HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm NO_COLOR= COOLSHIP_BASE_URL=$base COOLSHIP_INSTALL_DIR=$work/tty $SH $install" /dev/null >"$out" 2>"$err" </dev/null || status=$?
 	assert_status 0 "NO_COLOR terminal install"
-	assert_contains "$out" "Next:" "NO_COLOR keeps the welcome block"
-	if grep -q "$(printf '\033')" "$out"; then ko "NO_COLOR still printed escape sequences"; else ok; fi
+	assert_contains "$out" "Installation complete." "empty NO_COLOR keeps the banner"
+	if grep -q "$(printf '\033')" "$out"; then ko "empty NO_COLOR still printed escape sequences"; else ok; fi
+
+	n=$((n + 1))
+	out=$work/out.$n
+	status=0
+	script -qec "env -i PATH=$work/bin-all HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=dumb COOLSHIP_BASE_URL=$base COOLSHIP_INSTALL_DIR=$work/tty $SH $install" /dev/null >"$out" 2>"$err" </dev/null || status=$?
+	assert_status 0 "TERM=dumb terminal install"
+	assert_contains "$out" "Installation complete." "TERM=dumb keeps the banner"
+	if grep -q "$(printf '\033')" "$out"; then ko "TERM=dumb still printed escape sequences"; else ok; fi
 
 	n=$((n + 1))
 	out=$work/out.$n
 	status=0
 	script -qec "env -i PATH=$work/bin-all HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm COOLSHIP_BASE_URL=$base COOLSHIP_INSTALL_DIR=$work/tty $SH $install --quiet" /dev/null >"$out" 2>"$err" </dev/null || status=$?
 	assert_status 0 "quiet terminal install"
-	if grep -q "Next:" "$out"; then ko "--quiet in a terminal printed the welcome block"; else ok; fi
+	assert_contains "$out" "Installed $work/tty/coolship (coolship version v0.9.0)" "--quiet in a terminal keeps the plain line"
+	if grep -q "Installation complete." "$out"; then ko "--quiet in a terminal printed the banner"; else ok; fi
 else
 	echo "== skipping terminal output test (no util-linux script)"
 fi
