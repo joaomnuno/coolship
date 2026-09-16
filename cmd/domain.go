@@ -33,6 +33,9 @@ takes SERVICE=URL pairs instead, one per service, such as
 web=https://app.example.com, and the whole set is replaced. The change is
 confirmed first, or requires --yes when noninteractive, and reaches the proxy
 on the next deployment.`,
+		Example: `  coolship domain set app.example.com
+  coolship domain set https://app.example.com https://www.example.com --redirect non-www
+  coolship domain set web=app.example.com api=https://api.example.com   # Docker Compose: one pair per service`,
 		Args: func(command *cobra.Command, args []string) error {
 			if err := cobra.MinimumNArgs(1)(command, args); err != nil {
 				return inputError(err)

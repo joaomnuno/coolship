@@ -278,6 +278,8 @@ func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, upd
 		return errors.New("wrong application")
 	}
 	f.domainUpdate = update
+	// The server keeps a URL's port apart from the domain, as Coolify 4.3.21
+	// does; the fake knows port 3000 as the one the tests send.
 	if update.Services != nil {
 		// The server replaces the map whole and keeps only the services it
 		// knows; the fake knows the ones named "unknown" are not in the file.
@@ -289,11 +291,12 @@ func (f *fakeBackend) UpdateApplicationDomains(_ context.Context, id string, upd
 			if f.dropRedirects {
 				service.Redirect = ""
 			}
+			service.Domain = strings.ReplaceAll(service.Domain, ":3000", "")
 			f.application.ComposeDomains = append(f.application.ComposeDomains, service)
 		}
 		return nil
 	}
-	f.application.FQDN = strings.Join(update.Domains, ",")
+	f.application.FQDN = strings.ReplaceAll(strings.Join(update.Domains, ","), ":3000", "")
 	return nil
 }
 
@@ -1940,6 +1943,32 @@ func TestDomainShowsGeneratedAndSetsWithConfirmation(t *testing.T) {
 	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"other.example.com"}, Redirect: "non-www", Force: true, Yes: true}, nil); err != nil || !f.domainUpdate.Force || f.domainUpdate.Redirect != "non-www" {
 		t.Fatalf("update=%+v err=%v", f.domainUpdate, err)
 	}
+	// A URL with a port is sent as typed, and the read back accepts the
+	// domain kept without it, since the server keeps the port apart. Sent
+	// again it is not a no-op: the port kept is not read.
+	sent := f.calls["domains"]
+	changed, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"https://app.example.com:3000/"}, Yes: true}, nil)
+	if err != nil || !reflect.DeepEqual(f.domainUpdate.Domains, []string{"https://app.example.com:3000"}) || f.application.FQDN != "https://app.example.com" ||
+		!reflect.DeepEqual(changed.Plan.Domains, []string{"https://app.example.com:3000"}) || len(changed.Warnings) != 1 || !strings.Contains(changed.Warnings[0], "next deployment") {
+		t.Fatalf("port: update=%+v fqdn=%q result=%+v err=%v", f.domainUpdate, f.application.FQDN, changed, err)
+	}
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"app.example.com:3000"}, Yes: true}, nil); err != nil || f.calls["domains"] != sent+2 {
+		t.Fatalf("port again: err=%v calls=%d", err, f.calls["domains"]-sent)
+	}
+	// A host no proxy could route is refused before any request rather than
+	// sent for the server to refuse: symbols, a port out of range, a
+	// non-ASCII host. An IP address and an underscore in a label pass.
+	sent = f.calls["domains"]
+	for _, bad := range [][]string{{"="}, {"https://a.example.com=b"}, {"https://a.example.com:70000"}, {"https://a.example.com:0"}, {"https://bücher.example"}, {"https://a.example.com:8080:1"}} {
+		if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: bad, Yes: true}, nil); !errors.Is(err, ErrInput) || f.calls["domains"] != sent {
+			t.Errorf("%v accepted: %v", bad, err)
+		}
+	}
+	for _, good := range []string{"https://[::1]:8080", "http://10.0.0.1", "my_app.example.com."} {
+		if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{good}, Yes: true}, nil); err != nil {
+			t.Errorf("%q refused: %v", good, err)
+		}
+	}
 }
 
 func TestComposeDomainsAreListedAndSetPerService(t *testing.T) {
@@ -2045,6 +2074,24 @@ func TestComposeDomainsAreListedAndSetPerService(t *testing.T) {
 		t.Fatalf("dropped redirect: %v", err)
 	}
 	f.dropRedirects = false
+	// A service URL with a port is sent as typed and read back as the
+	// domain kept without it: the server keeps the port apart, as the
+	// container port the domain routes to. Sent again it is not a no-op,
+	// since the port kept is not read.
+	sent = f.calls["domains"]
+	changed, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=https://bot.example.com:3000", "api=api.example.com"}, Yes: true}, nil)
+	if err != nil || f.calls["domains"] != sent+1 || f.application.ComposeDomains[0].Domain != "https://bot.example.com" ||
+		!reflect.DeepEqual(changed.Plan.Services, []ServiceDomain{{Service: "bot", URL: "https://bot.example.com:3000"}, {Service: "api", URL: "https://api.example.com"}}) ||
+		len(changed.Warnings) != 1 || !strings.Contains(changed.Warnings[0], "next deployment") {
+		t.Fatalf("port: err=%v calls=%d stored=%+v result=%+v", err, f.calls["domains"]-sent, f.application.ComposeDomains, changed)
+	}
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=https://bot.example.com:3000", "api=api.example.com"}, Yes: true}, nil); err != nil || f.calls["domains"] != sent+2 {
+		t.Fatalf("port again: err=%v calls=%d", err, f.calls["domains"]-sent)
+	}
+	// A stray = in a pair is refused as input, not sent as part of a URL.
+	if _, err := app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot=a.example.com=b"}, Yes: true}, nil); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "service bot") || f.calls["domains"] != sent+2 {
+		t.Fatalf("stray =: err=%v calls=%d", err, f.calls["domains"]-sent)
+	}
 	// Pairs on an application that is not Compose are refused.
 	plain := newBackend()
 	app, _, _ = testApp(plain)

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/models"
@@ -78,7 +80,9 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	}
 	result := DomainSetResult{Plan: plan, Warnings: s.warnings}
 	// A plain application does not report its redirect, so a request with
-	// one is always sent; a Compose plan names every redirect it sends.
+	// one is always sent; a Compose plan names every redirect it sends. A
+	// URL with a port is always sent too: Coolify keeps the port apart from
+	// the domain, where the read does not show it.
 	if sameDomains(current, plan) && (options.Redirect == "" || compose) {
 		result.Warnings = append(result.Warnings, "Domains are already set as requested; nothing changed.")
 		return result, nil
@@ -108,7 +112,7 @@ func (a *App) DomainSet(ctx context.Context, options DomainSetOptions, confirm C
 	if err != nil {
 		return result, fmt.Errorf("domains were sent but could not be read back: %w", err)
 	}
-	if kept := applicationDomains(updated); !sameDomains(kept, plan) {
+	if kept := applicationDomains(updated); !keptDomains(kept, plan) {
 		if compose {
 			return result, fmt.Errorf("server kept %s instead of %s; Coolify drops a service its copy of the compose file does not define, so check the service names against the file, then inspect Coolify", describeDomains(kept), describeDomains(plan.Services))
 		}
@@ -186,12 +190,35 @@ func serviceDomains(services []models.ComposeDomain) []ServiceDomain {
 // leaves it out to keep whatever is set, and the application does not
 // report it.
 func sameDomains(domains []ServiceDomain, plan DomainPlan) bool {
+	return matchDomains(domains, plan, func(have, want string) bool { return have == want })
+}
+
+// keptDomains reports whether the domains read back after an update are the
+// ones the plan sent, as sameDomains does, except that a URL kept without
+// the port it was sent with counts: Coolify keeps the port apart from the
+// domain, as the container port the domain routes to, and reports the
+// domain without it.
+func keptDomains(domains []ServiceDomain, plan DomainPlan) bool {
+	return matchDomains(domains, plan, func(have, want string) bool { return have == want || have == withoutPort(want) })
+}
+
+func matchDomains(domains []ServiceDomain, plan DomainPlan, sameURL func(have, want string) bool) bool {
 	if plan.Services == nil {
-		return slices.Equal(urlsOf(domains), plan.Domains)
+		return slices.EqualFunc(urlsOf(domains), plan.Domains, sameURL)
 	}
 	return slices.EqualFunc(domains, plan.Services, func(have, want ServiceDomain) bool {
-		return have.Service == want.Service && have.URL == want.URL && have.Redirect == want.Redirect
+		return have.Service == want.Service && sameURL(have.URL, want.URL) && have.Redirect == want.Redirect
 	})
+}
+
+// withoutPort is a normalized URL without its port, or the URL itself when
+// it has none.
+func withoutPort(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Port() == "" {
+		return rawURL
+	}
+	return parsed.Scheme + "://" + strings.TrimSuffix(parsed.Host, ":"+parsed.Port()) + parsed.Path
 }
 
 // currentRedirect is the redirect a Compose application's service has now,
@@ -245,8 +272,16 @@ func composeExample(application models.Application) string {
 	return strings.Join(pairs, " ") + " (its services with a domain now: " + strings.Join(names, ", ") + ")"
 }
 
+// domainHost is a hostname a proxy can route: labels of letters, digits,
+// hyphens, and underscores joined by dots. It is what tells https://= or a
+// stray second = in a SERVICE=URL pair from a domain before anything is
+// sent; an IP address is accepted beside it.
+var domainHost = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.?$`)
+
 // normalizeDomains accepts full web URLs, or bare hosts as https, and rejects
-// anything a proxy could not route.
+// anything a proxy could not route: another scheme, a host that is not a
+// hostname or an IP address, a port outside 1 to 65535, credentials, a
+// query, or a fragment.
 func normalizeDomains(inputs []string) ([]string, error) {
 	if len(inputs) == 0 {
 		return nil, errors.New("at least one domain is required")
@@ -262,9 +297,14 @@ func normalizeDomains(inputs []string) ([]string, error) {
 				item = "https://" + item
 			}
 			parsed, err := url.Parse(item)
-			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" ||
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || !routableHost(parsed.Hostname()) ||
 				parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(item, " \t\r\n") {
 				return nil, fmt.Errorf("domain %q must be a plain http or https URL such as https://app.example.com", item)
+			}
+			if port := parsed.Port(); port != "" {
+				if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+					return nil, fmt.Errorf("domain %q has port %s; a port is a number from 1 to 65535", item, port)
+				}
 			}
 			normalized := strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host) + strings.TrimRight(parsed.Path, "/")
 			if slices.Contains(result, normalized) {
@@ -277,6 +317,11 @@ func normalizeDomains(inputs []string) ([]string, error) {
 		return nil, errors.New("at least one domain is required")
 	}
 	return result, nil
+}
+
+// routableHost reports whether a URL's host is a hostname or an IP address.
+func routableHost(host string) bool {
+	return domainHost.MatchString(host) || net.ParseIP(host) != nil
 }
 
 // isGenerated recognizes Coolify's automatic <uuid>.<wildcard> domain.
