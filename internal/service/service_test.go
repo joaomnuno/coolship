@@ -1974,7 +1974,8 @@ func TestComposeDomainsAreListedAndSetPerService(t *testing.T) {
 		t.Fatalf("state: %+v err=%v", state, err)
 	}
 
-	// A bare URL is refused with the syntax and the services, before any request.
+	// A bare URL is refused with the syntax and the services, once the
+	// application is read and before any update is sent.
 	_, err = app.DomainSet(context.Background(), DomainSetOptions{Options: options, Domains: []string{"bot.example.com"}, Yes: true}, nil)
 	if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "SERVICE=URL") || !strings.Contains(err.Error(), "bot, api") || f.calls["domains"] != 0 {
 		t.Fatalf("bare URL: err=%v calls=%d", err, f.calls["domains"])
