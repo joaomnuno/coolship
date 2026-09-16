@@ -11,6 +11,7 @@ import {
   replayScript,
 } from "@/components/landing/content";
 import { InstallBlock } from "@/components/landing/install-block";
+import { SiteNav } from "@/components/landing/nav";
 import { Heading, Lede, Section } from "@/components/landing/section";
 import { Tabs } from "@/components/landing/tabs";
 import { TerminalReplay } from "@/components/landing/terminal-replay";
@@ -546,6 +547,7 @@ function SiteFooter() {
 export default function HomePage() {
   return (
     <>
+      <SiteNav />
       <main id="main" className="landing flex-1">
         <Hero />
         {/* The walkthrough recording is not made yet, and the replay below
