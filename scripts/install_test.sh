@@ -289,6 +289,23 @@ assert_status 0 "dry run"
 assert_contains "$out" "Would download $base/releases/download/v0.9.0/coolship_0.9.0_${os}_${arch}.tar.gz" "dry run prints the URL"
 assert_no_file "$work/dry" "dry run creates nothing"
 
+echo "== preview prints the ending without downloading or installing anything"
+# No fetcher on PATH and no server to reach: a download attempt would fail.
+run "$work/bin-nofetch" "http://127.0.0.1:9" "$SH" "$install" --preview --dir "$work/preview"
+assert_status 0 "piped preview"
+assert_contains "$out" "Installed $work/preview/coolship (coolship vX.Y.Z)" "piped preview prints the plain line"
+if grep -q "Installation complete." "$out"; then ko "piped preview printed the banner"; else ok; fi
+if grep -qE "Latest release|Downloading|Verified|Would" "$out"; then ko "preview printed progress lines"; else ok; fi
+assert_no_file "$work/preview" "preview creates nothing"
+run "$work/bin-nofetch" "http://127.0.0.1:9" COOLSHIP_VERSION=1.2.3 "$SH" "$install" --preview --quiet
+assert_status 0 "quiet preview"
+assert_contains "$out" "Installed $home/.local/bin/coolship (coolship v1.2.3)" "--quiet preview takes the version from the environment"
+run "$work/bin-nofetch" "http://127.0.0.1:9" "$SH" "$install" --preview v0.4.0 /opt/bin/coolship
+assert_status 0 "preview with VERSION and PATH"
+assert_contains "$out" "Installed /opt/bin/coolship (coolship v0.4.0)" "preview takes VERSION and PATH"
+run "$work/bin-nofetch" "http://127.0.0.1:9" "$SH" "$install" --version 0.8.0 --preview --quiet
+assert_contains "$out" "(coolship v0.8.0)" "preview takes the version from --version"
+
 echo "== piped output and --quiet print no banner"
 run "$work/bin-all" "$base" COOLSHIP_INSTALL_DIR="$work/piped" "$SH" "$install"
 assert_status 0 "piped install"
@@ -350,6 +367,31 @@ if script -qec true /dev/null >/dev/null 2>&1; then
 	assert_status 0 "quiet terminal install"
 	assert_contains "$out" "Installed $work/tty/coolship (coolship version v0.9.0)" "--quiet in a terminal keeps the plain line"
 	if grep -q "Installation complete." "$out"; then ko "--quiet in a terminal printed the banner"; else ok; fi
+
+	echo "== terminal preview draws the banner without installing anything"
+	n=$((n + 1))
+	out=$work/out.$n
+	status=0
+	script -qec "env -i PATH=$work/bin-nofetch HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm COOLSHIP_BASE_URL=http://127.0.0.1:9 $SH $install --preview 0.4.0 /opt/bin/coolship" /dev/null >"$out" 2>"$err" </dev/null || status=$?
+	assert_status 0 "terminal preview"
+	assert_contains "$out" "Installation complete." "terminal preview draws the banner"
+	assert_contains "$out" "Ship from your terminal." "terminal preview draws the tagline"
+	assert_contains "$out" "coolship login" "terminal preview suggests login"
+	assert_contains "$out" "/opt/bin/coolship" "terminal preview names the path given"
+	assert_contains "$out" "v0.4.0" "terminal preview shows the version given"
+	if grep -q "vv0.4.0" "$out"; then ko "terminal preview doubled the v of the version"; else ok; fi
+	assert_contains "$out" "$(printf '\033[38;2;224;100;28m')" "terminal preview uses the orange accent"
+	if grep -qE "Installed |is not on your PATH|Downloading" "$out"; then ko "terminal preview printed more than the banner"; else ok; fi
+	assert_no_file "/opt/bin/coolship" "terminal preview installs nothing"
+
+	n=$((n + 1))
+	out=$work/out.$n
+	status=0
+	script -qec "env -i PATH=$work/bin-nofetch HOME=$home TMPDIR=$work SHELL=/bin/bash TERM=xterm COOLSHIP_BASE_URL=http://127.0.0.1:9 $SH $install --preview --quiet" /dev/null >"$out" 2>"$err" </dev/null || status=$?
+	assert_status 0 "quiet terminal preview"
+	assert_contains "$out" "Installed $home/.local/bin/coolship (coolship vX.Y.Z)" "--quiet preview in a terminal prints the plain line"
+	if grep -q "Installation complete." "$out"; then ko "--quiet preview in a terminal printed the banner"; else ok; fi
+	if grep -q "$(printf '\033')" "$out"; then ko "--quiet preview in a terminal printed escape sequences"; else ok; fi
 else
 	echo "== skipping terminal output test (no util-linux script)"
 fi
@@ -358,6 +400,7 @@ echo "== help"
 run "$work/bin-all" "$base" "$SH" "$install" --help
 assert_status 0 "help"
 assert_contains "$out" "COOLSHIP_BASE_URL" "help documents the overrides"
+assert_contains "$out" "--preview [VERSION] [PATH]" "help documents the preview"
 run "$work/bin-all" "$base" "$SH" "$install" --bogus
 assert_status 1 "unknown option"
 assert_contains "$err" "unknown option" "unknown option is reported"

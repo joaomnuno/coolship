@@ -31,12 +31,15 @@ const (
 
 var loginTitles = []string{"Instance type", "URL", "Check instance", "Context name", "Token", "Check token", "Save"}
 
-// LoginFormAvailable reports whether login can run its form: interactive
-// input from a terminal and stderr a terminal it can draw on at normal
-// verbosity. The form and its checklist use stderr only, so --format json
-// runs it too and only the result reaches stdout. Anything less asks line by
-// line, or not at all.
+// LoginFormAvailable reports whether login can run its form: a text result,
+// interactive input from a terminal, and stderr a terminal it can draw on at
+// normal verbosity. With --format json the questions are asked line by line,
+// as link and init ask theirs, so no checklist is drawn and stdout carries
+// the result alone. Anything less asks line by line, or not at all.
 func LoginFormAvailable(streams Streams, format string) bool {
+	if format == "json" {
+		return false
+	}
 	_, _, ok := terminalInput(streams.Normalized())
 	return ok
 }
@@ -46,10 +49,9 @@ func LoginFormAvailable(streams Streams, format string) bool {
 // questions are answered with it and not asked. The instance is checked
 // right after its URL, and the token right after it is typed; nothing is
 // written until the last step. Leaving returns service.ErrCancelled.
-func RunLoginForm(ctx context.Context, streams Streams, format string, actions LoginActions, preset service.LoginOptions, open func(string) error) (service.LoginResult, error) {
-	// The checklist is drawn on stderr whatever the format: with --format
-	// json, plain step lines would print under the form's redraws, and the
-	// result alone goes to stdout.
+func RunLoginForm(ctx context.Context, streams Streams, actions LoginActions, preset service.LoginOptions, open func(string) error) (service.LoginResult, error) {
+	// The form runs for a text result only (LoginFormAvailable), so its
+	// checklist is always the drawn one.
 	steps := NewSteps(streams, "human", loginTitles)
 	form := newLoginForm(actions, preset)
 	if err := runFlow(ctx, streams, steps, form.stages(), open); err != nil {

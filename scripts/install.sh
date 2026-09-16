@@ -5,7 +5,8 @@
 #
 # POSIX sh; needs curl or wget, tar, and sha256sum or shasum. Linux (glibc or
 # musl) and macOS on amd64 or arm64. Windows is not supported: build from
-# source or use WSL. Run with --help for options.
+# source or use WSL. Run with --help for options, or with --preview to see
+# the banner without installing anything.
 set -eu
 
 REPO=joaomnuno/coolship
@@ -20,6 +21,9 @@ SCRIPT_URL=https://raw.githubusercontent.com/$REPO/main/scripts/install.sh
 version=${COOLSHIP_VERSION:-latest}
 install_dir=${COOLSHIP_INSTALL_DIR:-}
 dry_run=0
+preview=0
+preview_version=
+preview_path=
 quiet=0
 banner_shown=0
 tmp=
@@ -30,6 +34,7 @@ usage() {
 Install coolship from GitHub Releases.
 
 Usage: install.sh [--version X.Y.Z] [--dir DIR] [--dry-run] [--quiet] [--help]
+       install.sh --preview [VERSION] [PATH]
        curl -fsSL $SCRIPT_URL | sh -s -- [options]
 
 Options:
@@ -38,6 +43,12 @@ Options:
   --dir DIR         Install into DIR (created if missing).
   --dry-run         Resolve the version and print what would happen, without
                     downloading or installing anything.
+  --preview [VERSION] [PATH]
+                    Print what an install of VERSION at PATH would end with,
+                    without downloading or installing anything: the banner in
+                    a terminal, or the plain Installed line when piped or
+                    with --quiet. VERSION defaults to --version, or X.Y.Z;
+                    PATH to DIR/coolship.
   -q, --quiet       Print only the installed path and version, any PATH
                     hint, and errors.
   -h, --help        Show this help.
@@ -69,6 +80,17 @@ welcome() {
 	fi
 	banner "$version" "$2"
 	banner_shown=1
+}
+
+# preview VERSION PATH: what an install of VERSION at PATH would end with,
+# without installing anything, so the banner can be checked: the banner in a
+# terminal, or the plain line a pipe and --quiet get.
+preview() {
+	if [ "$quiet" = 1 ] || [ ! -t 1 ]; then
+		log "Installed $2 (coolship v${1#v})"
+		return
+	fi
+	banner "$1" "$2"
 }
 
 # banner VERSION PATH: the Coolship tile beside the release just installed,
@@ -144,6 +166,24 @@ while [ $# -gt 0 ]; do
 		;;
 	--dir=*) install_dir=${1#--dir=} ;;
 	--dry-run) dry_run=1 ;;
+	--preview)
+		preview=1
+		# Up to two values follow, unless the next argument is an option.
+		case ${2:-} in
+		'' | -*) ;;
+		*)
+			preview_version=$2
+			shift
+			case ${2:-} in
+			'' | -*) ;;
+			*)
+				preview_path=$2
+				shift
+				;;
+			esac
+			;;
+		esac
+		;;
 	-q | --quiet) quiet=1 ;;
 	*) fail "unknown option '$1' (try --help)" ;;
 	esac
@@ -153,6 +193,18 @@ done
 if [ -z "$install_dir" ]; then
 	[ -n "${HOME:-}" ] || fail "HOME is not set; pass --dir or set COOLSHIP_INSTALL_DIR"
 	install_dir=$HOME/.local/bin
+fi
+
+# --- preview -----------------------------------------------------------------
+
+# Before the platform and tools are checked: a preview needs neither, and
+# never touches the network or the install directory.
+if [ "$preview" = 1 ]; then
+	if [ -z "$preview_version" ] && [ "$version" != latest ]; then
+		preview_version=$version
+	fi
+	preview "${preview_version:-X.Y.Z}" "${preview_path:-$install_dir/coolship}"
+	exit 0
 fi
 
 # --- platform ----------------------------------------------------------------
