@@ -63,7 +63,7 @@ and secret values also need sensitive read.`,
 				if err != nil {
 					return err
 				}
-				return renderer.Login(result)
+				return renderer.LoginAfterForm(result)
 			}
 			if !streams.Interactive {
 				return loginWithoutPrompts(ctx, app, login, tokenStdin, streams, renderer)

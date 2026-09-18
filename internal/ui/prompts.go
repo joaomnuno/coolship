@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -13,15 +14,18 @@ import (
 )
 
 // Prompter shares one buffered input reader across all steps of a link workflow.
+// When the streams carry a Block, the questions of init and link are asked
+// inside its bar.
 type Prompter struct {
 	streams Streams
 	input   *bufio.Reader
 	style   palette
+	block   *Block
 }
 
 func NewPrompter(streams Streams) *Prompter {
 	streams = streams.Normalized()
-	return &Prompter{streams: streams, input: bufio.NewReader(streams.In), style: streams.errPalette()}
+	return &Prompter{streams: streams, input: bufio.NewReader(streams.In), style: streams.errPalette(), block: streams.Block}
 }
 
 // question styles the line that asks for input; answers and details stay plain.
@@ -90,11 +94,13 @@ func (p *Prompter) Confirm(ctx context.Context, plan service.LinkPlan) (bool, er
 	if plan.Converting {
 		note = "The file changes form; bindings in the other form are dropped. " + note
 	}
-	if _, err := fmt.Fprintf(p.streams.Err,
-		"%s\nNew binding: %s / %s / %s on %s\n%s\n%s ",
+	if err := p.block.println(p.streams.Err, fmt.Sprintf("%s\nNew binding: %s / %s / %s on %s\n%s",
 		p.question("Replace configuration in "+singleLine(plan.Path)+"?"),
 		singleLine(plan.Target.Project), singleLine(plan.Target.Environment),
-		singleLine(plan.Target.Application), singleLine(plan.Target.Instance), note, p.question("Confirm [y/N]:")); err != nil {
+		singleLine(plan.Target.Application), singleLine(plan.Target.Instance), note)); err != nil {
+		return false, err
+	}
+	if _, err := fmt.Fprint(p.streams.Err, p.block.prompt(p.question("Confirm [y/N]:")+" ")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -119,7 +125,7 @@ func (p *Prompter) YesNo(ctx context.Context, question string, defaultYes bool) 
 		choices = "[Y/n]"
 	}
 	for {
-		if _, err := fmt.Fprint(p.streams.Err, p.question(singleLine(question)+" "+choices)+" "); err != nil {
+		if _, err := fmt.Fprint(p.streams.Err, p.block.prompt(p.question(singleLine(question)+" "+choices)+" ")); err != nil {
 			return false, err
 		}
 		answer, err := p.readLine(ctx)
@@ -134,7 +140,7 @@ func (p *Prompter) YesNo(ctx context.Context, question string, defaultYes bool) 
 		case "n", "no":
 			return false, nil
 		}
-		if _, err := fmt.Fprintln(p.streams.Err, "Answer y or n."); err != nil {
+		if err := p.block.println(p.streams.Err, "Answer y or n."); err != nil {
 			return false, err
 		}
 	}
@@ -277,6 +283,11 @@ func (p *Prompter) ConfirmPush(ctx context.Context, plan service.EnvPushPlan) (b
 // ConfirmInit shows everything init is about to create and write, with any
 // warnings above the question. With a new deploy key, only the key is created
 // at this point, and the plan says so.
+//
+// Inside a Block the plan is a table without colons: the repository by host
+// and path with the word private when the anonymous probe failed, in place
+// of that warning; the project and environment on one line; and the binding
+// relative to the working directory. Anywhere else it is the text it was.
 func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -317,12 +328,34 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	for _, detail := range buildDetails(plan) {
 		rows = append(rows, [2]string{"  " + detail[0], detail[1]})
 	}
-	rows = append(rows, [][2]string{
-		{"Project", project},
-		{"Environment", singleLine(plan.Environment)},
-		{"Server", singleLine(plan.Server)},
-		{"Binding", binding},
-	}...)
+	warnings := plan.Warnings
+	if p.block.Active() {
+		repository := repositoryLabel(singleLine(plan.Repository)) + " (" + singleLine(plan.Branch) + ")"
+		warnings = nil
+		for _, warning := range plan.Warnings {
+			if plan.Private == "" || warning != plan.Private {
+				warnings = append(warnings, warning)
+			}
+		}
+		if plan.Private != "" {
+			repository += ", private"
+		}
+		binding = relativeBinding(plan.Directory, plan.Path) + strings.TrimPrefix(binding, singleLine(plan.Path))
+		details := rows[3:]
+		rows = append([][2]string{{"Repository", repository}, {"Source", source}, {"Build pack", buildPack}}, details...)
+		rows = append(rows, [][2]string{
+			{"Project", project + " / " + singleLine(plan.Environment)},
+			{"Server", singleLine(plan.Server)},
+			{"Binding", binding},
+		}...)
+	} else {
+		rows = append(rows, [][2]string{
+			{"Project", project},
+			{"Environment", singleLine(plan.Environment)},
+			{"Server", singleLine(plan.Server)},
+			{"Binding", binding},
+		}...)
+	}
 	if plan.Deploy && !plan.NewDeployKey {
 		rows = append(rows, [2]string{"Then", "deploy and wait for it"})
 	}
@@ -333,20 +366,28 @@ func (p *Prompter) ConfirmInit(ctx context.Context, plan service.InitPlan) (bool
 	}
 	// The warnings come first: they are the reason to answer no, so they
 	// must be read before the question rather than after the creation.
-	for _, warning := range plan.Warnings {
-		if _, err := fmt.Fprintf(p.streams.Err, "%s %s\n", p.style.apply(yellow, "Warning:"), singleLine(warning)); err != nil {
+	for _, warning := range warnings {
+		if err := p.block.println(p.streams.Err, p.style.apply(yellow, "Warning:")+" "+singleLine(warning)); err != nil {
 			return false, err
 		}
 	}
-	if _, err := fmt.Fprintln(p.streams.Err, p.question(question)); err != nil {
+	if err := p.block.println(p.streams.Err, p.question(question)); err != nil {
 		return false, err
 	}
+	column := 0
 	for _, row := range rows {
-		if _, err := fmt.Fprintf(p.streams.Err, "  %-12s %s\n", row[0]+":", row[1]); err != nil {
+		column = max(column, len([]rune(row[0])))
+	}
+	for _, row := range rows {
+		lines := []string{fmt.Sprintf("  %-12s %s", row[0]+":", row[1])}
+		if p.block.Active() {
+			lines = p.block.hanging("  "+p.style.apply(dim, row[0])+pad(row[0], column+3), row[1])
+		}
+		if _, err := fmt.Fprintln(p.streams.Err, strings.Join(lines, "\n")); err != nil {
 			return false, err
 		}
 	}
-	if _, err := fmt.Fprint(p.streams.Err, p.question("Confirm [y/N]:")+" "); err != nil {
+	if _, err := fmt.Fprint(p.streams.Err, p.block.prompt(p.question("Confirm [y/N]:")+" ")); err != nil {
 		return false, err
 	}
 	answer, err := p.readLine(ctx)
@@ -453,6 +494,37 @@ func (p *Prompter) ConfirmDomain(ctx context.Context, plan service.DomainPlan) (
 		return false, err
 	}
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+// repositoryLabel is a remote as a person names it: the host and the path,
+// without the scheme, the user, or the .git a clone URL carries.
+func repositoryLabel(remote string) string {
+	label := remote
+	if _, rest, ok := strings.Cut(label, "://"); ok {
+		label = rest
+	} else if host, path, ok := strings.Cut(label, ":"); ok {
+		label = host + "/" + path
+	}
+	host, path, _ := strings.Cut(label, "/")
+	if index := strings.LastIndex(host, "@"); index >= 0 {
+		host = host[index+1:]
+	}
+	if host == "" || path == "" {
+		return remote
+	}
+	return host + "/" + strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
+}
+
+// relativeBinding names the configuration file from the working directory,
+// as ./coolship.toml or ./sub/coolship.toml, when it lies inside it, and by
+// its full path otherwise.
+func relativeBinding(directory, path string) string {
+	if directory != "" {
+		if relative, err := filepath.Rel(directory, path); err == nil && filepath.IsLocal(relative) {
+			return singleLine("./" + filepath.ToSlash(relative))
+		}
+	}
+	return singleLine(path)
 }
 
 // buildDetails lists the build settings that refine the pack, in the order

@@ -7,6 +7,13 @@ change command behavior; the changelog says when they do.
 
 ## [Unreleased]
 
+### Changed
+- `coolship init` in a terminal stopped repeating itself. After the confirmation it showed only what was new: the steps as they finished, one line `<application> is linked: <URL>`, the next steps, and `Deploy now? [y/N]`; the `Created application…` and `Linked project in…` blocks that restated the plan just approved were dropped there. `coolship link` ended the same way, with `<application> is linked.` after its checklist. Piped output, `--format json`, and `--verbose` or `--debug` runs kept the full result byte for byte, and a run that created only a deploy key kept its instructions.
+- The whole `init` or `link` run in a terminal was drawn as one block behind the thick left bar the pickers already use: the plan, the confirmation, the checklist, the linked line, the next steps, and the closing question. The bar stayed a plain character with `NO_COLOR` or `--no-color`, was not drawn off a terminal, and on a narrow terminal long values wrapped inside it while checklist rows were cut to the width.
+- The `init` plan in a terminal became an aligned table without colons, with the repository as `host/owner/name (branch)`, the project and environment on one line, and the binding relative to the working directory (`./coolship.toml`). A repository that could not be read without credentials was marked `private` on the Repository line in place of the `is not reachable anonymously (git ls-remote: …)` warning, which `--verbose` still printed in full.
+- A warning the `init` confirmation had already shown, such as a Compose application without a domain, was no longer printed a second time with the result, in any format.
+- `coolship login` through the terminal form ended with one line, `Logged in to <context>, now the default.`, since its checklist already showed the URL, the team, the Coolify version, and where the context was saved. Piped, `--format json`, `--verbose`, and line-by-line logins kept the full result.
+
 ## [0.4.0] - 2026-09-16
 
 This version is about the terminal experience: every long command shows its work as a stage checklist, a failure prints a stable code, a hint, and a docs link, and one Coolship can set right offers the fix on the spot. `login` asks one step at a time and checks each answer as it goes, Compose applications have their per-service domains read and set, the installer ends with a banner, and an experimental `coolship ui` menu lists every verb.

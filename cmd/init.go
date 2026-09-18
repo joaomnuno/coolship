@@ -92,16 +92,31 @@ directory as its root, which becomes the application's base directory.`,
 					return inputError(err)
 				}
 			}
+			// On a terminal the whole run is one block behind a left bar:
+			// plan, confirmation, checklist, result line, next steps, and
+			// the closing question. A deployment's progress is not part of
+			// it, so its events keep the streams without the bar.
+			plain := streams
+			events := ui.NewRenderer(plain, options.format).DeploymentEvent
+			streams := streams
+			streams.Block = ui.NewBlock(streams, options.format)
 			prompter := ui.NewPrompter(streams)
 			renderer := ui.NewRenderer(streams, options.format)
 			steps := ui.NewSteps(streams, options.format, []string{"Plan the application", "Create the application", "Write coolship.toml"})
+			// The confirmation shows the plan's warnings, so the result
+			// does not print those again.
+			confirmed := false
+			confirm := func(ctx context.Context, plan service.InitPlan) (bool, error) {
+				confirmed = true
+				return prompter.ConfirmInit(ctx, plan)
+			}
 			var result service.InitResult
 			var err error
 			if steps.Live() {
-				result, err = initWithSteps(command.Context(), app, create, prompter, steps, renderer.DeploymentEvent)
+				result, err = initWithSteps(command.Context(), app, create, prompter.Select, confirm, steps, events)
 			} else {
 				// Piped, JSON, and verbose runs keep their lines.
-				result, err = app.Init(command.Context(), create, prompter.Select, prompter.ConfirmInit, renderer.DeploymentEvent)
+				result, err = app.Init(command.Context(), create, prompter.Select, confirm, events)
 			}
 			if err != nil && result.Target.ApplicationUUID != "" {
 				// Created and linked; only the deployment failed, so a fix
@@ -115,12 +130,16 @@ directory as its root, which becomes the application's base directory.`,
 			if err != nil {
 				return err
 			}
-			if err := renderer.Init(result); err != nil {
+			if err := renderer.Init(result, confirmed); err != nil {
 				return err
 			}
 			// A created deploy key already printed its own instructions.
 			if result.Target.ApplicationUUID == "" {
 				return nil
+			}
+			if result.Deployment != nil {
+				// The deployment's progress ended the block.
+				streams = plain
 			}
 			// Without --deploy, a question takes the place of the deploy hint.
 			// As a fix, the command that failed runs next and decides whether
@@ -165,7 +184,7 @@ directory as its root, which becomes the application's base directory.`,
 // confirmation pauses it too, so the plan is read below the finished
 // planning step; --yes answers it here. A deployment that follows closes the
 // checklist and prints its own progress, as before.
-func initWithSteps(ctx context.Context, app Application, options service.InitOptions, prompter *ui.Prompter, steps *ui.Steps, emit service.Emitter) (service.InitResult, error) {
+func initWithSteps(ctx context.Context, app Application, options service.InitOptions, choose service.Selector, ask service.ConfirmInit, steps *ui.Steps, emit service.Emitter) (service.InitResult, error) {
 	defer steps.Close()
 	yes := options.Yes
 	options.Yes = false
@@ -174,14 +193,14 @@ func initWithSteps(ctx context.Context, app Application, options service.InitOpt
 	selectChoice := func(ctx context.Context, kind string, choices []service.Choice) (string, error) {
 		steps.Pause()
 		defer steps.Resume()
-		return prompter.Select(ctx, kind, choices)
+		return choose(ctx, kind, choices)
 	}
 	confirm := func(ctx context.Context, plan service.InitPlan) (bool, error) {
 		steps.Done(0, plan.Name+" on "+plan.Instance)
 		current = -1
 		if !yes {
 			steps.Pause()
-			accepted, err := prompter.ConfirmInit(ctx, plan)
+			accepted, err := ask(ctx, plan)
 			if err != nil || !accepted {
 				return accepted, err
 			}

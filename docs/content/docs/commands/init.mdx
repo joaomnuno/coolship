@@ -11,21 +11,39 @@ coolship init [flags]
 
 ```text
 $ coolship init
-Create application my-app on home?
-  Repository:  https://github.com/you/my-app (branch main)
-  Build pack:  dockerfile, port 80
-    Dockerfile: /Dockerfile
-  Project:     Personal
-  Environment: production
-  Server:      Master Ubuntu
-  Binding:     /home/you/my-app/coolship.toml
-Confirm [y/N]: y
+┃ ✓ Plan the application          0:01  my-app on home
+┃ Create application my-app on home?
+┃   Repository     github.com/you/my-app (main)
+┃   Source         public (cloned without credentials)
+┃   Build pack     dockerfile, port 80
+┃     Dockerfile   /Dockerfile
+┃   Project        Personal / production
+┃   Server         Master Ubuntu
+┃   Binding        ./coolship.toml
+┃ Confirm [y/N]: y
+┃ ✓ Create the application        0:02  my-app
+┃ ✓ Write coolship.toml           0:00
+┃ my-app is linked: https://9f8e7d6c.coolify.example.com
+┃ Next:
+┃   coolship domain set URL  replace the generated domain with your own
+┃ Deploy now? [y/N]
+```
+
+In a terminal the whole run is one block behind a left bar, and after the confirmation it shows only what is new: the steps as they finish, one line with the application and its URL, the next steps, and the closing question. A repository that could not be read without credentials is marked `private` on the Repository line; `--verbose` prints what `git ls-remote` said. Piped output, `--format json`, and `--verbose` or `--debug` runs draw no bar and keep the full result:
+
+```text
 Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
 Build pack: dockerfile, port 80
 Dockerfile: /Dockerfile
 URL: https://9f8e7d6c.coolify.example.com
 Linked project in /home/you/my-app/coolship.toml
+Application: my-app (9f8e7d6c)
+Environment: production
+Project: Personal
+Context: home
 ```
+
+A warning, such as a Compose application without a domain, is printed once, above the plan, where it can still change the answer. The bar is a plain character with `NO_COLOR` or `--no-color`, and on a narrow terminal long values wrap inside it.
 
 ## Build packs
 

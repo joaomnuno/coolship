@@ -24,7 +24,7 @@ func TestInit_DeployKeySuggestsRepoOverride(t *testing.T) {
 			Repository: "git@github.com:acme/widgets.git",
 		},
 	}
-	if err := renderer.Init(result); err != nil {
+	if err := renderer.Init(result, false); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	want := "coolship init --source deploy-key --deploy-key coolship-deploy --repo git@github.com:acme/widgets.git\n"
@@ -48,7 +48,7 @@ func TestInit_DeployKeySuggestsRepoOverride_Quoting(t *testing.T) {
 			Repository: "git@github.com:acme/it's-widgets.git",
 		},
 	}
-	if err := renderer.Init(result); err != nil {
+	if err := renderer.Init(result, false); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	want := `coolship init --source deploy-key --deploy-key 'my key' --repo 'git@github.com:acme/it'\''s-widgets.git'` + "\n"

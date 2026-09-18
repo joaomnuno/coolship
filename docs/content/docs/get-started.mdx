@@ -74,8 +74,7 @@ $ coolship login
 ✓ Token                         ••••9f3a
 ✓ Check token                   0:01  team Personal on Coolify 4.3.18
 ✓ Save                          0:00  /home/you/.config/coolify/config.json
-Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
-Saved to /home/you/.config/coolify/config.json
+Logged in to home, now the default.
 ```
 
 `login` asks one step at a time: self-hosted or Coolify Cloud, the URL (checked right away), a context name, and the token (checked as soon as it is typed). Shift+Tab edits the previous answer and Esc leaves without writing anything. Create the token in Coolify under *Keys & Tokens* with the read, write, and deploy abilities. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin`. See [Credentials](/docs/concepts/credentials).
@@ -101,14 +100,14 @@ Select project
   Work
 ```
 
-Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The picker then gives way to the result:
+Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The picker then gives way to the checklist and one line that says the application is linked:
 
 ```text
-Linked project in /home/you/my-app/coolship.toml
-Application: fenix-bot
-Environment: production
-Project: Personal
-Context: home
+┃ ✓ Choose the application        0:03  Personal / production / fenix-bot
+┃ ✓ Write coolship.toml           0:00
+┃ fenix-bot is linked.
+┃ Next:
+┃   coolship deploy  build and start it
 ```
 
 It writes a small, credential-free `coolship.toml` at the repository root. Commit it; see [Project binding](/docs/concepts/project-binding).

@@ -151,7 +151,8 @@ func (a *App) Init(ctx context.Context, options InitOptions, selectChoice Select
 		InstallCommand: build.InstallCommand, BuildCommand: build.BuildCommand, StartCommand: build.StartCommand,
 		Name: name, Instance: credentials.Name,
 		Project: remoteProject.Name, NewProject: newProject, Environment: environmentName, Server: server.Name, Deploy: options.Deploy,
-		GitHubApp: origin.app.Name, DeployKey: origin.key.Name, NewDeployKey: origin.newKey != ""}
+		GitHubApp: origin.app.Name, DeployKey: origin.key.Name, NewDeployKey: origin.newKey != "",
+		Private: origin.private, Directory: p.CWD}
 	if origin.source != SourcePublic {
 		plan.Source = origin.source
 	}
@@ -327,6 +328,7 @@ type origin struct {
 	key      models.PrivateKey
 	newKey   string // name of a key to create instead of an application
 	warnings []string
+	private  string // the warning that the anonymous probe failed, when it did
 }
 
 // chooseSource decides between an anonymous clone and the private sources.
@@ -365,7 +367,8 @@ func (a *App) chooseSource(ctx context.Context, backend Backend, source string, 
 		if selectChoice == nil {
 			return origin{}, input(fmt.Errorf("%s is not reachable anonymously (%v), so it needs a private source; pass %s", repository.Remote, err, flags))
 		}
-		result.warnings = append(result.warnings, fmt.Sprintf("%s is not reachable anonymously (%v).", repository.Remote, err))
+		result.private = fmt.Sprintf("%s is not reachable anonymously (%v).", repository.Remote, err)
+		result.warnings = append(result.warnings, result.private)
 		chosen, chooseErr := ask(ctx, "source", private, selectChoice)
 		if chooseErr != nil {
 			if errors.Is(chooseErr, ErrInput) { // the prompter had nobody to ask; say why a source is needed

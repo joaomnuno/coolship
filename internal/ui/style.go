@@ -65,10 +65,16 @@ func (p palette) apply(l look, text string) string {
 	if l == plain || text == "" {
 		return text
 	}
+	return p.render(p.styles[l], text)
+}
+
+// render is apply for a style that is not one of the looks, such as one a
+// Huh theme carries, downsampled to the stream's profile the same way.
+func (p palette) render(style lipgloss.Style, text string) string {
 	var rendered strings.Builder
 	writer := colorprofile.Writer{Forward: &rendered, Profile: p.profile}
 	// A strings.Builder never fails to write.
-	_, _ = writer.WriteString(p.styles[l].Render(text))
+	_, _ = writer.WriteString(style.Render(text))
 	return rendered.String()
 }
 

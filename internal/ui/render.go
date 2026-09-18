@@ -375,12 +375,18 @@ func (r *Renderer) Cancel(result service.CancelResult) error {
 	return err
 }
 
+// Link reports the binding. A run drawn inside a Block already showed every
+// name in its checklist, so it ends with one line saying the application is
+// linked; every other run gets the full result it always did.
 func (r *Renderer) Link(result service.LinkResult) error {
 	if err := r.warnings(result.Warnings); err != nil {
 		return err
 	}
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	if r.brief() {
+		return r.linked(result.Target.Application, "", true)
 	}
 	if _, err := fmt.Fprintf(r.streams.Out, "Linked project in %s\n", singleLine(result.Path)); err != nil {
 		return err
@@ -393,14 +399,39 @@ func (r *Renderer) Link(result service.LinkResult) error {
 // to stderr as events. When only a deploy key was created, its public half
 // is printed once with what to do next; the private half never reaches
 // this layer.
-func (r *Renderer) Init(result service.InitResult) error {
-	if err := r.warnings(result.Warnings); err != nil {
+//
+// A run drawn inside a Block approved the plan a moment ago, warnings
+// included, and watched the checklist, so it ends with what is new: one line
+// naming the application and its URL. Every other run gets the full result
+// it always did; there the warnings the confirmation already showed are not
+// printed a second time.
+func (r *Renderer) Init(result service.InitResult, confirmed bool) error {
+	warnings := result.Warnings
+	if confirmed {
+		warnings = warnings[min(len(result.Plan.Warnings), len(warnings)):]
+	} else if private := result.Plan.Private; private != "" && r.format != "json" && r.brief() {
+		// A private source was just chosen for this reason; the probe's
+		// own words are for --verbose.
+		warnings = slices.DeleteFunc(slices.Clone(warnings), func(warning string) bool { return warning == private })
+	}
+	if err := r.warnings(warnings); err != nil {
 		return err
 	}
 	if r.format == "json" {
 		return json.NewEncoder(r.streams.Out).Encode(result)
 	}
 	plan := result.Plan
+	if r.brief() && result.Target.ApplicationUUID != "" {
+		// A deployment's progress ended the block, so its result stands
+		// outside it, as deploy's own does.
+		if err := r.linked(plan.Name, result.URL, result.Deployment == nil); err != nil {
+			return err
+		}
+		if result.Deployment != nil {
+			return r.Deploy(*result.Deployment)
+		}
+		return nil
+	}
 	if key := result.DeployKey; key != nil && result.Target.ApplicationUUID == "" {
 		_, err := fmt.Fprintf(r.streams.Out, "Created deploy key %s on %s\n%s\n%s\n\nAdd it to %s as a read-only deploy key, then create the application with:\n  coolship init --source deploy-key --deploy-key %s --repo %s\n",
 			named(key.Name, key.UUID, r.namesOnly()), singleLine(plan.Instance), r.out.key("Public key"), singleLine(key.PublicKey),
@@ -567,11 +598,32 @@ func (r *Renderer) Warn(message string) error { return r.warnings([]string{messa
 
 func (r *Renderer) warnings(warnings []string) error {
 	for _, warning := range warnings {
-		if _, err := fmt.Fprintf(r.streams.Err, "%s %s\n", r.err.apply(yellow, "Warning:"), singleLine(warning)); err != nil {
+		if err := r.streams.Block.println(r.streams.Err, r.err.apply(yellow, "Warning:")+" "+singleLine(warning)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// brief reports whether a result that a Block's checklist already showed is
+// cut down to what is new: only when that block was drawn and stdout is the
+// terminal it was drawn on. A piped stdout keeps the full result.
+func (r *Renderer) brief() bool {
+	return r.streams.Block.Active() && r.streams.OutTerminal
+}
+
+// linked is the line a brief init or link ends with, inside the block
+// unless something else already ended it.
+func (r *Renderer) linked(application, url string, inBlock bool) error {
+	line := r.out.apply(bold, singleLine(application)) + " is linked."
+	if url != "" {
+		line = r.out.apply(bold, singleLine(application)) + " is linked: " + singleLine(url)
+	}
+	var block *Block
+	if inBlock {
+		block = r.streams.Block
+	}
+	return block.println(r.streams.Out, line)
 }
 
 func writeLogs(w io.Writer, logs string) error {
@@ -976,6 +1028,27 @@ func (r *Renderer) Login(result service.LoginResult) error {
 	}
 	_, err := fmt.Fprintf(r.streams.Out, "%s %s (%s) as team %s on Coolify %s%s\nSaved to %s\n",
 		verb, singleLine(result.Name), singleLine(result.URL), singleLine(result.Team), singleLine(result.Server), suffix, singleLine(result.Path))
+	return err
+}
+
+// LoginAfterForm is Login for a run that asked through the form, whose
+// checklist already shows the URL, the team, the server's version, and where
+// the context was saved. On a terminal at normal verbosity it says only what
+// that checklist does not: that the login stands, and whether it became the
+// default. A piped stdout, and a verbose run, get Login's full result.
+func (r *Renderer) LoginAfterForm(result service.LoginResult) error {
+	if r.format == "json" || !r.namesOnly() {
+		return r.Login(result)
+	}
+	verb := "Logged in to"
+	if result.Replaced {
+		verb = "Updated"
+	}
+	suffix := "."
+	if result.Default {
+		suffix = ", now the default."
+	}
+	_, err := fmt.Fprintf(r.streams.Out, "%s %s%s\n", verb, r.out.apply(bold, singleLine(result.Name)), suffix)
 	return err
 }
 

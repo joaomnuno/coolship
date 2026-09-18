@@ -1,10 +1,11 @@
 /**
  * Everything the landing page says, in one place. Transcripts are real: the
- * `deploy` and `doctor` output is copied from README.md, and the `link`,
- * `status`, and `logs` output was captured against the example application
+ * `deploy` and `doctor` output is copied from README.md, and the `status`
+ * and `logs` output was captured against the example application
  * (coolship-example, a Dockerfile app) with a local binary; only the working
  * directory and the context name were replaced with the README's
- * `/home/you/my-app` and `home`. JSON shapes come from the command reference.
+ * `/home/you/my-app` and `home`. The `link` output is what a terminal shows:
+ * the checklist and one line, behind the left bar of internal/ui/block.go. JSON shapes come from the command reference.
  */
 import type { Lang } from "./highlight";
 import type { ReplayLine, ReplaySegment } from "./terminal-replay";
@@ -70,11 +71,12 @@ export const replayScript: ReplaySegment[] = [
     command:
       "coolship link --project coolship-example --environment production --application coolship-example",
     output: [
-      { text: "Linked project in /home/you/my-app/coolship.toml", delay: 700 },
-      { text: "Application: coolship-example (mm4c0zpbrzx8z96t0qiw3tff)" },
-      { text: "Environment: production" },
-      { text: "Project: coolship-example" },
-      { text: "Context: home" },
+      {
+        text: "┃ ✓ Choose the application        0:00  coolship-example / production / coolship-example",
+        delay: 700,
+      },
+      { text: "┃ ✓ Write coolship.toml           0:00" },
+      { text: "┃ coolship-example is linked." },
     ],
   },
   {

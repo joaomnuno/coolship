@@ -114,8 +114,7 @@ $ coolship login
 ✓ Token                         ••••9f3a
 ✓ Check token                   0:01  team Personal on Coolify 4.3.18
 ✓ Save                          0:00  /home/you/.config/coolify/config.json
-Logged in to home (https://coolify.example.com) as team Personal on Coolify 4.3.18, now the default
-Saved to /home/you/.config/coolify/config.json
+Logged in to home, now the default.
 ```
 
 In a terminal, `login` asks one step at a time: self-hosted or Coolify Cloud, the URL, a context name, and the token. The URL is checked right away through Coolify's public health check, and the token as soon as it is typed; a failed check explains itself and offers Retry, Go back, or Leave, and nothing is written until the last step. Shift+Tab edits the previous answer, and Esc leaves (exit 130). A URL and token that are already saved are refused as a duplicate. Create the token in Coolify under your profile's **Keys & Tokens** page with the *read*, *write*, and *deploy* abilities; build logs and secret values are also withheld unless the token has *sensitive read*. The token is never echoed and never accepted as a flag. For CI, either set `COOLSHIP_URL` and `COOLSHIP_TOKEN` (no login needed) or pipe the token: `echo "$TOKEN" | coolship login --url … --name ci --token-stdin` (`--context ci` names it too, `--url https://app.coolify.io` is Coolify Cloud, and without a terminal a missing `--url` or `--name` is an error rather than a prompt; the same checks run and fail with their error code). `coolship logout NAME` removes a context.
@@ -136,11 +135,21 @@ Select project
   Work
 ```
 
-Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The picker then gives way to the result:
+Arrow keys and Enter pick, typing filters a long list, and Esc cancels. The picker then gives way to the checklist and one line that says the application is linked, all behind the same left bar:
+
+```text
+┃ ✓ Choose the application        0:03  Personal / production / fenix-bot
+┃ ✓ Write coolship.toml           0:00
+┃ fenix-bot is linked.
+┃ Next:
+┃   coolship deploy  build and start it
+```
+
+Piped output, `--format json`, and `--verbose` runs draw no bar and print the full result instead:
 
 ```text
 Linked project in /home/you/my-app/coolship.toml
-Application: fenix-bot
+Application: fenix-bot (app-uuid)
 Environment: production
 Project: Personal
 Context: home
@@ -162,21 +171,36 @@ Create a Coolify application for the current repository, then link it — the fi
 
 ```text
 $ coolship init
-Create application my-app on home?
-  Repository:  https://github.com/you/my-app (branch main)
-  Source:      public (cloned without credentials)
-  Build pack:  dockerfile, port 80
-    Dockerfile: /Dockerfile
-  Project:     Personal
-  Environment: production
-  Server:      Master Ubuntu
-  Binding:     /home/you/my-app/coolship.toml
-Confirm [y/N]: y
+┃ ✓ Plan the application          0:01  my-app on home
+┃ Create application my-app on home?
+┃   Repository     github.com/you/my-app (main)
+┃   Source         public (cloned without credentials)
+┃   Build pack     dockerfile, port 80
+┃     Dockerfile   /Dockerfile
+┃   Project        Personal / production
+┃   Server         Master Ubuntu
+┃   Binding        ./coolship.toml
+┃ Confirm [y/N]: y
+┃ ✓ Create the application        0:02  my-app
+┃ ✓ Write coolship.toml           0:00
+┃ my-app is linked: https://9f8e7d6c.coolify.example.com
+┃ Next:
+┃   coolship domain set URL  replace the generated domain with your own
+┃ Deploy now? [y/N]
+```
+
+In a terminal the whole run is one block behind a left bar, and after the confirmation it shows only what is new: the steps as they finish, one line with the application and its URL, the next steps, and the closing question. A repository that could not be read without credentials is marked `private` on the Repository line; `--verbose` prints what `git ls-remote` said. Piped output, `--format json`, and `--verbose` or `--debug` runs draw no bar and keep the full result:
+
+```text
 Created application my-app (9f8e7d6c) from https://github.com/you/my-app at main
 Build pack: dockerfile, port 80
 Dockerfile: /Dockerfile
 URL: https://9f8e7d6c.coolify.example.com
 Linked project in /home/you/my-app/coolship.toml
+Application: my-app (9f8e7d6c)
+Environment: production
+Project: Personal
+Context: home
 ```
 
 The project and server are asked for only when there is a choice; `--project NAME` selects one, `--create-project` creates it when missing, `--server NAME` picks the server, and `--environment` defaults to `production`. `--repo`, `--branch`, and `--name` override what Git said. Noninteractive use needs `--yes`:

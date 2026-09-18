@@ -18,7 +18,7 @@ func Hint(streams Streams, format, text string) {
 	if format != "human" || !streams.Interactive || strings.TrimSpace(text) == "" {
 		return
 	}
-	_, _ = fmt.Fprintln(streams.Err, streams.errPalette().apply(dim, singleLine(text)))
+	_ = streams.Block.println(streams.Err, streams.errPalette().apply(dim, singleLine(text)))
 }
 
 // NextDeploy is the hint after a directory is bound, or when it has nothing
@@ -91,7 +91,8 @@ func NextSteps(state service.ProjectState, options NextStepOptions) []NextStep {
 }
 
 // Hints writes next steps as one dimmed block on stderr, with the commands
-// aligned, under the same conditions as Hint.
+// aligned, under the same conditions as Hint, and inside the streams' Block
+// when the command drew one.
 func Hints(streams Streams, format string, steps []NextStep) {
 	streams = streams.Normalized()
 	if format != "human" || !streams.Interactive || len(steps) == 0 {
@@ -101,14 +102,19 @@ func Hints(streams Streams, format string, steps []NextStep) {
 	for _, step := range steps {
 		width = max(width, len([]rune(singleLine(step.Command))))
 	}
-	lines := []string{"Next:"}
+	style := streams.errPalette()
+	lines := streams.Block.lines(style.apply(dim, "Next:"))
 	for _, step := range steps {
 		command := singleLine(step.Command)
-		lines = append(lines, "  "+command+strings.Repeat(" ", width-len([]rune(command)))+"  "+singleLine(step.Purpose))
+		lead := "  " + command + strings.Repeat(" ", width-len([]rune(command))) + "  "
+		if !streams.Block.Active() {
+			lines = append(lines, style.apply(dim, lead+singleLine(step.Purpose)))
+			continue
+		}
+		lines = append(lines, streams.Block.hanging(style.apply(dim, lead), style.apply(dim, singleLine(step.Purpose)))...)
 	}
-	style := streams.errPalette()
 	for _, line := range lines {
-		_, _ = fmt.Fprintln(streams.Err, style.apply(dim, line))
+		_, _ = fmt.Fprintln(streams.Err, line)
 	}
 }
 

@@ -19,6 +19,9 @@ import (
 // UUIDs at normal verbosity, relative times, status glyphs, and a table that
 // fits. A pipe gets the text it always did, so scripts reading it keep
 // working; the zero value is a pipe.
+//
+// Block is the left bar a command draws its whole run inside, set by that
+// command from NewBlock; nil, the usual case, draws none.
 type Streams struct {
 	In          io.Reader
 	Out         io.Writer
@@ -30,6 +33,7 @@ type Streams struct {
 	ErrTerminal bool
 	Width       int
 	Trace       *Trace
+	Block       *Block
 }
 
 // level is the verbosity in effect for these streams.

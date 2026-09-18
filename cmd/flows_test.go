@@ -253,6 +253,12 @@ func newServer(t *testing.T, s *server) *httptest.Server {
 				s.record(r.Method + " " + r.URL.Path)
 				write(w, created)
 			})
+			// A run that is asked reads the new application's state for its
+			// next steps; it has no variables yet.
+			mux.HandleFunc("GET /api/v1/applications/app-"+name+"/envs", func(w http.ResponseWriter, r *http.Request) {
+				s.record(r.Method + " " + r.URL.Path)
+				write(w, []map[string]any{})
+			})
 			w.WriteHeader(http.StatusCreated)
 			write(w, map[string]any{"uuid": created["uuid"], "domains": created["fqdn"]})
 		}
@@ -703,6 +709,24 @@ func TestInitCreatesComposeApplications(t *testing.T) {
 	// --port has no meaning for a compose application and is refused before any request.
 	if _, _, err := run(t, instance.URL, projectDirectory(t), "", "init", "--project", "Personal", "--build-pack", "dockercompose", "--port", "80", "--yes"); !errors.Is(err, service.ErrInput) || len(s.creations) != 2 {
 		t.Fatalf("compose with --port: err=%v creations=%d", err, len(s.creations))
+	}
+}
+
+// TestInitPrintsAConfirmedWarningOnce checks a run that is asked: the
+// confirmation shows the plan's warning, so the result does not print it a
+// second time, and off a terminal the result is still the full text.
+func TestInitPrintsAConfirmedWarningOnce(t *testing.T) {
+	instance := newServer(t, &server{})
+	dir := projectDirectory(t)
+	if err := os.WriteFile(filepath.Join(dir, "compose.yml"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, diagnostic, err := run(t, instance.URL, dir, "y\n", "init", "--project", "Personal", "--name", "stack")
+	if err != nil || strings.Count(diagnostic, "No service has a domain") != 1 || strings.Index(diagnostic, "No service has a domain") > strings.Index(diagnostic, "Create application stack") {
+		t.Fatalf("err=%v stderr=%q", err, diagnostic)
+	}
+	if !strings.HasPrefix(out, "Created application stack (app-stack) from ") || !strings.Contains(out, "\nLinked project in ") || !strings.Contains(out, "\nApplication: stack (app-stack)\n") || strings.Contains(out+diagnostic, "┃") {
+		t.Fatalf("stdout=%q stderr=%q", out, diagnostic)
 	}
 }
 
