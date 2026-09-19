@@ -38,6 +38,9 @@ type fakeBackend struct {
 	calls        map[string]int
 	readError    error
 	versionError error
+	// version overrides the answer of GET /version; empty answers a release
+	// other than the verified baseline.
+	version      string
 	variables    []models.EnvironmentVariable
 	upserts      [][]models.EnvironmentVariableInput
 	deleted      []string
@@ -339,6 +342,9 @@ func (f *fakeBackend) Version(context.Context) (string, error) {
 	f.calls["version"]++
 	if f.versionError != nil {
 		return "", f.versionError
+	}
+	if f.version != "" {
+		return f.version, nil
 	}
 	return "4.3.18", nil
 }
@@ -1558,6 +1564,36 @@ func TestDoctorReportsEveryStep(t *testing.T) {
 		}
 		if got["Git repository"] != "ok" {
 			t.Errorf("Git repository = %q", got["Git repository"])
+		}
+	})
+	t.Run("server version is named against the verified baseline", func(t *testing.T) {
+		f := newBackend()
+		app, _, _ := testApp(f)
+		// The fake answers a version other than the verified one, so the
+		// detail says which baseline the claim rests on.
+		result, err := app.Doctor(context.Background(), linkedOptions(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail := ""
+		for _, check := range result.Checks {
+			if check.Name == "Server" {
+				detail = check.Detail
+			}
+		}
+		if detail != "Coolify 4.3.18 (verified against "+VerifiedServerVersion+")" {
+			t.Fatalf("server detail = %q", detail)
+		}
+		// The verified version itself carries no aside.
+		f.version = VerifiedServerVersion
+		result, err = app.Doctor(context.Background(), linkedOptions(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, check := range result.Checks {
+			if check.Name == "Server" && check.Detail != "Coolify "+VerifiedServerVersion {
+				t.Fatalf("server detail = %q", check.Detail)
+			}
 		}
 	})
 	t.Run("unlinked still checks credentials and server", func(t *testing.T) {

@@ -46,7 +46,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `delete`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify instance — see [Server compatibility](#server-compatibility) for which version, and for what that does and does not cover. `domain` is implemented and tested too; `scripts/e2e` reads it and exercises a no-op `domain set`, but no run against a live instance has confirmed either yet.
+🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `delete`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.23 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover. `domain` and `domain set` are implemented and tested too, and both have now been confirmed against a live instance (a read, and a `domain set` that reapplies the current domains).
 
 Ideas, feedback, and contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -642,7 +642,18 @@ Two commands answer with a status and no message, like `git diff --exit-code`: `
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating Dockerfile applications with `init` from a public repository, through a GitHub App, and through a deploy key `init` generated (deployed once to prove the key clones) and deleting them again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo. The 4.3.19 source has no changes to any endpoint Coolship uses, so it is expected to behave identically; other versions are untested.
+**Verified against Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: `scripts/e2e` passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
+
+Three things were verified on 4.3.18 and not re-run on 4.3.23: `init` through a GitHub App and through a deploy key, `preview` deploying a real webhook-created pull request preview, and linking a two-target monorepo. The first two need setup the API cannot create; Coolify's source is unchanged between the two releases for the endpoints behind all three.
+
+Between 4.3.18 and 4.3.23, Coolify changed four things that touch endpoints Coolship uses, none of them breaking:
+
+* `GET /applications/{uuid}/logs` gained `lines=all` (and `-1` as an alias), where any value below 1 previously fell back to 100. Coolship keeps sending a value between 1 and 10000, so its behaviour is unchanged. A `view` authorization check was added, which only repeats the team scoping the lookup already did.
+* A new `GET /applications/{uuid}/previews/{pull_request_id}/logs` reads a preview deployment's runtime logs. `coolship logs` does not use it yet.
+* `POST /applications/public` now rewrites an scp-style SSH remote to its https form before parsing it, so a GitHub SSH remote becomes the `owner/repo` slug on the public GitHub source instead of being stored verbatim. Coolship sends the SSH form only to `/applications/private-deploy-key`, which is unchanged.
+* Domain conflict detection was rewritten: conflicts are keyed by the domain without its scheme or trailing slash, and a Compose application's per-service domains are counted. This is the refusal `domain set` relays.
+
+`DeployController`, `ProjectController`, `SecurityController`, `GithubAppController`, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, hierarchy resolution, variables, keys, and GitHub App lookups hold exactly as recorded. Other versions are untested.
 
 Limits worth knowing:
 

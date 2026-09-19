@@ -20,13 +20,13 @@ The first milestone validates the architecture through `link`, `status`, `deploy
 - [x] Run tests, race detection, vet, build, and command smoke checks.
 - [x] Update README and architecture to reflect implemented behavior; commit and push the milestone.
 
-At this milestone `link`, `status`, `deploy`, and `logs` worked end to end against a controlled server only. Milestone 2 then verified them, and every later command, against a live Coolify 4.3.18 instance; README and `ARCHITECTURE.md` section 10 record the supported baseline and its limits.
+At this milestone `link`, `status`, `deploy`, and `logs` worked end to end against a controlled server only. Milestone 2 then verified them, and every later command, against a live Coolify instance, first 4.3.18 and later 4.3.23; README and `ARCHITECTURE.md` section 10 record the supported baseline and its limits.
 
 ## Milestone 2: the rest of the brief, verified live
 
-Every command from the brief is implemented and verified against a live Coolify 4.3.18 instance, using a purpose-built public example repository and an isolated project on that instance.
+Every command from the brief is implemented and verified against a live Coolify instance — 4.3.18 at this milestone, re-verified on 4.3.23 — using a purpose-built public example repository and an isolated project on that instance.
 
-- [x] Validate against a live Coolify instance and record a supported server baseline (4.3.18).
+- [x] Validate against a live Coolify instance and record a supported server baseline (established on 4.3.18, re-verified on 4.3.23).
 - [x] Fix what live validation found: log follow across snapshots without a final newline, interrupt reporting.
 - [x] Stream build logs during deployment observation.
 - [x] Add `open`, `unlink`, `config`, and `doctor`.
@@ -135,12 +135,13 @@ Today `coolship dev` runs a local process with the target's remote Coolify varia
 
 ## Later
 
-- [x] `init`: create a Coolify application from a repository's remote and link it — public repositories, and private ones through a GitHub App or a deploy key, including generating the key (all three verified live on 4.3.18), with every build pack Coolify offers: Railpack, Nixpacks, static, Dockerfile, and Compose with per-service domains.
-- [x] Lifecycle and history: `stop`, `start`, `restart`, `deployments`, and `cancel`, with `status` showing the last deployment (verified live on 4.3.18).
+- [x] `init`: create a Coolify application from a repository's remote and link it — public repositories, and private ones through a GitHub App or a deploy key, including generating the key (all three verified live on 4.3.18; the public path re-verified on 4.3.23), with every build pack Coolify offers: Railpack, Nixpacks, static, Dockerfile, and Compose with per-service domains.
+- [x] Lifecycle and history: `stop`, `start`, `restart`, `deployments`, and `cancel`, with `status` showing the last deployment (verified live on 4.3.18 and again on 4.3.23).
 - [x] `delete`: remove the linked application, the inverse of `init`, after a confirmation that names its status and URLs, keeping the local binding unless `--unlink` says otherwise (verified live on 4.3.23, creating an application with `init` and deleting it again). Deleting a project, an environment, or a server stays out of scope.
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
 - [x] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18 (reported privately to Coolify on 2026-09-10, per their security policy).
 - [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.
+- [ ] Read a preview deployment's runtime logs. Coolify 4.3.23 added `GET /applications/{uuid}/previews/{pull_request_id}/logs`, which the 4.3.18 baseline did not have, so `logs --pr N` becomes possible.
 
 ## Toward 1.0
 
