@@ -68,6 +68,7 @@ type Application interface {
 	Logout(context.Context, service.LogoutOptions) (service.LogoutResult, error)
 	ProjectState(context.Context, service.Options) (service.ProjectState, error)
 	Contexts(service.Options) ([]auth.Instance, error)
+	CompletionTargets(service.Options) []service.CompletionTarget
 }
 
 // Option configures process-level behavior the command tree cannot own.
@@ -255,6 +256,8 @@ logs of that application.`,
 	root.SetHelpCommandGroupID(maintainGroupID)
 	order[root] = append(order[root], helpCommand)
 	root.SetUsageFunc(unsortedUsageFunc(order))
+	// Last, so every command and flag a shell can be asked about exists.
+	registerCompletions(root, app, options)
 	return root
 }
 

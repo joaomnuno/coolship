@@ -23,29 +23,31 @@ import (
 )
 
 type fakeApplication struct {
-	status func(context.Context, service.Options) (service.StatusResult, error)
-	deploy func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
-	logs   func(context.Context, service.LogsOptions, service.Emitter) error
-	link   func(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
-	init   func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
-	open   func(context.Context, service.OpenOptions) (service.OpenResult, error)
-	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
-	del    func(context.Context, service.DeleteOptions, service.ConfirmDelete, service.Emitter) (service.DeleteResult, error)
-	config func(context.Context, service.Options) (service.ConfigResult, error)
-	doctor func(context.Context, service.Options) (service.DoctorResult, error)
-	pull   func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
-	diff   func(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
-	push   func(context.Context, service.EnvPushOptions, service.ConfirmPush) (service.EnvPushResult, error)
-	dev    func(context.Context, service.DevOptions, service.Emitter) error
-	domain func(context.Context, service.Options) (service.DomainResult, error)
-	setDom func(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
-	login  func(context.Context, service.LoginOptions) (service.LoginResult, error)
-	logout func(context.Context, service.LogoutOptions) (service.LogoutResult, error)
-	stop   func(context.Context, service.StopOptions, service.ConfirmStop, service.Emitter) (service.StopResult, error)
-	start  func(context.Context, service.StartOptions, service.Emitter) (service.DeployResult, error)
-	rstart func(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error)
-	list   func(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error)
-	cancel func(context.Context, service.CancelOptions, service.ConfirmCancel) (service.CancelResult, error)
+	status        func(context.Context, service.Options) (service.StatusResult, error)
+	deploy        func(context.Context, service.DeployOptions, service.Emitter) (service.DeployResult, error)
+	logs          func(context.Context, service.LogsOptions, service.Emitter) error
+	link          func(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
+	init          func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
+	open          func(context.Context, service.OpenOptions) (service.OpenResult, error)
+	unlink        func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
+	del           func(context.Context, service.DeleteOptions, service.ConfirmDelete, service.Emitter) (service.DeleteResult, error)
+	config        func(context.Context, service.Options) (service.ConfigResult, error)
+	doctor        func(context.Context, service.Options) (service.DoctorResult, error)
+	pull          func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
+	diff          func(context.Context, service.EnvOptions) (service.EnvDiffResult, error)
+	push          func(context.Context, service.EnvPushOptions, service.ConfirmPush) (service.EnvPushResult, error)
+	dev           func(context.Context, service.DevOptions, service.Emitter) error
+	domain        func(context.Context, service.Options) (service.DomainResult, error)
+	setDom        func(context.Context, service.DomainSetOptions, service.ConfirmDomain) (service.DomainSetResult, error)
+	login         func(context.Context, service.LoginOptions) (service.LoginResult, error)
+	logout        func(context.Context, service.LogoutOptions) (service.LogoutResult, error)
+	stop          func(context.Context, service.StopOptions, service.ConfirmStop, service.Emitter) (service.StopResult, error)
+	start         func(context.Context, service.StartOptions, service.Emitter) (service.DeployResult, error)
+	rstart        func(context.Context, service.StartOptions, service.ConfirmRestart, service.Emitter) (service.DeployResult, error)
+	list          func(context.Context, service.DeploymentsOptions) (service.DeploymentsResult, error)
+	cancel        func(context.Context, service.CancelOptions, service.ConfirmCancel) (service.CancelResult, error)
+	targets       func(service.Options) []service.CompletionTarget
+	savedContexts func(string) []service.SavedContext
 	// state and contexts answer the next-step hints and the context
 	// picker; nil reads as unavailable and as no saved contexts.
 	state    func(context.Context, service.Options) (service.ProjectState, error)
@@ -87,7 +89,12 @@ func (f fakeApplication) Login(ctx context.Context, options service.LoginOptions
 
 // The steps of an interactive login: the instance and token checks pass,
 // and the save is the fake's login, so tests see what would be saved.
-func (f fakeApplication) SavedContexts(string) []service.SavedContext { return nil }
+func (f fakeApplication) SavedContexts(path string) []service.SavedContext {
+	if f.savedContexts == nil {
+		return nil
+	}
+	return f.savedContexts(path)
+}
 func (f fakeApplication) CheckInstance(_ context.Context, url string) (string, error) {
 	return service.NormalizeInstanceURL(url)
 }
@@ -130,6 +137,12 @@ func (f fakeApplication) Unlink(ctx context.Context, options service.UnlinkOptio
 }
 func (f fakeApplication) Delete(ctx context.Context, options service.DeleteOptions, confirm service.ConfirmDelete, emit service.Emitter) (service.DeleteResult, error) {
 	return f.del(ctx, options, confirm, emit)
+}
+func (f fakeApplication) CompletionTargets(options service.Options) []service.CompletionTarget {
+	if f.targets == nil {
+		return nil
+	}
+	return f.targets(options)
 }
 func (f fakeApplication) Config(ctx context.Context, options service.Options) (service.ConfigResult, error) {
 	return f.config(ctx, options)

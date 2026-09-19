@@ -97,6 +97,20 @@ coolship completion zsh > "${fpath[1]}/_coolship"        # zsh, then start a new
 coolship completion fish > ~/.config/fish/completions/coolship.fish
 ```
 
+Tab completes commands and flags, and these values:
+
+| Where | What |
+| --- | --- |
+| `deploy`, `status`, `logs`, and every other verb's first argument, and `--target` | the named targets of this directory's `coolship.toml`, with their project, environment, and application as the description |
+| `config get KEY`, `config set KEY VALUE` | the preference keys with their descriptions, then the values that key accepts |
+| `logout`, `--context` | the saved contexts, with their URLs, and which one is the default |
+| `--format` | `human`, `json` |
+| `init --build-pack`, `init --source` | the build packs and sources `init` documents |
+| `--cwd` | directories only |
+| `dev`, `--file` | the shell's own file list, which is what a path argument wants |
+
+A Tab never makes an HTTP request, so it cannot hang on an unreachable instance or spend a rate limit. Names only Coolify knows — projects, environments, applications, GitHub Apps, keys, deployment UUIDs — are therefore not offered; `link` and `init` ask for those interactively when the flag is left out. A command that takes no argument completes to nothing rather than falling back to the shell's file list.
+
 ### Releases
 
 Every `vX.Y.Z` tag publishes a [GitHub Release](https://github.com/joaomnuno/coolship/releases) with `coolship_<version>_<os>_<arch>.tar.gz` archives (`.zip` on Windows) for Linux, macOS, and Windows on amd64 and arm64, plus a `checksums.txt` of SHA-256 sums. Tags with a suffix such as `v0.4.0-rc.1` and the rolling `nightly` build from `main` are marked as pre-releases; `latest` always points at the newest full release.
