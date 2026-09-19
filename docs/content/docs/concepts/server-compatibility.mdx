@@ -1,6 +1,7 @@
 ---
 title: Server compatibility
 description: Coolship is verified against Coolify 4.3.23. What the verification covered, what changed since 4.3.18, what the server was observed to do, and what other versions can expect.
+icon: Server
 ---
 
 **Verified against Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: the end-to-end script passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.

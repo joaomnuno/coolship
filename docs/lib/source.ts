@@ -1,7 +1,54 @@
+import { createElement } from 'react';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
 import { loader } from 'fumadocs-core/source';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 import { defineDocs } from 'fumadocs-mdx/macro';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Binary,
+  BookOpen,
+  Bot,
+  Boxes,
+  CirclePlay,
+  CloudUpload,
+  FlaskConical,
+  Gauge,
+  KeyRound,
+  Link2,
+  LockKeyhole,
+  Rocket,
+  Server,
+  Terminal,
+  TriangleAlert,
+  Workflow,
+} from 'lucide-react';
+
+/**
+ * The icons a page may name in its `icon` frontmatter, drawn next to its title
+ * in the sidebar. Fumadocs bundles no icon library, so the loader resolves the
+ * name itself and only the icons named here are bundled; an unknown name fails
+ * the build rather than rendering nothing. One icon per page, monochrome: the
+ * sidebar colours them, and a page with no icon (every command page under
+ * Command reference) sits flush with its siblings.
+ */
+const icons = {
+  Binary,
+  BookOpen,
+  Bot,
+  Boxes,
+  CirclePlay,
+  CloudUpload,
+  FlaskConical,
+  Gauge,
+  KeyRound,
+  Link2,
+  LockKeyhole,
+  Rocket,
+  Server,
+  Terminal,
+  TriangleAlert,
+  Workflow,
+} satisfies Record<string, LucideIcon>;
 
 /**
  * The components that lib/llm.ts renders into plain Markdown for the per-page
@@ -55,6 +102,13 @@ const docs = defineDocs({
 export const source = loader({
   baseUrl: '/docs',
   source: docs.toFumadocsSource(),
+  icon(name) {
+    if (!name) return;
+    const Icon = icons[name as keyof typeof icons];
+    if (!Icon) throw new Error(`Unknown icon "${name}": add it to the icons map in lib/source.ts.`);
+    // The sidebar sizes and colours it; 1.8 keeps the stroke from shouting at 16px.
+    return createElement(Icon, { strokeWidth: 1.8, 'aria-hidden': true });
+  },
 });
 
 export type Page = (typeof source)['$inferPage'];
