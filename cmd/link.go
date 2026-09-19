@@ -44,6 +44,10 @@ changing one, or converting between the two forms, requires review.`,
 					return inputError(err)
 				}
 			}
+			// On a terminal the whole run is one block behind a left bar,
+			// as init's is.
+			streams := streams
+			streams.Block = ui.NewBlock(streams, options.format)
 			prompter := ui.NewPrompter(streams)
 			steps := ui.NewSteps(streams, options.format, []string{"Choose the application", "Write coolship.toml"})
 			var result service.LinkResult

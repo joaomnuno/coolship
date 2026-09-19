@@ -31,10 +31,16 @@ import (
 // drawn and each transition is one plain line on stderr, "Step <title>:
 // started", "done", "failed", or "skipped". A command whose plain output
 // predates Steps checks Live and keeps its own lines instead.
+//
+// When the streams carry a Block, every row, live or printed, and every
+// warning above the view begins with its bar. A row is still cut to the
+// terminal's width after the bar, so a frame stays one line per row.
 type Steps struct {
 	streams  Streams
 	renderer *Renderer
 	terminal *os.File // nil when the plain path is in use
+	display  *display // where the view draws when it is not the terminal, for tests
+	block    *Block
 	style    palette
 	clock    func() time.Time
 
@@ -51,7 +57,7 @@ type Steps struct {
 // NewSteps prepares the checklist for titles, in the order they run.
 func NewSteps(streams Streams, format string, titles []string) *Steps {
 	streams = streams.Normalized()
-	s := &Steps{streams: streams, renderer: NewRenderer(streams, format), style: streams.errPalette(), clock: time.Now}
+	s := &Steps{streams: streams, renderer: NewRenderer(streams, format), style: streams.errPalette(), clock: time.Now, block: streams.Block}
 	if format != "json" {
 		s.terminal, _ = drawable(streams)
 	}
@@ -124,7 +130,7 @@ func (s *Steps) Skip(i int, reason string) {
 // usual warning line when nothing is drawn.
 func (s *Steps) Warn(message string) error {
 	if s.program != nil {
-		s.program.Send(printMsg(s.style.apply(yellow, "Warning:") + " " + singleLine(message)))
+		s.program.Send(printMsg(strings.Join(s.block.lines(s.style.apply(yellow, "Warning:")+" "+singleLine(message)), "\n")))
 		return nil
 	}
 	return s.renderer.Warn(message)
@@ -216,8 +222,8 @@ func (s *Steps) draw() {
 	if !slices.ContainsFunc(rows, func(row stageRow) bool { return row.status != "" }) {
 		return
 	}
-	d := terminalDisplay(s.terminal)
-	model := stepsModel{spinner: spinner.New(spinner.WithSpinner(spinner.Dot)), style: s.style, clock: s.clock, now: now, rows: rows, width: d.width}
+	d := s.view()
+	model := stepsModel{block: s.block, spinner: spinner.New(spinner.WithSpinner(spinner.Dot)), style: s.style, clock: s.clock, now: now, rows: rows, width: d.width}
 	s.program, s.done = runView(d, s.style, model, &s.final)
 }
 
@@ -234,12 +240,20 @@ func (s *Steps) stop() {
 	_, _ = fmt.Fprint(s.streams.Err, eraseView(len(s.rows)-s.printed))
 }
 
+// view is where the live view draws and how wide it is now.
+func (s *Steps) view() display {
+	if s.display != nil {
+		return *s.display
+	}
+	return terminalDisplay(s.terminal)
+}
+
 // print writes rows plainly on stderr, cut to the terminal's width.
 func (s *Steps) print(rows []stageRow) {
 	if len(rows) == 0 {
 		return
 	}
-	model := stepsModel{style: s.style, now: s.clock(), rows: rows, width: terminalWidth(s.terminal)}
+	model := stepsModel{block: s.block, style: s.style, now: s.clock(), rows: rows, width: s.view().width}
 	_, _ = fmt.Fprintln(s.streams.Err, model.render())
 }
 
@@ -261,6 +275,7 @@ type stepsMsg struct {
 // by the same drawRow as deploy's stages.
 type stepsModel struct {
 	spinner spinner.Model
+	block   *Block
 	style   palette
 	clock   func() time.Time
 	now     time.Time
@@ -303,5 +318,5 @@ func (m stepsModel) render() string {
 	for _, row := range m.rows {
 		lines = append(lines, drawRow(m.style, spin, row, labelWidth, m.now))
 	}
-	return fitLines(lines, m.width)
+	return m.block.rows(lines, m.width)
 }

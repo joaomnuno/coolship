@@ -79,7 +79,7 @@ func TestInitSourceAutoProbesTheRemote(t *testing.T) {
 		}
 		// The only installed app was taken without a prompt, then checked.
 		if result.Plan.Source != SourceGitHubApp || result.Plan.GitHubApp != "docs-app" || f.created[0].GitHubAppUUID != "gh-docs" || f.created[0].Source != SourceGitHubApp ||
-			f.calls["github-branches"] != 1 || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "not reachable anonymously") {
+			f.calls["github-branches"] != 1 || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "not reachable anonymously") || result.Plan.Private != result.Warnings[0] {
 			t.Fatalf("result=%+v created=%+v calls=%v", result, f.created[0], f.calls)
 		}
 		// Off GitHub, the deploy key is the only source, and it is still asked

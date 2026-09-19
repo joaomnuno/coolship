@@ -16,11 +16,21 @@ Select project
   Work
 ```
 
-Each choice is a picker: the arrow keys move, Enter picks, and Esc (or Ctrl-C) cancels without writing anything. Typing filters a list too long for the terminal; on a shorter one, `/` starts the filter. Choices show names only, and a detail such as the UUID appears only when two candidates share a name. When the directory is already linked, the cursor starts on the current project, environment, and application. Once the last choice is made, the picker is erased and the result names what was linked:
+Each choice is a picker: the arrow keys move, Enter picks, and Esc (or Ctrl-C) cancels without writing anything. Typing filters a list too long for the terminal; on a shorter one, `/` starts the filter. Choices show names only, and a detail such as the UUID appears only when two candidates share a name. When the directory is already linked, the cursor starts on the current project, environment, and application. Once the last choice is made, the picker gives way to the checklist, which names what was chosen, and one line that says the application is linked, behind the same left bar the picker draws:
+
+```text
+┃ ✓ Choose the application        0:03  Personal / production / fenix-bot
+┃ ✓ Write coolship.toml           0:00
+┃ fenix-bot is linked.
+┃ Next:
+┃   coolship deploy  build and start it
+```
+
+Piped output, `--format json`, and `--verbose` or `--debug` runs draw no bar and print the full result instead:
 
 ```text
 Linked project in /home/you/my-app/coolship.toml
-Application: fenix-bot
+Application: fenix-bot (app-uuid)
 Environment: production
 Project: Personal
 Context: home

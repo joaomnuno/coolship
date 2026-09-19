@@ -37,7 +37,7 @@ func TestInitPlansConfirmsCreatesAndBinds(t *testing.T) {
 		t.Fatal("cancelled init wrote configuration")
 	}
 	want := InitPlan{Path: filepath.Join(dir, "coolship.toml"), Target: "default", Root: ".", Repository: "https://github.com/owner/new-app", Branch: "main",
-		BuildPack: "dockerfile", Port: 80, Dockerfile: "/Dockerfile", Name: "new-app", Instance: "home", Project: "Personal", Environment: "production", Server: "Master"}
+		BuildPack: "dockerfile", Port: 80, Dockerfile: "/Dockerfile", Name: "new-app", Instance: "home", Project: "Personal", Environment: "production", Server: "Master", Directory: dir}
 	if !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan=%+v\nwant %+v", plan, want)
 	}

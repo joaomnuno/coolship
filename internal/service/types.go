@@ -108,6 +108,13 @@ type InitPlan struct {
 	// are reported again in InitResult.Warnings, so the plan's JSON omits
 	// them.
 	Warnings []string `json:"-"`
+	// Private is the one of Warnings that says the anonymous probe of the
+	// remote failed, which is why a private source was asked for; empty
+	// otherwise. A terminal's plan says "private" in its place. Directory
+	// is the effective working directory, so the plan can name Path
+	// relative to it. Neither is part of the plan's JSON.
+	Private   string `json:"-"`
+	Directory string `json:"-"`
 }
 
 type ConfirmInit func(context.Context, InitPlan) (bool, error)
