@@ -325,6 +325,43 @@ type UnlinkResult struct {
 	Path string `json:"path"`
 }
 
+// DeleteOptions is what delete acts on. KeepVolumes leaves the application's
+// volumes on the server, which the server would otherwise delete with it;
+// Unlink removes the local binding too, the way init wrote one.
+type DeleteOptions struct {
+	Options
+	Yes         bool
+	KeepVolumes bool
+	Unlink      bool
+}
+
+// DeletePlan is what delete removes, read from the server and shown before
+// anything is sent. Status and URLs are the application as it is now, so the
+// developer can see they are about to delete a running application, or the
+// one serving a domain they recognize.
+type DeletePlan struct {
+	Target      TargetInfo `json:"target"`
+	Status      string     `json:"status"`
+	URLs        []string   `json:"urls,omitempty"`
+	KeepVolumes bool       `json:"keep_volumes"`
+	ConfigPath  string     `json:"config_path,omitempty"`
+	Unlink      bool       `json:"unlink"`
+}
+
+// ConfirmDelete reviews a DeletePlan. Deletion is irreversible, so there is no
+// path that skips it other than an explicit --yes.
+type ConfirmDelete func(context.Context, DeletePlan) (bool, error)
+
+// DeleteResult is what delete removed. Unlinked names the configuration file
+// it also deleted, empty when the binding was kept.
+type DeleteResult struct {
+	Target      TargetInfo `json:"target"`
+	Message     string     `json:"message"`
+	KeepVolumes bool       `json:"keep_volumes"`
+	Unlinked    string     `json:"unlinked,omitempty"`
+	Warnings    []string   `json:"warnings,omitempty"`
+}
+
 // ConfigResult is the effective local configuration for one invocation. It is
 // computed without network access and never contains a token.
 type ConfigResult struct {
@@ -568,6 +605,7 @@ type Backend interface {
 	StopApplication(context.Context, string) (string, error)
 	StartApplication(ctx context.Context, applicationUUID string, force bool) (models.ActionReceipt, error)
 	RestartApplication(context.Context, string) (models.ActionReceipt, error)
+	DeleteApplication(ctx context.Context, applicationUUID string, deleteVolumes bool) (string, error)
 	CancelDeployment(context.Context, string) (models.CancelReceipt, error)
 	Logs(context.Context, string, int) (models.LogSnapshot, error)
 	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)

@@ -710,6 +710,30 @@ func (r *Renderer) Unlink(result service.UnlinkResult) error {
 	return err
 }
 
+// Delete reports the application that is gone. Warnings, including a binding
+// that could not be removed, were already emitted as events, so they are not
+// repeated here.
+func (r *Renderer) Delete(result service.DeleteResult) error {
+	if r.format == "json" {
+		return json.NewEncoder(r.streams.Out).Encode(result)
+	}
+	if _, err := fmt.Fprintf(r.streams.Out, "Deleted %s from %s\n",
+		named(result.Target.Application, result.Target.ApplicationUUID, r.namesOnly()), singleLine(result.Target.Project)); err != nil {
+		return err
+	}
+	if result.KeepVolumes {
+		if _, err := fmt.Fprintln(r.streams.Out, "Its volumes were kept."); err != nil {
+			return err
+		}
+	}
+	if result.Unlinked != "" {
+		if _, err := fmt.Fprintf(r.streams.Out, "Unlinked %s\n", singleLine(result.Unlinked)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Renderer) Config(result service.ConfigResult) error {
 	if err := r.warnings(result.Warnings); err != nil {
 		return err

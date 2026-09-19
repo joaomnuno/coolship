@@ -71,9 +71,13 @@ type fakeBackend struct {
 	stopError    error
 	receipt      models.ActionReceipt
 	actionError  error
-	lastForce    bool
-	cancelled    []string
-	cancelError  error
+	deleteError  error
+	// deletedVolumes records the choice delete sent, so a test can pin that
+	// --keep-volumes reaches the server as delete_volumes=false.
+	deletedVolumes bool
+	lastForce      bool
+	cancelled      []string
+	cancelError    error
 	// Private sources: what the anonymous probe answers per remote (absent
 	// means unreachable), the GitHub Apps with the branches each can list per
 	// repository (absent means the app cannot reach it), and the keys
@@ -151,6 +155,18 @@ func (f *fakeBackend) StartApplication(_ context.Context, id string, force bool)
 		return models.ActionReceipt{}, f.actionError
 	}
 	return f.receipt, nil
+}
+
+func (f *fakeBackend) DeleteApplication(_ context.Context, id string, deleteVolumes bool) (string, error) {
+	f.calls["delete"]++
+	f.deletedVolumes = deleteVolumes
+	if id != "app-1" {
+		return "", errors.New("wrong application")
+	}
+	if f.deleteError != nil {
+		return "", f.deleteError
+	}
+	return "Application deletion request queued.", nil
 }
 
 func (f *fakeBackend) RestartApplication(_ context.Context, id string) (models.ActionReceipt, error) {

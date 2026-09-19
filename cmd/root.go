@@ -50,6 +50,7 @@ type Application interface {
 	Link(context.Context, service.LinkOptions, service.Selector, service.Confirm) (service.LinkResult, error)
 	Init(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	Open(context.Context, service.OpenOptions) (service.OpenResult, error)
+	Delete(context.Context, service.DeleteOptions, service.ConfirmDelete, service.Emitter) (service.DeleteResult, error)
 	Unlink(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
 	Config(context.Context, service.Options) (service.ConfigResult, error)
 	Doctor(context.Context, service.Options) (service.DoctorResult, error)
@@ -215,7 +216,8 @@ logs of that application.`,
 			newAliasCommand(options, streams, config.alias),
 		}},
 		{cobra.Group{ID: maintainGroupID, Title: "Maintain"}, []*cobra.Command{
-			newDoctorCommand(app, options, streams), newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
+			newDoctorCommand(app, options, streams), newDeleteCommand(app, options, streams),
+			newUnlinkCommand(app, options, streams), newLogoutCommand(app, options, streams),
 			// The menu is another way to reach the verbs, like help beside
 			// it, not a step in a project's workflow (issue #21).
 			newUICommand(app, options, streams, root, order, config.runMenu),

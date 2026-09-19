@@ -28,6 +28,13 @@ func NextDeploy(target string) string {
 	return "Next: " + withTarget("coolship deploy", target)
 }
 
+// NextUnlink is the hint after delete left the binding in place: it now names
+// an application that is gone, and every later command in the directory says
+// so until the file is removed.
+func NextUnlink(target string) string {
+	return "Next: " + withTarget("coolship unlink", target) + " to remove the binding that now names a deleted application"
+}
+
 // FailedDeployHint points at the two places a failed deployment is followed
 // up: the list of recent deployments and the application in Coolify.
 func FailedDeployHint(target string) string {

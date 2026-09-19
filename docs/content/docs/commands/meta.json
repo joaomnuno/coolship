@@ -6,6 +6,7 @@
     "init",
     "link",
     "unlink",
+    "delete",
     "status",
     "deploy",
     "logs",

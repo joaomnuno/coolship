@@ -46,7 +46,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.18 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover. `domain` is implemented and tested too; `scripts/e2e` reads it and exercises a no-op `domain set`, but no run against a live instance has confirmed either yet.
+🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `delete`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify instance — see [Server compatibility](#server-compatibility) for which version, and for what that does and does not cover. `domain` is implemented and tested too; `scripts/e2e` reads it and exercises a no-op `domain set`, but no run against a live instance has confirmed either yet.
 
 Ideas, feedback, and contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -429,6 +429,27 @@ Added cs: /home/you/.local/bin/cs runs coolship
 ### `coolship unlink`
 
 Delete `coolship.toml` — in a monorepo, that removes every `[apps.<name>]` target in it, and the confirmation lists them. Nothing on the server changes. Deletion asks for confirmation, or requires `--yes` when noninteractive, and refuses if the file changed since it was read.
+
+### `coolship delete`
+
+Delete the linked application on the server, the inverse of `init`. Coolify stops and removes its containers, then removes the application itself with its volumes, its configuration, and its deployment history; nothing brings it back.
+
+```text
+$ coolship delete
+Delete fenix-bot in production?
+  Application: fenix-bot
+  Environment: production
+  Project:     Personal
+  Status:      ● running:healthy
+  URL:         https://bot.example.com
+  Volumes:     deleted with the application
+This cannot be undone.
+Confirm [y/N]: y
+Deleted fenix-bot from Personal
+Next: coolship unlink to remove the binding that now names a deleted application
+```
+
+The plan names the URLs the application answers on, because that is how the wrong application is usually recognized in time. `--yes` skips the question and is required when noninteractive; `--keep-volumes` leaves the volumes on the server, so data outlives the application. `coolship.toml` is kept, and then names an application that is gone — `--unlink` deletes it in the same run. The project, the environment, and the server stay: deleting those is Coolify administration, which Coolship does not do. Coolify requires a team administrator's token and answers a member's with `403`.
 
 ### `coolship preview`
 

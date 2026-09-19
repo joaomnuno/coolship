@@ -137,6 +137,7 @@ Today `coolship dev` runs a local process with the target's remote Coolify varia
 
 - [x] `init`: create a Coolify application from a repository's remote and link it — public repositories, and private ones through a GitHub App or a deploy key, including generating the key (all three verified live on 4.3.18), with every build pack Coolify offers: Railpack, Nixpacks, static, Dockerfile, and Compose with per-service domains.
 - [x] Lifecycle and history: `stop`, `start`, `restart`, `deployments`, and `cancel`, with `status` showing the last deployment (verified live on 4.3.18).
+- [x] `delete`: remove the linked application, the inverse of `init`, after a confirmation that names its status and URLs, keeping the local binding unless `--unlink` says otherwise (verified live on 4.3.23, creating an application with `init` and deleting it again). Deleting a project, an environment, or a server stays out of scope.
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
 - [x] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18 (reported privately to Coolify on 2026-09-10, per their security policy).
 - [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.
