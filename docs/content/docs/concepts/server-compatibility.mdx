@@ -1,11 +1,22 @@
 ---
 title: Server compatibility
-description: Coolship is verified against Coolify 4.3.18. What the verification covered, what the server was observed to do, and what other versions can expect.
+description: Coolship is verified against Coolify 4.3.23. What the verification covered, what changed since 4.3.18, what the server was observed to do, and what other versions can expect.
 ---
 
-**Verified against Coolify 4.3.18.** Every command was run end to end against a live instance: creating a Dockerfile application from a public repository with `init` and deleting it again, linking, deploying, and following logs of a real Dockerfile application, syncing its variables in both scopes, deploying a webhook-created pull request preview, running a local process with its variables, and linking a two-target monorepo.
+**Verified against Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: the end-to-end script passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
 
-The 4.3.19 source has no changes to any endpoint Coolship uses — the API routes, the deploy and project controllers, the sensitive-data middleware, and the deployment-status enum are identical — so it is expected to behave identically. Other versions are untested.
+Three things were verified on 4.3.18 and not re-run: `init` through a GitHub App and through a deploy key, `preview` deploying a real webhook-created pull request preview, and linking a two-target monorepo. The first two need setup the API cannot create.
+
+## What changed between 4.3.18 and 4.3.23
+
+Four changes touch endpoints Coolship uses, none of them breaking:
+
+- `GET /applications/{uuid}/logs` accepts `lines=all`, with `-1` as an alias, where any value below 1 previously fell back to the default 100. Coolship sends a value between 1 and 10000, so its behavior is unchanged. A `view` authorization check was added, which repeats the team scoping the lookup already applied.
+- `GET /applications/{uuid}/previews/{pull_request_id}/logs` is new and reads a preview deployment's runtime logs. `coolship logs` does not use it yet.
+- `POST /applications/public` rewrites an scp-style SSH remote to its https form and stores that, so a GitHub SSH remote becomes the `owner/repo` slug on the public GitHub source. Coolship sends the SSH form only to the deploy-key endpoint, which is unchanged.
+- Domain conflict detection was rewritten: a conflict is keyed by the domain without its scheme or trailing slash, and a Compose application's per-service domains are included. This is the refusal `domain set` relays.
+
+The deploy, project, security, and GitHub App controllers, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, resolution, variables, keys, and GitHub App lookups behave identically. Other versions are untested.
 
 ## What the verification uses
 
@@ -20,6 +31,7 @@ Coolship talks to the API under `/api/v1` with a `coolship/<version>` user agent
 | `logs`                     | `GET /applications/{uuid}/logs?lines=…&show_timestamps=true`                                                                   |
 | `doctor`                   | `GET /version`, then resolution                                                                                                 |
 | `domain`, `domain set`     | resolution; `PATCH /applications/{uuid}` with `domains`, `redirect`, `force_domain_override`, or `docker_compose_domains` for a Compose application |
+| `delete`                   | resolution, then `DELETE /applications/{uuid}`, with `delete_volumes=false` only when volumes are kept                           |
 | `login`                    | `GET /version`, `GET /teams/current`                                                                                            |
 | `dev`, `env pull\|diff\|push` | `GET /applications/{uuid}/envs`, `PATCH /applications/{uuid}/envs/bulk`, `DELETE /applications/{uuid}/envs/{env_uuid}`     |
 
@@ -30,7 +42,7 @@ Coolship talks to the API under `/api/v1` with a `coolship/<version>` user agent
 These observations shape Coolship's client and were not visible from the server's source alone:
 
 - **Runtime log snapshots omit the newline after the final line.** Overlap detection compares lines without terminators, and every emitted chunk ends with a newline.
-- **`GET /version` returns plain text** (`4.3.18`) with an HTML content type.
+- **`GET /version` returns plain text** (`4.3.23`) with an HTML content type.
 - **Deployment logs are present only when the token can read sensitive data.** Without that ability the field is absent, which Coolship reports as unavailable rather than empty.
 - **A deployment response identifies its application by integer id and name**, not by UUID. Coolship verifies the returned deployment UUID against the one it submitted.
 - **Creating a regular variable also creates a preview-scope twin.** Preview scope is a separate dimension that every variable workflow selects explicitly.

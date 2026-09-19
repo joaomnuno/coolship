@@ -354,7 +354,7 @@ jobs:
 [ok]   Binding: Personal / production / fenix-bot in /home/you/my-app
 [ok]   Credentials: /home/you/.config/coolify/config.json (1 instance, default home)
 [ok]   Context: home at https://coolify.example.com
-[ok]   Server: Coolify 4.3.18
+[ok]   Server: Coolify 4.3.23
 [ok]   Application: fenix-bot (9f8e7d6c) is running:healthy`,
       },
     ],
