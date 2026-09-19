@@ -30,6 +30,7 @@ type fakeApplication struct {
 	init   func(context.Context, service.InitOptions, service.Selector, service.ConfirmInit, service.Emitter) (service.InitResult, error)
 	open   func(context.Context, service.OpenOptions) (service.OpenResult, error)
 	unlink func(context.Context, service.UnlinkOptions, service.ConfirmUnlink) (service.UnlinkResult, error)
+	del    func(context.Context, service.DeleteOptions, service.ConfirmDelete, service.Emitter) (service.DeleteResult, error)
 	config func(context.Context, service.Options) (service.ConfigResult, error)
 	doctor func(context.Context, service.Options) (service.DoctorResult, error)
 	pull   func(context.Context, service.EnvOptions) (service.EnvPullResult, error)
@@ -126,6 +127,9 @@ func (f fakeApplication) Open(ctx context.Context, options service.OpenOptions) 
 }
 func (f fakeApplication) Unlink(ctx context.Context, options service.UnlinkOptions, confirm service.ConfirmUnlink) (service.UnlinkResult, error) {
 	return f.unlink(ctx, options, confirm)
+}
+func (f fakeApplication) Delete(ctx context.Context, options service.DeleteOptions, confirm service.ConfirmDelete, emit service.Emitter) (service.DeleteResult, error) {
+	return f.del(ctx, options, confirm, emit)
 }
 func (f fakeApplication) Config(ctx context.Context, options service.Options) (service.ConfigResult, error) {
 	return f.config(ctx, options)

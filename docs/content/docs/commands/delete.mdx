@@ -1,0 +1,75 @@
+---
+title: delete
+description: Delete the linked application from Coolify. Nothing brings it back.
+---
+
+```text
+coolship delete [target] [flags]
+```
+
+`delete` removes the linked application on the server, the inverse of what [`init`](/docs/commands/init) created. Coolify stops and removes its containers, then removes the application itself with its volumes, its configuration, and its deployment history.
+
+The application, its environment, its current status, and the URLs it serves are shown first, so the application you are about to delete is recognizable by the domain it answers on:
+
+```text
+$ coolship delete
+Delete fenix-bot in production?
+  Application: fenix-bot
+  Environment: production
+  Project:     Personal
+  Status:      ● running:healthy
+  URL:         https://bot.example.com
+  Volumes:     deleted with the application
+This cannot be undone.
+Confirm [y/N]: y
+Deleted fenix-bot from Personal
+Next: coolship unlink to remove the binding that now names a deleted application
+```
+
+`--yes` skips the question, and is required when input is noninteractive.
+
+## What it does not delete
+
+`coolship.toml` is kept, because it is a file you did not ask about; it then names an application that is gone, and every later command in the directory says so. `--unlink` deletes it in the same run, or [`coolship unlink`](/docs/commands/unlink) does it afterwards.
+
+The project, the environment, and the server stay. Deleting those is Coolify administration, which Coolship does not do.
+
+## Volumes
+
+Coolify deletes the application's volumes along with it. `--keep-volumes` leaves them on the server, so data outlives the application — useful before recreating it with `init`, and a leak if you forget them. The application's configurations and connected networks go either way, since only the deleted application owned them.
+
+## Flags
+
+| Flag             | Purpose                                            |
+| ---------------- | -------------------------------------------------- |
+| `-y`, `--yes`    | Delete without confirmation.                       |
+| `--keep-volumes` | Leave the application's volumes on the server.     |
+| `--unlink`       | Delete the local `coolship.toml` too.              |
+
+## Examples
+
+```bash
+coolship delete
+coolship delete --yes --unlink
+coolship delete --keep-volumes
+coolship delete web --yes            # one target of a monorepo
+```
+
+## Permissions
+
+The token must belong to an administrator or owner of the application's team; Coolify answers a member's token with `403`.
+
+## JSON
+
+```json
+{
+  "target": { "application": "fenix-bot", "application_uuid": "u1", "project": "Personal", "environment": "production" },
+  "message": "Application deletion request queued.",
+  "keep_volumes": false,
+  "unlinked": "/home/you/my-app/coolship.toml"
+}
+```
+
+## Exit codes
+
+`0` when the application was deleted; `1` when the server refused the deletion; `2` when the directory is not linked or `--yes` is missing noninteractively; `130` when the prompt is cancelled.

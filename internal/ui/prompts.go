@@ -441,6 +441,59 @@ func (p *Prompter) confirmLifecycle(ctx context.Context, question string, target
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
+// ConfirmDelete shows everything the deletion takes with it. Deletion is the
+// one action here that nothing brings back, so the plan names the application's
+// status and the URLs it is serving now: a developer who is about to delete the
+// wrong application usually recognizes it by its domain.
+func (p *Prompter) ConfirmDelete(ctx context.Context, plan service.DeletePlan) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !p.streams.Interactive {
+		return false, &service.InputError{Err: errors.New("deleting the application requires --yes when input is noninteractive")}
+	}
+	environment := singleLine(plan.Target.Environment)
+	if environment == "production" {
+		environment = p.style.apply(bold, environment)
+	}
+	namesOnly := p.streams.ErrTerminal && p.streams.level() == VerbosityNormal
+	if _, err := fmt.Fprintf(p.streams.Err, "%s\n  Application: %s\n  Environment: %s\n  Project:     %s\n  Status:      %s\n",
+		p.question("Delete "+singleLine(plan.Target.Application)+" in "+singleLine(plan.Target.Environment)+"?"),
+		named(plan.Target.Application, plan.Target.ApplicationUUID, namesOnly), environment,
+		singleLine(plan.Target.Project), applicationState(p.style, p.streams.ErrTerminal, plan.Status)); err != nil {
+		return false, err
+	}
+	for i, url := range plan.URLs {
+		label := "URL:"
+		if i > 0 {
+			label = "    "
+		}
+		if _, err := fmt.Fprintf(p.streams.Err, "  %-12s %s\n", label, singleLine(url)); err != nil {
+			return false, err
+		}
+	}
+	volumes := "deleted with the application"
+	if plan.KeepVolumes {
+		volumes = "kept on the server"
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "  %-12s %s\n", "Volumes:", volumes); err != nil {
+		return false, err
+	}
+	if plan.ConfigPath != "" {
+		if _, err := fmt.Fprintf(p.streams.Err, "  %-12s %s is deleted too\n", "Binding:", singleLine(plan.ConfigPath)); err != nil {
+			return false, err
+		}
+	}
+	if _, err := fmt.Fprintf(p.streams.Err, "This cannot be undone.\n%s ", p.question("Confirm [y/N]:")); err != nil {
+		return false, err
+	}
+	answer, err := p.readLine(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
 // ConfirmCancel shows the deployment that is about to be cancelled.
 func (p *Prompter) ConfirmCancel(ctx context.Context, plan service.CancelPlan) (bool, error) {
 	if err := ctx.Err(); err != nil {

@@ -121,6 +121,28 @@ func (c *Client) StopApplication(ctx context.Context, uuid string) (string, erro
 	return response.Message, nil
 }
 
+// DeleteApplication asks Coolify to delete the application. The server marks
+// it deleted at once, queues a DeleteResourceJob for the containers and their
+// leftovers, and answers with a message; reads stop finding the application
+// within seconds. The server's own defaults delete the application's
+// configurations and connected networks and run a docker cleanup, all of
+// which only a deleted application owned; deleteVolumes is the one that
+// loses data, so it is the only one Coolship turns into a choice. The
+// DELETE is never retried, like every other mutation here.
+func (c *Client) DeleteApplication(ctx context.Context, uuid string, deleteVolumes bool) (string, error) {
+	var query url.Values
+	if !deleteVolumes {
+		query = url.Values{"delete_volumes": []string{"false"}}
+	}
+	var response struct {
+		Message string `json:"message"`
+	}
+	if err := c.request(ctx, http.MethodDelete, []string{"applications", uuid}, query, nil, &response); err != nil {
+		return "", err
+	}
+	return response.Message, nil
+}
+
 // StartApplication queues a deployment through the start action, which is
 // how Coolify brings a stopped application back. Force rebuilds without
 // cache. Like Deploy, the POST is never retried, and a failure without an
