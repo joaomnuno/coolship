@@ -382,6 +382,8 @@ The binding plan includes the original file fingerprint. Before writing, detect 
 
 Register only implemented commands. Begin with shared `--cwd`, `--config`, `--context`, `--coolify-config`, `--environment`, and `--format` options where applicable. Use `logs -f`/`--follow`; avoid speculative aliases and flag proliferation.
 
+Shell completion is offline. Cobra completes command and flag names; the value completions Coolship registers read local files at most — the discovered `coolship.toml` for target names, the credentials file for context names — and never the network, a token, or a backend, because a Tab that can hang on an unreachable instance or fail on an expired login is worse than one that offers nothing. The names only the server holds (projects, environments, applications, GitHub Apps, private keys, deployment UUIDs) are therefore not completed; the interactive pickers of `link` and `init` are where those are chosen. A command whose argument is not a path answers `ShellCompDirectiveNoFileComp` so the shell does not fall back to its own file list, and a completion that cannot read what it needs answers with nothing rather than an error, since a shell has nowhere to show one.
+
 ### Deployment semantics
 
 Coolship triggers Coolify's configured deployment source. The MVP does not upload the current worktree, push Git commits, or change the application's configured branch. A project-local command therefore does not imply that uncommitted local changes will be deployed. Explain that behavior in command help.

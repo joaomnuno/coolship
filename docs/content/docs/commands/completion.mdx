@@ -1,0 +1,58 @@
+---
+title: completion
+description: Print a Tab-completion script for your shell, and what Tab completes once it is loaded.
+---
+
+```text
+coolship completion bash|zsh|fish|powershell
+```
+
+`completion` prints a completion script on stdout. Your shell loads it; Coolship does not install it for you.
+
+```bash
+source <(coolship completion bash)                       # bash, in ~/.bashrc
+coolship completion zsh > "${fpath[1]}/_coolship"        # zsh, then start a new shell
+coolship completion fish > ~/.config/fish/completions/coolship.fish
+coolship completion powershell | Out-String | Invoke-Expression
+```
+
+`coolship completion zsh --help` shows where each shell loads its script from. An unknown shell name, or an extra argument, is invalid input (exit `2`).
+
+## What Tab completes
+
+Commands and flags, and these values:
+
+| Where | What |
+| --- | --- |
+| The first argument of `deploy`, `status`, `logs`, `open`, `stop`, `start`, `restart`, `preview`, `deployments`, `cancel`, `domain`, `delete`, and `--target` | the named targets of this directory's `coolship.toml`, with their project, environment, and application as the description |
+| `config get KEY` | the preference keys, with what each one does |
+| `config set KEY VALUE` | the keys, then the values that key accepts |
+| `logout`, `--context` | the saved contexts, with their URLs and which is the default |
+| `--format` | `human`, `json` |
+| `init --build-pack` | `railpack`, `nixpacks`, `static`, `dockerfile`, `dockercompose` |
+| `init --source` | `auto`, `public`, `github-app`, `deploy-key` |
+| `--cwd` | directories only |
+| `dev`, and path flags such as `--file` | the shell's own file list |
+
+A command that takes no argument completes to nothing, rather than falling back to the shell's list of files in the directory.
+
+## What Tab does not complete
+
+**A Tab never makes an HTTP request.** Completion reads local files at most — your `coolship.toml` and the saved contexts — so pressing Tab cannot hang on an unreachable instance, wake a VPN, or spend a rate limit, and it cannot fail on an expired token. A token is never read.
+
+That means the names only Coolify knows are not offered: projects, environments, applications, GitHub Apps, private keys, and deployment UUIDs. Leave the flag out instead and let the command ask:
+
+```bash
+coolship link                    # picks project, environment, and application interactively
+coolship init --source github-app  # picks the GitHub App from a list
+coolship cancel                   # cancels the one deployment that is running
+```
+
+## Examples
+
+```bash
+coolship deploy <Tab>            # api  web        (a monorepo's targets)
+coolship config set <Tab>        # verbosity  build_logs  color  hints  update_check
+coolship config set color <Tab>  # auto  always  never
+coolship --context <Tab>         # home  work
+```

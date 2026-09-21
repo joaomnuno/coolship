@@ -325,6 +325,14 @@ type UnlinkResult struct {
 	Path string `json:"path"`
 }
 
+// CompletionTarget is one named target a shell can offer for a target
+// argument: the table name from [apps.<name>], and the binding behind it as
+// the description a shell shows beside it.
+type CompletionTarget struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
+}
+
 // DeleteOptions is what delete acts on. KeepVolumes leaves the application's
 // volumes on the server, which the server would otherwise delete with it;
 // Unlink removes the local binding too, the way init wrote one.
