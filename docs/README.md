@@ -46,6 +46,10 @@ Deploy on Coolify as a Dockerfile application with *Base Directory* `/docs`, *Do
 
 Pages live in `content/docs/` as MDX files with `title` and `description` frontmatter; both are required, and the description doubles as the summary in `llms.txt`. Each folder's `meta.json` names its title and the order of its pages. Slugs follow file paths: `content/docs/commands/deploy.mdx` is `/docs/commands/deploy`.
 
+The sidebar is flat. `content/docs/meta.json` names each section as a separator (`---Concepts---`) and lifts that folder's pages into it (`...concepts`), so the sections read as areas of the product rather than as directories, and the folders on disk stay as they are. `commands` is the one folder left in the tree, because it holds a page per command under its index; its pages are listed in `content/docs/commands/meta.json` without `index`, which is what makes that page the folder's own link. The sections of `llms.txt` follow the same separators, and a new section needs one there and nothing else.
+
+A page may also carry an `icon`, drawn next to its title in the sidebar. The value is the name of a [Lucide](https://lucide.dev) icon from the map in `lib/source.ts`; Fumadocs bundles no icon library, so an icon that is not in that map fails the build rather than rendering nothing. One icon per page, and none on the command pages, whose list stays flush under Command reference.
+
 Link to other pages with root-relative paths (`[deploy](/docs/commands/deploy)`). Besides Markdown, these components are available without imports: `Callout`, `Cards` and `Card`, `Steps` and `Step`, `Tabs` and `Tab`. They are rendered into plain Markdown for the `.md` pages and `llms-full.txt` by `lib/llm.ts`, and `lib/source.ts` lists them so that their children reach it as Markdown blocks; anything new you add to `components/mdx.tsx` needs an entry in both.
 
 Content is derived from the repository's `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, and each command's `--help` (`scripts/build`, then `bin/coolship <command> --help`). Do not document behavior the CLI does not have.
@@ -54,7 +58,7 @@ Content is derived from the repository's `README.md`, `ARCHITECTURE.md`, `CHANGE
 
 | Path | Purpose |
 | --- | --- |
-| `content/docs/` | The pages, in sidebar order via `meta.json` files |
+| `content/docs/` | The pages, in sidebar order and sections via `meta.json` files |
 | `app/(home)/page.tsx` | The landing page: hero with the install one-liner, the walkthrough video frame, the terminal replay, feature grid, quickstart steps, the coolify-cli comparison, built-ins tabs, and the footer |
 | `components/landing/` | Its parts. `content.ts` holds every transcript and sample (real output only); `highlight.ts` is the small tokenizer behind the code blocks; `terminal-replay.tsx` and `video-slot.tsx` are the two animated pieces; `nav.tsx` reuses the docs' search and theme switch |
 | `lib/site.ts` | The site constants: `latestVersion` on the install buttons, `showcaseVideoUrl` (empty until the recording exists; a YouTube, Vimeo, or media URL turns the frame into a player), and the verified Coolify version |

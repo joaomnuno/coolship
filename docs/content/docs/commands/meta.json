@@ -1,8 +1,7 @@
 {
-  "title": "Commands",
+  "title": "Command reference",
   "description": "Reference for every Coolship command.",
   "pages": [
-    "index",
     "init",
     "link",
     "unlink",
