@@ -81,6 +81,9 @@ export function orderedPages(): Page[] {
 /**
  * llms.txt: a title, a summary, and every page grouped by sidebar section,
  * with absolute URLs. Each entry's description comes from its frontmatter.
+ * The sections are the sidebar's own separators (`---Concepts---` in
+ * content/docs/meta.json); a folder still in the tree, such as the command
+ * reference, contributes its pages to the section it sits in.
  */
 export function getLLMIndex() {
   const out: string[] = [
@@ -110,12 +113,13 @@ export function getLLMIndex() {
   };
 
   for (const node of source.getPageTree().children) {
-    if (node.type === 'page') {
-      heading('Overview');
+    if (node.type === 'separator') {
+      if (node.name) heading(String(node.name));
+    } else if (node.type === 'page') {
+      heading(section ?? 'Overview');
       item(node);
     } else if (node.type === 'folder') {
-      const meta = source.getNodeMeta(node);
-      heading(meta?.data.title ?? String(node.name));
+      heading(section ?? source.getNodeMeta(node)?.data.title ?? String(node.name));
       if (node.index) item(node.index);
       for (const child of node.children) if (child.type === 'page') item(child);
     }

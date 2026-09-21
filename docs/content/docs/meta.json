@@ -1,5 +1,17 @@
 {
   "title": "Coolship",
   "description": "Documentation for Coolship, a project-local developer CLI for Coolify.",
-  "pages": ["index", "get-started", "concepts", "commands", "guides", "platform"]
+  "pages": [
+    "---Getting started---",
+    "index",
+    "get-started",
+    "---Concepts---",
+    "...concepts",
+    "---Commands---",
+    "commands",
+    "---Guides---",
+    "...guides",
+    "---Platform---",
+    "...platform"
+  ]
 }

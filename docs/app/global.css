@@ -63,6 +63,18 @@ html > body[data-scroll-locked] {
   --removed-body-scroll-bar-size: 0px !important;
 }
 
+/* Documentation sidebar ---------------------------------------------------- */
+
+/*
+ * The page you are on. Fumadocs already tints it with the accent; the extra
+ * weight is what keeps it from reading as a button parked among plain links.
+ * Both ids are the sidebar: the docked one and the mobile drawer.
+ */
+#nd-sidebar a[data-active="true"],
+#nd-sidebar-mobile a[data-active="true"] {
+  font-weight: 500;
+}
+
 /* Landing page ------------------------------------------------------------ */
 
 .landing ::selection {
