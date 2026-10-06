@@ -14,7 +14,7 @@ import (
 )
 
 // VerifiedServerVersion is the Coolify release Coolship was validated against.
-const VerifiedServerVersion = "4.3.23"
+const VerifiedServerVersion = "4.4.0"
 
 // Doctor runs the same steps as every workflow, one at a time, and keeps going
 // past local failures so one run can show every problem. Remote checks stop at
