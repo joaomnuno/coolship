@@ -4,7 +4,7 @@ description: What Coolship does not do, mostly because the Coolify API does not 
 icon: Gauge
 ---
 
-Coolship is verified against Coolify 4.3.23 (see [Server compatibility](/docs/concepts/server-compatibility)). The limits below hold independently of the version; each one is reported rather than papered over.
+Coolship is verified against Coolify 4.3.23 (see [Server compatibility](/docs/concepts/server-compatibility)). The limits below name version requirements where applicable; each one is reported rather than papered over.
 
 ## Deployments
 
@@ -17,7 +17,7 @@ Coolship is verified against Coolify 4.3.23 (see [Server compatibility](/docs/co
 ## Logs
 
 - **`logs --follow` polls snapshots and compares overlapping lines.** The endpoint has no cursor, so log rotation, a container restart, or a gap larger than `--lines` can cause gaps or duplicates. Coolship reports the reset rather than pretending the stream is lossless.
-- **Selecting a container is not supported**, because the server ignores the parameter the Coolify CLI sends for it and returns the first container.
+- **Selecting a Compose service with `logs --service NAME` requires Coolify 4.4.0 or newer.** Earlier servers ignore selection, so Coolship refuses it there. Without the flag, Coolify reads the first container.
 
 ## Previews
 

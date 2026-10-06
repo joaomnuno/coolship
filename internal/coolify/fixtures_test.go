@@ -79,7 +79,7 @@ func TestObservedDeploymentShape(t *testing.T) {
 
 func TestObservedRuntimeLogsOmitFinalNewline(t *testing.T) {
 	client, _ := serveFixtures(t)
-	snapshot, err := client.Logs(context.Background(), "app-uuid-000000000000000", 2)
+	snapshot, err := client.Logs(context.Background(), "app-uuid-000000000000000", 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}

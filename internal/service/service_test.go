@@ -35,6 +35,7 @@ type fakeBackend struct {
 	receipts     []models.DeploymentReceipt
 	deployments  []models.Deployment
 	snapshots    []string
+	logServices  []string
 	calls        map[string]int
 	readError    error
 	versionError error
@@ -457,7 +458,8 @@ func (f *fakeBackend) GetDeployment(_ context.Context, id string) (models.Deploy
 	}
 	return deployment, nil
 }
-func (f *fakeBackend) Logs(_ context.Context, id string, _ int) (models.LogSnapshot, error) {
+func (f *fakeBackend) Logs(_ context.Context, id string, _ int, service string) (models.LogSnapshot, error) {
+	f.logServices = append(f.logServices, service)
 	index := f.calls["logs"]
 	f.calls["logs"]++
 	if id != "app-1" {
@@ -2334,5 +2336,76 @@ func TestLoginChecksTheInstanceFirstAndRefusesADuplicate(t *testing.T) {
 	savedDefault, options.Name = "lab", "work"
 	if _, err := app.Login(context.Background(), options); !errors.Is(err, ErrInput) || saves != 2 {
 		t.Fatalf("--default under another name: err=%v saves=%d", err, saves)
+	}
+}
+
+func TestServiceLogsKeepSelectionDuringRetryAndFollow(t *testing.T) {
+	f := composeBackend()
+	f.version = "4.4.0"
+	f.logsErrors = []error{notRunningRefusal{}, nil, nil}
+	f.snapshots = []string{"", "t1 worker", "t1 worker\nt2 worker"}
+	app, _, _ := testApp(f)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var chunks []string
+	err := app.Logs(ctx, LogsOptions{Options: linkedOptions(t), Lines: 10, Service: "worker", Follow: true}, func(event Event) error {
+		if event.Type == "logs" {
+			chunks = append(chunks, event.Logs)
+			if len(chunks) == 2 {
+				cancel()
+			}
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(chunks, []string{"t1 worker\n", "t2 worker\n"}) {
+		t.Fatalf("chunks=%q error=%v", chunks, err)
+	}
+	if !reflect.DeepEqual(f.logServices, []string{"worker", "worker", "worker"}) || f.calls["version"] != 1 {
+		t.Fatalf("selectors=%q version calls=%d", f.logServices, f.calls["version"])
+	}
+}
+
+func TestServiceLogsRequireSupportedServer(t *testing.T) {
+	for _, version := range []string{"4.3.23", "4.3.99", "4.4.0-rc.1", "4.4", "unknown", "4.4.0", "4.4.1", "4.5.0", "5.0.0"} {
+		t.Run(version, func(t *testing.T) {
+			f := composeBackend()
+			f.version = version
+			app, _, _ := testApp(f)
+			err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Service: "worker"}, nil)
+			supported := version == "4.4.0" || version == "4.4.1" || version == "4.5.0" || version == "5.0.0"
+			if supported {
+				if err != nil || f.calls["logs"] != 1 {
+					t.Fatalf("logs=%d err=%v", f.calls["logs"], err)
+				}
+			} else if !errors.Is(err, ErrInput) || f.calls["logs"] != 0 {
+				t.Fatalf("logs=%d err=%v", f.calls["logs"], err)
+			}
+		})
+	}
+	f := composeBackend()
+	f.versionError = errors.New("version unavailable")
+	app, _, _ := testApp(f)
+	err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Service: "worker"}, nil)
+	if !errors.Is(err, f.versionError) || f.calls["logs"] != 0 {
+		t.Fatalf("err=%v calls=%v", err, f.calls)
+	}
+	f = newBackend()
+	app, _, _ = testApp(f)
+	err = app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Service: "worker"}, nil)
+	if !errors.Is(err, ErrInput) || f.calls["logs"] != 0 || f.calls["version"] != 0 {
+		t.Fatalf("err=%v calls=%v", err, f.calls)
+	}
+}
+
+func TestServiceLogsReportMissingServiceWithoutFallback(t *testing.T) {
+	f := composeBackend()
+	f.version = "4.4.0"
+	f.logsErrors = []error{statusError{code: 404}}
+	app, _, _ := testApp(f)
+	events := 0
+	err := app.Logs(context.Background(), LogsOptions{Options: linkedOptions(t), Lines: 10, Service: "worker"}, func(Event) error { events++; return nil })
+	var status statusError
+	if err == nil || !strings.Contains(err.Error(), `Compose service "worker"`) || !errors.As(err, &status) || events != 0 || f.calls["logs"] != 1 {
+		t.Fatalf("err=%v events=%d calls=%v", err, events, f.calls)
 	}
 }

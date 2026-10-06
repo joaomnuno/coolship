@@ -71,9 +71,14 @@ export function SiteNav() {
         <div className="ml-auto flex items-center gap-2">
           <SearchTrigger hideIfDisabled className="hidden sm:inline-flex" />
           <ThemeSwitch className="hidden sm:inline-flex" />
-          <a href="/#install" className={buttonClass("primary", "sm")}>
-            Install
-          </a>
+          <Link href="/docs" className={buttonClass("primary", "sm", "md:hidden")}>
+            Docs
+          </Link>
+          <span className="hidden sm:contents">
+            <a href="/#install" className={buttonClass("primary", "sm")}>
+              Install
+            </a>
+          </span>
           <details className="group relative md:hidden">
             <summary
               className={buttonClass(
@@ -86,7 +91,7 @@ export function SiteNav() {
               <Menu />
             </summary>
             <div className="absolute right-0 mt-2 flex w-56 flex-col gap-1 rounded-xl border border-fd-border bg-fd-popover p-2 shadow-xl">
-              {links.map((link) =>
+              {links.filter((link) => link.href !== "/docs").map((link) =>
                 link.external ? (
                   <a
                     key={link.href}
@@ -112,6 +117,14 @@ export function SiteNav() {
                   </Link>
                 ),
               )}
+              <div className="sm:hidden">
+                <a
+                  href="/#install"
+                  className={buttonClass("ghost", "sm", "w-full justify-start")}
+                >
+                  Install
+                </a>
+              </div>
               <div className="mt-1 flex flex-col gap-2 border-t border-fd-border px-2 pt-2 sm:hidden">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-fd-muted-foreground">

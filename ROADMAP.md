@@ -140,6 +140,7 @@ Today `coolship dev` runs a local process with the target's remote Coolify varia
 - [x] `delete`: remove the linked application, the inverse of `init`, after a confirmation that names its status and URLs, keeping the local binding unless `--unlink` says otherwise (verified live on 4.3.23, creating an application with `init` and deleting it again). Deleting a project, an environment, or a server stays out of scope.
 - [ ] Propose project-local commands to Coolify CLI using `config`, `project`, and `resolver` verbatim.
 - [x] Report upstream: the preview twin of a shown-once variable is returned in clear on 4.3.18 (reported privately to Coolify on 2026-09-10, per their security policy).
+- [x] Add `logs --service NAME` for Docker Compose service selection on Coolify 4.4.0+, preserving selection during follow and retries and refusing older servers that ignore it (source contract and controlled-server tests; live baseline remains 4.3.23).
 - [ ] Revisit `logs --follow` if a server cursor or streaming endpoint appears.
 - [ ] Read a preview deployment's runtime logs. Coolify 4.3.23 added `GET /applications/{uuid}/previews/{pull_request_id}/logs`, which the 4.3.18 baseline did not have, so `logs --pr N` becomes possible.
 

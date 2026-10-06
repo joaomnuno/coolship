@@ -8,6 +8,12 @@ icon: Server
 
 Three things were verified on 4.3.18 and not re-run: `init` through a GitHub App and through a deploy key, `preview` deploying a real webhook-created pull request preview, and linking a two-target monorepo. The first two need setup the API cannot create.
 
+## Compose log selection on 4.4.0
+
+[Coolify 4.4.0](https://github.com/coollabsio/coolify/releases/tag/v4.4.0) fixes the runtime log endpoint to honor `service_name`, matching the Docker Compose service label and returning 404 when no running container matches. `coolship logs --service NAME` uses this contract, checking `GET /version` once before reading logs and keeping the selector on every follow poll and retry. Older or unrecognized versions are refused because they could silently return another container's logs.
+
+Coolify 4.4.0 also requires the token's `read:sensitive` permission for runtime logs. Coolship reports permission refusals through its existing error handling. The release's source contract and controlled-server tests cover these changes; live verification on 4.4.0 is pending, so the verified baseline remains 4.3.23.
+
 ## What changed between 4.3.18 and 4.3.23
 
 Four changes touch endpoints Coolship uses, none of them breaking:
@@ -53,7 +59,7 @@ These observations shape Coolship's client and were not visible from the server'
 - **`POST /applications/public` answers 201 with the UUID and domains** and assigns the generated `https://<uuid>.<wildcard>` domain at once. A GitHub URL is stored as `owner/repo`; other hosts keep the full URL. A never-deployed application reports `exited:unhealthy`. A refusal is a 422 with a message and field errors, which Coolship includes in its error.
 - **A Cloudflare bot rule in front of an instance can reject some default user agents.** Coolship's `coolship/<version>` agent is accepted.
 
-The limits that follow from the API, independent of version, are listed under [Limits](/docs/platform/limits).
+The limits and version requirements that follow from the API are listed under [Limits](/docs/platform/limits).
 
 ## End-to-end tests
 
