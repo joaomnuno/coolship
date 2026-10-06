@@ -108,7 +108,7 @@ func TestEndpointContracts(t *testing.T) {
 	if value, err := client.GetDeployment(ctx, "d1"); err != nil || value.UUID != "d1" || value.Logs != nil {
 		t.Fatalf("deployment = %#v, %v", value, err)
 	}
-	if value, err := client.Logs(ctx, "a1", 25); err != nil || value.Logs != "2026-09-09T12:00:00Z ready\n" {
+	if value, err := client.Logs(ctx, "a1", 25, ""); err != nil || value.Logs != "2026-09-09T12:00:00Z ready\n" {
 		t.Fatalf("logs = %#v, %v", value, err)
 	}
 	if len(requests) != 8 {
@@ -367,12 +367,12 @@ func TestRejectIncompleteOrInvalidResponses(t *testing.T) {
 	}
 	for _, body := range []string{`{}`, `{"logs":null}`, `{"message":"secret"}`} {
 		client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) })
-		if _, err := client.Logs(context.Background(), "a1", 100); err == nil || strings.Contains(err.Error(), "secret") {
+		if _, err := client.Logs(context.Background(), "a1", 100, ""); err == nil || strings.Contains(err.Error(), "secret") {
 			t.Errorf("missing logs error = %v", err)
 		}
 	}
 	client = newTestClient(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"logs":""}`) })
-	if logs, err := client.Logs(context.Background(), "a1", 100); err != nil || logs.Logs != "" {
+	if logs, err := client.Logs(context.Background(), "a1", 100, ""); err != nil || logs.Logs != "" {
 		t.Errorf("explicit empty logs = %#v, %v", logs, err)
 	}
 }
@@ -382,7 +382,7 @@ func TestLogsReportNotRunningAndKeepOtherRefusalsBare(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, `{"message":"Application is not running."}`)
 	})
-	_, err := client.Logs(context.Background(), "a1", 100)
+	_, err := client.Logs(context.Background(), "a1", 100, "")
 	var refusal *NotRunningError
 	if !errors.As(err, &refusal) || refusal.Message != "Application is not running." || err.Error() != "application is not running" || !refusal.NotRunning() {
 		t.Fatalf("error = %v", err)
@@ -393,7 +393,7 @@ func TestLogsReportNotRunningAndKeepOtherRefusalsBare(t *testing.T) {
 		fmt.Fprint(w, `{"message":"private-token secret-value"}`)
 	})
 	for name, call := range map[string]func() error{
-		"logs":     func() error { _, err := client.Logs(context.Background(), "a1", 100); return err },
+		"logs":     func() error { _, err := client.Logs(context.Background(), "a1", 100, ""); return err },
 		"projects": func() error { _, err := client.ListProjects(context.Background()); return err },
 	} {
 		err := call()
@@ -475,5 +475,35 @@ func TestTransportFailuresAreNamedWithoutRepeatingTheCause(t *testing.T) {
 	_, err = client.ListProjects(context.Background())
 	if !errors.As(err, &request) || !strings.Contains(err.Error(), "connection was refused") || strings.Contains(err.Error(), listener.Addr().String()) || !errors.Is(err, syscall.ECONNREFUSED) {
 		t.Fatalf("closed port: %v", err)
+	}
+}
+
+func TestLogsSendServiceSelectorAndKeepRefusalsPrivate(t *testing.T) {
+	for _, service := range []string{"", "worker", "worker & other"} {
+		t.Run(service, func(t *testing.T) {
+			client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				query := r.URL.Query()
+				if query.Get("service_name") != service || query.Get("lines") != "25" || query.Get("show_timestamps") != "true" {
+					t.Errorf("query=%v", query)
+				}
+				if service == "" && query.Has("service_name") {
+					t.Error("default request includes selector")
+				}
+				fmt.Fprint(w, `{"logs":"selected service output"}`)
+			})
+			snapshot, err := client.Logs(context.Background(), "a1", 25, service)
+			if err != nil || snapshot.Logs != "selected service output" {
+				t.Fatalf("snapshot=%v err=%v", snapshot, err)
+			}
+		})
+	}
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"message":"secret-value"}`)
+	})
+	_, err := client.Logs(context.Background(), "a1", 25, "worker")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != 404 || httpErr.Message != "" || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("err=%v", err)
 	}
 }

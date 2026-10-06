@@ -24,6 +24,7 @@ Lines are printed exactly as the server returns them, with its timestamps, and n
 | --------------- | -------------------------------------------------------------- |
 | `-f`, `--follow` | Poll new log snapshots until interrupted.                     |
 | `-n`, `--lines N` | Maximum number of lines in each requested snapshot (default `100`). |
+| `--service NAME` | Read a named Docker Compose service (Coolify 4.4.0+). |
 
 ## Examples
 
@@ -31,6 +32,7 @@ Lines are printed exactly as the server returns them, with its timestamps, and n
 coolship logs
 coolship logs --lines 500
 coolship logs --follow
+coolship logs --service worker --follow  # Compose service, Coolify 4.4.0+
 coolship logs web -f              # named target in a monorepo
 coolship logs --format json | jq -r .logs
 ```
@@ -39,7 +41,7 @@ coolship logs --format json | jq -r .logs
 
 The endpoint has no cursor, so `--follow` polls bounded snapshots and compares overlapping lines to emit only what is new. Repeated identical lines are handled correctly, but log rotation, a container restart, or a gap larger than `--lines` can still produce gaps or duplicates. Coolship reports such a reset as a warning on stderr rather than pretending the stream is lossless. Persistent polling failures are surfaced, and the command stops promptly on Ctrl-C.
 
-Selecting a container is not supported: the server ignores the parameter Coolify CLI sends for it and returns the first container.
+Use `--service NAME` to select a Docker Compose service by its name in the compose file. This requires Coolify 4.4.0 or newer; older or unrecognized versions are refused because they ignore selection. Without the flag, Coolify reads the first container. A missing or stopped service is reported without falling back to another container. On Coolify 4.4.0, the token must have `read:sensitive` permission to read runtime logs.
 
 ## JSON
 

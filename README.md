@@ -46,7 +46,7 @@ because the repository is already linked to the correct Coolify project, environ
 
 ## Status
 
-🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `delete`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified end to end against a live Coolify 4.3.23 instance — see [Server compatibility](#server-compatibility) for what that does and does not cover. `domain` and `domain set` are implemented and tested too, and both have now been confirmed against a live instance (a read, and a `domain set` that reapplies the current domains).
+🚧 **Early development.** `init`, `link`, `status`, `deploy`, `deployments`, `cancel`, `stop`, `start`, `restart`, `logs`, `open`, `unlink`, `delete`, `config`, `doctor`, `env pull|diff|push`, `preview`, `dev`, and `login` are implemented, tested, and verified against live Coolify instances, with the core end-to-end suite re-verified on 4.4.0 — see [Server compatibility](#server-compatibility) for what that does and does not cover. `domain` and `domain set` are implemented and tested too, and both have now been confirmed against a live instance (a read, and a `domain set` that reapplies the current domains).
 
 Ideas, feedback, and contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -391,10 +391,13 @@ Read runtime logs from the linked application.
 ```bash
 coolship logs
 coolship logs --lines 500
+coolship logs --service worker --follow  # Compose service, Coolify 4.4.0+
 coolship logs --follow
 ```
 
-The server reads the application's first container and returns at most 10000 lines per snapshot; `--lines` is checked against that range before any request is made. Pull request preview containers cannot be tailed. An application with no running container has no logs, so instead of the server's bare HTTP 400 Coolship reports `application is not running (status exited:unhealthy)`, and `--follow` stops with the same message if the container goes away.
+Use `--service NAME` to read a Docker Compose service by its name in the compose file (for example, `worker`), including with `--follow`. This requires Coolify 4.4.0 or newer; older or unrecognized server versions are refused because they ignore selection. Coolify 4.4.0 also requires the token's `read:sensitive` permission for runtime logs. A missing or stopped service is reported without falling back to another container.
+
+Without `--service`, the server reads the application's first container and returns at most 10000 lines per snapshot; `--lines` is checked against that range before any request is made. Pull request preview containers cannot be tailed. An application with no running container has no logs, so instead of the server's bare HTTP 400 Coolship reports `application is not running (status exited:unhealthy)`, and `--follow` stops with the same message if the container goes away.
 
 ### `coolship open`
 
@@ -656,7 +659,11 @@ Two commands answer with a status and no message, like `git diff --exit-code`: `
 
 ## Server compatibility
 
-**Verified against Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: `scripts/e2e` passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
+**Verified against Coolify 4.4.0 on 2026-10-06.** All 21 `scripts/e2e` steps passed on the isolated example application, covering resolution, runtime logs and follow, variables and cleanup, local dev, domain reads and a no-op write, deployment, history, lifecycle, refusal paths, and unlink. On an existing three-service Compose application, `logs --service NAME` returned distinct snapshots for all three services; an unknown service returned an error with no log output. Two services were followed for six seconds each and interrupted with exit 130. No new lines appeared during those short follow windows; controlled-server tests cover new-line delivery and selector retention during retries. No production application was changed by the Compose checks.
+
+The live token had sensitive-read permission. A token without it was not available for a live refusal check; the permission requirement was checked in the 4.4.0 source and existing permission handling is covered by controlled-server tests. `init`, `delete`, a real deployment cancellation, private-source creation, and a real preview deployment were not re-run on 4.4.0; their earlier verification remains recorded below.
+
+**Previous verification: Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: `scripts/e2e` passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
 
 Three things were verified on 4.3.18 and not re-run on 4.3.23: `init` through a GitHub App and through a deploy key, `preview` deploying a real webhook-created pull request preview, and linking a two-target monorepo. The first two need setup the API cannot create; Coolify's source is unchanged between the two releases for the endpoints behind all three.
 
@@ -667,13 +674,13 @@ Between 4.3.18 and 4.3.23, Coolify changed four things that touch endpoints Cool
 * `POST /applications/public` now rewrites an scp-style SSH remote to its https form before parsing it, so a GitHub SSH remote becomes the `owner/repo` slug on the public GitHub source instead of being stored verbatim. Coolship sends the SSH form only to `/applications/private-deploy-key`, which is unchanged.
 * Domain conflict detection was rewritten: conflicts are keyed by the domain without its scheme or trailing slash, and a Compose application's per-service domains are counted. This is the refusal `domain set` relays.
 
-`DeployController`, `ProjectController`, `SecurityController`, `GithubAppController`, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, hierarchy resolution, variables, keys, and GitHub App lookups hold exactly as recorded. Other versions are untested.
+`DeployController`, `ProjectController`, `SecurityController`, `GithubAppController`, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, hierarchy resolution, variables, keys, and GitHub App lookups hold exactly as recorded. The 4.4.0 verification above supersedes that baseline; other versions are untested.
 
 Limits worth knowing:
 
 * Deployment states are interpreted as `queued`, `in_progress`, `finished`, `failed`, and `cancelled-by-user`. An unknown state is shown as-is and waits for the timeout instead of being guessed.
 * `logs --follow` polls snapshots and compares overlapping lines. The endpoint has no cursor, so log rotation or a container restart can cause gaps or duplicates. Coolship reports the reset rather than pretending the stream is lossless.
-* Selecting a container is not supported, because the server ignores the parameter the Coolify CLI sends for it.
+* Selecting a Compose service with `logs --service NAME` requires Coolify 4.4.0 or newer; earlier servers ignore selection.
 * Build logs and secret values can be withheld by token ability and team role. Withheld data is reported as unavailable, never as empty data.
 * An uncertain deployment submission is never retried automatically, since the API defines no idempotency key. Coolship reports what it knows so you can recover manually.
 

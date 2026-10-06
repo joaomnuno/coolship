@@ -7,3 +7,4 @@
 *.test
 coverage.out
 /.claude/worktrees/
+/.playwright-mcp/

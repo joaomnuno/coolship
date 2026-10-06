@@ -476,7 +476,7 @@ func TestWorkflowDefaults(t *testing.T) {
 func TestLogsHumanAndNDJSON(t *testing.T) {
 	events := []service.Event{{Type: "logs", Logs: "first\n"}, {Type: "warning", Message: "snapshot reset"}, {Type: "logs", Logs: "second\n"}}
 	app := fakeApplication{logs: func(_ context.Context, options service.LogsOptions, emit service.Emitter) error {
-		if !options.Follow || options.Lines != 20 {
+		if !options.Follow || options.Lines != 20 || options.Service != "worker" {
 			t.Fatalf("logs options = %#v", options)
 		}
 		for _, event := range events {
@@ -486,11 +486,11 @@ func TestLogsHumanAndNDJSON(t *testing.T) {
 		}
 		return nil
 	}}
-	out, diagnostic, err := execute(t, app, "logs", "-f", "-n", "20")
+	out, diagnostic, err := execute(t, app, "logs", "-f", "-n", "20", "--service", "worker")
 	if err != nil || out != "first\nsecond\n" || diagnostic != "Warning: snapshot reset\n" {
 		t.Fatalf("human logs stdout=%q stderr=%q err=%v", out, diagnostic, err)
 	}
-	out, diagnostic, err = execute(t, app, "logs", "--follow", "--lines", "20", "--format", "json")
+	out, diagnostic, err = execute(t, app, "logs", "--follow", "--lines", "20", "--service", "worker", "--format", "json")
 	if err != nil || diagnostic != "" {
 		t.Fatalf("JSON logs stderr=%q err=%v", diagnostic, err)
 	}

@@ -1,12 +1,22 @@
 ---
 title: Server compatibility
-description: Coolship is verified against Coolify 4.3.23. What the verification covered, what changed since 4.3.18, what the server was observed to do, and what other versions can expect.
+description: Coolship is verified against Coolify 4.4.0, including Compose service log selection. Coverage, earlier verification, and server limits.
 icon: Server
 ---
 
-**Verified against Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: the end-to-end script passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
+**Verified against Coolify 4.4.0 on 2026-10-06.** All 21 `scripts/e2e` steps passed on the isolated example application, covering resolution, runtime logs and follow, variables and cleanup, local dev, domain reads and a no-op write, deployment, history, lifecycle, refusal paths, and unlink. On an existing three-service Compose application, `logs --service NAME` returned distinct snapshots for all three services; an unknown service returned an error with no log output. Two services were followed for six seconds each and interrupted with exit 130. No new lines appeared during those short follow windows; controlled-server tests cover new-line delivery and selector retention during retries. No production application was changed by the Compose checks.
+
+The live token had sensitive-read permission. A token without it was not available for a live refusal check; the permission requirement was checked in the 4.4.0 source and existing permission handling is covered by controlled-server tests. `init`, `delete`, a real deployment cancellation, private-source creation, and a real preview deployment were not re-run on 4.4.0; their earlier verification remains recorded below.
+
+**Previous verification: Coolify 4.3.23.** The baseline was established on 4.3.18 and re-verified on 2026-09-19 against the same live instance: the end-to-end script passed all 21 of its steps (link, doctor, status, config, open, logs and `logs --follow`, `env pull|diff|push` and `--prune`, dev, the `preview` refusal, domain and a no-op `domain set`, deploy, deployments, the `cancel` refusal, stop, start, restart, unlink), a real deployment was cancelled while queued, and `init` created a Dockerfile application from a public repository which `delete` then removed.
 
 Three things were verified on 4.3.18 and not re-run: `init` through a GitHub App and through a deploy key, `preview` deploying a real webhook-created pull request preview, and linking a two-target monorepo. The first two need setup the API cannot create.
+
+## Compose log selection on 4.4.0
+
+[Coolify 4.4.0](https://github.com/coollabsio/coolify/releases/tag/v4.4.0) fixes the runtime log endpoint to honor `service_name`, matching the Docker Compose service label and returning 404 when no running container matches. `coolship logs --service NAME` uses this contract, checking `GET /version` once before reading logs and keeping the selector on every follow poll and retry. Older or unrecognized versions are refused because they could silently return another container's logs.
+
+Coolify 4.4.0 also requires the token's `read:sensitive` permission for runtime logs. Coolship reports permission refusals through its existing error handling. The release source, controlled-server tests, and the live Compose checks above cover selection. The live verified baseline is now 4.4.0.
 
 ## What changed between 4.3.18 and 4.3.23
 
@@ -17,7 +27,7 @@ Four changes touch endpoints Coolship uses, none of them breaking:
 - `POST /applications/public` rewrites an scp-style SSH remote to its https form and stores that, so a GitHub SSH remote becomes the `owner/repo` slug on the public GitHub source. Coolship sends the SSH form only to the deploy-key endpoint, which is unchanged.
 - Domain conflict detection was rewritten: a conflict is keyed by the domain without its scheme or trailing slash, and a Compose application's per-service domains are included. This is the refusal `domain set` relays.
 
-The deploy, project, security, and GitHub App controllers, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, resolution, variables, keys, and GitHub App lookups behave identically. Other versions are untested.
+The deploy, project, security, and GitHub App controllers, the deployment-status enum, the environment-variable model, and the authorization policies are byte-identical between the two releases, so deployment, history, cancellation, resolution, variables, keys, and GitHub App lookups behave identically. The 4.4.0 verification above supersedes that baseline; other versions are untested.
 
 ## What the verification uses
 
@@ -43,7 +53,7 @@ Coolship talks to the API under `/api/v1` with a `coolship/<version>` user agent
 These observations shape Coolship's client and were not visible from the server's source alone:
 
 - **Runtime log snapshots omit the newline after the final line.** Overlap detection compares lines without terminators, and every emitted chunk ends with a newline.
-- **`GET /version` returns plain text** (`4.3.23`) with an HTML content type.
+- **`GET /version` returns plain text** (`4.4.0`) with an HTML content type.
 - **Deployment logs are present only when the token can read sensitive data.** Without that ability the field is absent, which Coolship reports as unavailable rather than empty.
 - **A deployment response identifies its application by integer id and name**, not by UUID. Coolship verifies the returned deployment UUID against the one it submitted.
 - **Creating a regular variable also creates a preview-scope twin.** Preview scope is a separate dimension that every variable workflow selects explicitly.
@@ -53,7 +63,7 @@ These observations shape Coolship's client and were not visible from the server'
 - **`POST /applications/public` answers 201 with the UUID and domains** and assigns the generated `https://<uuid>.<wildcard>` domain at once. A GitHub URL is stored as `owner/repo`; other hosts keep the full URL. A never-deployed application reports `exited:unhealthy`. A refusal is a 422 with a message and field errors, which Coolship includes in its error.
 - **A Cloudflare bot rule in front of an instance can reject some default user agents.** Coolship's `coolship/<version>` agent is accepted.
 
-The limits that follow from the API, independent of version, are listed under [Limits](/docs/platform/limits).
+The limits and version requirements that follow from the API are listed under [Limits](/docs/platform/limits).
 
 ## End-to-end tests
 

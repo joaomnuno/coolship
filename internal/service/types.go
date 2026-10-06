@@ -152,8 +152,9 @@ type DeployOptions struct {
 
 type LogsOptions struct {
 	Options
-	Lines  int
-	Follow bool
+	Lines   int
+	Follow  bool
+	Service string
 }
 
 // DevOptions runs a local command with the target's runtime variables.
@@ -615,7 +616,7 @@ type Backend interface {
 	RestartApplication(context.Context, string) (models.ActionReceipt, error)
 	DeleteApplication(ctx context.Context, applicationUUID string, deleteVolumes bool) (string, error)
 	CancelDeployment(context.Context, string) (models.CancelReceipt, error)
-	Logs(context.Context, string, int) (models.LogSnapshot, error)
+	Logs(context.Context, string, int, string) (models.LogSnapshot, error)
 	ListEnvironmentVariables(context.Context, string) ([]models.EnvironmentVariable, error)
 	UpsertEnvironmentVariables(context.Context, string, []models.EnvironmentVariableInput) error
 	DeleteEnvironmentVariable(context.Context, string, string) error

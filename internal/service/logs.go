@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joaomnuno/coolship/internal/models"
@@ -25,16 +26,28 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 	if err != nil {
 		return err
 	}
+	if options.Service != "" {
+		if !s.project.Application.IsCompose() {
+			return input(errors.New("--service requires a Docker Compose application"))
+		}
+		version, err := s.backend.Version(ctx)
+		if err != nil {
+			return fmt.Errorf("check Coolify version for --service: %w", err)
+		}
+		if !supportsServiceLogs(version) {
+			return input(fmt.Errorf("--service requires Coolify 4.4.0 or newer (server reports %s); older servers ignore service selection", version))
+		}
+	}
 	for _, warning := range s.warnings {
 		if err := emitEvent(emit, Event{Type: "warning", Message: warning}); err != nil {
 			return err
 		}
 	}
-	snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines)
+	snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines, options.Service)
 	if err != nil {
-		snapshot, err = a.retryLogsIfRunning(ctx, s, options.Lines, err)
+		snapshot, err = a.retryLogsIfRunning(ctx, s, options.Lines, options.Service, err)
 		if err != nil {
-			return err
+			return serviceLogsError(err, options.Service)
 		}
 	}
 	if err := emitEvent(emit, Event{Type: "logs", Logs: joinLines(splitLines(snapshot.Logs))}); err != nil {
@@ -48,14 +61,14 @@ func (a *App) Logs(ctx context.Context, options LogsOptions, emit Emitter) error
 		if err := wait(ctx, a.deps.PollInterval); err != nil {
 			return err
 		}
-		snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines)
+		snapshot, err := s.backend.Logs(ctx, s.project.Application.UUID, options.Lines, options.Service)
 		if err != nil {
 			if notRunning(err) {
 				// The status read when the follow started is stale by now;
 				// the one at the refusal says what became of the container.
-				return logsError(err, currentStatus(ctx, s))
+				return serviceLogsError(logsError(err, currentStatus(ctx, s)), options.Service)
 			}
-			return fmt.Errorf("log follow stopped: %w", err)
+			return fmt.Errorf("log follow stopped: %w", serviceLogsError(err, options.Service))
 		}
 		added, reset := snapshotDelta(previous, snapshot.Logs)
 		previous = snapshot.Logs
@@ -108,7 +121,7 @@ func logsError(err error, status string) error {
 // during a Compose recreate, or when a one-shot service has exited. Any
 // other failure, and a status that does not say running, pass through for
 // logsError to decorate as before.
-func (a *App) retryLogsIfRunning(ctx context.Context, s session, lines int, first error) (models.LogSnapshot, error) {
+func (a *App) retryLogsIfRunning(ctx context.Context, s session, lines int, service string, first error) (models.LogSnapshot, error) {
 	if !notRunning(first) {
 		return models.LogSnapshot{}, first
 	}
@@ -122,7 +135,7 @@ func (a *App) retryLogsIfRunning(ctx context.Context, s session, lines int, firs
 			return models.LogSnapshot{}, waitErr
 		}
 		var snapshot models.LogSnapshot
-		snapshot, err = s.backend.Logs(ctx, s.project.Application.UUID, lines)
+		snapshot, err = s.backend.Logs(ctx, s.project.Application.UUID, lines, service)
 		if err == nil {
 			return snapshot, nil
 		}
@@ -184,4 +197,33 @@ func joinLines(lines []string) string {
 		return ""
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// supportsServiceLogs accepts stable releases from the first version that
+// honors service_name. Unknown versions fail closed to avoid showing another service.
+func supportsServiceLogs(version string) bool {
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	var numbers [3]int
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return false
+		}
+		numbers[i] = n
+	}
+	return numbers[0] > 4 || (numbers[0] == 4 && numbers[1] >= 4)
+}
+
+func serviceLogsError(err error, service string) error {
+	if service != "" && notRunning(err) {
+		return restate(err, "Compose service %q has no running container to read logs from; check its status in Coolify", service)
+	}
+	var status interface{ HTTPStatusCode() int }
+	if service != "" && errors.As(err, &status) && status.HTTPStatusCode() == 404 {
+		return restate(err, "no running container found for Compose service %q, or the application was removed; check the service name and its running status in Coolify", service)
+	}
+	return err
 }

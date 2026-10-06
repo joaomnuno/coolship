@@ -188,9 +188,13 @@ func (c *Client) CancelDeployment(ctx context.Context, uuid string) (models.Canc
 	return receipt, nil
 }
 
-func (c *Client) Logs(ctx context.Context, uuid string, lines int) (models.LogSnapshot, error) {
+func (c *Client) Logs(ctx context.Context, uuid string, lines int, service string) (models.LogSnapshot, error) {
 	if lines < 1 || lines > 10000 {
 		return models.LogSnapshot{}, errors.New("log lines must be between 1 and 10000")
+	}
+	query := url.Values{"lines": {strconv.Itoa(lines)}, "show_timestamps": {"true"}}
+	if service != "" {
+		query.Set("service_name", service)
 	}
 	var response struct {
 		Logs *string `json:"logs"`
@@ -198,9 +202,7 @@ func (c *Client) Logs(ctx context.Context, uuid string, lines int) (models.LogSn
 	// Coolify 4.3.18 answers 400 {"message": "Application is not running."}
 	// when there is no container to read from; that one refusal is read so
 	// it can be reported as such rather than as a bare status.
-	err := c.requestExplaining(ctx, http.MethodGet, []string{"applications", uuid, "logs"}, url.Values{
-		"lines": {strconv.Itoa(lines)}, "show_timestamps": {"true"},
-	}, nil, &response, func(status int) bool { return status == http.StatusBadRequest })
+	err := c.requestExplaining(ctx, http.MethodGet, []string{"applications", uuid, "logs"}, query, nil, &response, func(status int) bool { return status == http.StatusBadRequest })
 	if err != nil {
 		var httpErr *HTTPError
 		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusBadRequest {
